@@ -1,0 +1,197 @@
+# =============================================================================
+# Orbital-Drift pre-commit hooks
+#
+# Install once:  pre-commit install
+# Run manually:  pre-commit run --all-files
+# In CI:         sh ci/checks.sh hooks   (which uses --hook-stage manual; see the
+#                gitleaks hook at the bottom of this file for why)
+#
+# Every `rev:` below is a real released tag, verified against the upstream
+# repository on 2026-08-08 (Constitution IV — an unpinned hook is a defect).
+# Tool versions here must match ci/versions.env and pyproject.toml [dev];
+# tests/unit/test_version_pins.py asserts that mechanically.
+#
+# CONTAINER IMAGES ARE DIGEST-PINNED. A tag is mutable — `v8.30.1` can be
+# re-pushed with different bytes — and a secrets gate whose engine can be
+# swapped underneath it is not a gate. The `:tag@sha256:` form keeps the tag
+# readable while docker resolves the content by digest.
+#
+# GITLEAKS: WHY A LOCAL HOOK INSTEAD OF THE UPSTREAM REPO
+# The upstream hook set (gitleaks/gitleaks .pre-commit-hooks.yaml @ v8.30.1)
+# offers three ids and none of them is usable here as-published:
+#   * `gitleaks`        language: golang  -> needs a local Go toolchain. The repo
+#                       is authored on Windows where Go is not installed, so the
+#                       Principle VII gate would hard-fail at install time — the
+#                       worst possible failure mode for a secrets gate, because
+#                       the usual fix is `SKIP=gitleaks`.
+#   * `gitleaks-docker` language: docker_image, entry `zricethezav/gitleaks`
+#                       -> UNTAGGED, i.e. :latest. Unpinned = defect.
+#   * `gitleaks-system` language: system -> needs the binary already on PATH.
+# So we declare our own docker_image hook with the version PINNED, which needs
+# no Go, resolves identically on Windows and on node A, and is byte-identical to
+# what ci/checks.sh runs. Requires a running Docker daemon.
+# =============================================================================
+
+minimum_pre_commit_version: "4.0.0"
+# pre-commit only, deliberately. `commit-msg` was listed here with zero
+# commit-msg-stage hooks defined, which installs a .git/hooks/commit-msg that
+# does nothing — a hook file whose only effect is to make `pre-commit uninstall`
+# and `pre-commit install --overwrite` argue about it. Add it back in the same
+# commit that adds the first commit-msg hook, not before.
+default_install_hook_types: [pre-commit]
+
+repos:
+  # ---------------------------------------------------------------------------
+  # Baseline file hygiene. Note the line-ending hooks: this repo is authored on
+  # Windows and executed on Linux (D-10), so CRLF sneaking in is a live risk
+  # that .gitattributes prevents and these hooks detect.
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # --enforce-all is NOT optional here. Without it the hook only inspects
+      # files staged as ADDED, and this hook never has any: the index is empty
+      # before the first commit, and `sh ci/checks.sh hooks` runs on a clean
+      # checkout in CI. It checked ZERO files on every run and reported
+      # "Passed", while .github/workflows/ci.yml cited it as the thing that
+      # stops a `--no-verify` bypass. With --enforce-all it checks every file
+      # pre-commit passes it, which is what that claim requires.
+      # --maxkb must equal ci/versions.env MAX_ADDED_FILE_KB;
+      # tests/unit/test_ci_contract.py asserts it.
+      - id: check-added-large-files
+        args: ["--maxkb=1024", "--enforce-all"]
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-yaml
+        args: ["--allow-multiple-documents"]
+      - id: check-toml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: detect-private-key
+      # Deliberately NOT enabling `no-commit-to-branch --branch main`.
+      # CLAUDE.md's one-task-per-branch rule is enforced by GitHub branch
+      # protection, which is the right layer. A local hook cannot express it
+      # anyway: the initial scaffold commit has to land on main, so the hook's
+      # first act would be to teach the operator `git commit --no-verify` — the
+      # same flag that disables gitleaks. Never train that reflex (Principle VII).
+
+  # ---------------------------------------------------------------------------
+  # ruff — lint + format. Config in pyproject.toml [tool.ruff].
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.2 # == ruff 0.16.2, ci/versions.env RUFF_VERSION
+    hooks:
+      - id: ruff-check
+        args: ["--fix", "--exit-non-zero-on-fix"]
+      - id: ruff-format
+
+  # ---------------------------------------------------------------------------
+  # mypy — strict. Config in pyproject.toml [tool.mypy].
+  # The hook runs in its own isolated env, so third-party stubs must be listed
+  # in additional_dependencies as Phase 1+ adds real dependencies.
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.3.0 # == mypy 2.3.0, ci/versions.env MYPY_VERSION
+    hooks:
+      - id: mypy
+        # Override the mirror's default args: --ignore-missing-imports would
+        # silently defeat pyproject's strict settings.
+        args: ["--config-file=pyproject.toml"]
+        pass_filenames: false
+        additional_dependencies:
+          - "pytest==9.1.1"
+
+  # ---------------------------------------------------------------------------
+  # shellcheck — ci/checks.sh was the only unlinted file in the repo. It is
+  # POSIX sh and will be executed by dash on node A, where bashisms that Git
+  # Bash tolerates become runtime errors inside a security gate.
+  #
+  # Declared as a local docker_image hook rather than via
+  # koalaman/shellcheck-precommit for two reasons: that repo's newest tag is
+  # v0.9.0 (it lags shellcheck itself, so it would pin an older linter than the
+  # one we want), and its non-docker hooks need a Haskell toolchain that does
+  # not exist on the Windows authoring box. Same pattern, and same reasoning, as
+  # the gitleaks hook below.
+  #
+  # `ci/checks.sh hooks` asserts the container reports shellcheck 0.11.0 before
+  # running this — a pin that is never checked at runtime is an announcement,
+  # not a pin. (It does NOT make the same assertion for gitleaks, because the
+  # gitleaks hook below does not execute at `--hook-stage manual`; printing a
+  # gitleaks version in that stage implied an enforcement that was not
+  # happening. See the gitleaks block for where its pin is checked instead.)
+  # ---------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: shellcheck
+        name: shellcheck (pinned container, POSIX sh)
+        description: >-
+          Lint shell scripts with koalaman/shellcheck v0.11.0, forcing the POSIX
+          sh dialect that node A's /bin/sh actually provides.
+        language: docker_image
+        # --shell=sh   analyse as POSIX sh, not bash, whatever the shebang says.
+        # --severity=style  the lowest threshold; a gate runner is not the place
+        #                   to carry known-but-tolerated findings.
+        # -x           follow `. ci/versions.env` via the `# shellcheck source=`
+        #              directive in checks.sh, instead of reporting SC1091.
+        entry: >-
+          koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+          --shell=sh --severity=style -x
+        types: [shell]
+
+  # ---------------------------------------------------------------------------
+  # gitleaks — Constitution VII. A red gitleaks halts everything.
+  #
+  # `stages: [pre-commit]` and it MATTERS. This hook scans the STAGED DIFF,
+  # which only exists during a real `git commit`. Under `pre-commit run
+  # --all-files` nothing is staged, so it scanned an empty diff and printed
+  #     gitleaks (pinned container, staged diff)....................Passed
+  # having read zero bytes. Two of the fifteen "Passed" lines that stage emitted
+  # were meaningless, and a meaningless green gitleaks is the one thing this
+  # file argues at length must never be shown to an operator.
+  #
+  # Measured with pre-commit 4.6.1: `stages: [pre-commit]` does NOT by itself
+  # keep a hook out of `pre-commit run --all-files`, because that command's
+  # default --hook-stage IS pre-commit. What it does is keep the hook out of
+  # `--hook-stage manual`, which is how ci/checks.sh invokes the suite. Hooks
+  # with no `stages:` key run in every stage and are unaffected.
+  #
+  # CONSEQUENCE: this hook runs in NO CI job. The repository has no commits yet,
+  # so it has never run at all — it fires for the first time on the operator's
+  # first `git commit`, and a hook that fails there teaches exactly one lesson,
+  # `--no-verify`, which is the reflex this file spends forty lines forbidding.
+  # Two tests stand in for the CI job it does not have, both in
+  # tests/unit/test_gitleaks_positive_control.py:
+  #   * the entry line below is executed verbatim against the pinned image, so a
+  #     flag that cobra rejects fails a test instead of a commit;
+  #   * it is run against a synthetic repository with a real-shaped Airflow
+  #     Fernet key STAGED, and must exit non-zero naming
+  #     orbital-drift-airflow-fernet-key — a rule that exists only in
+  #     ci/gitleaks.toml, so the test fails if the config is not loaded rather
+  #     than passing on a default rule that happens to overlap.
+  # tests/unit/test_ci_contract.py separately RUNS pre-commit to confirm that
+  # gitleaks is the only hook missing from `--hook-stage manual`, which is a
+  # property of the merged local+upstream definition and cannot be read off this
+  # file alone.
+  #
+  # The working-tree and full-history scans that CI actually relies on are in
+  # `sh ci/checks.sh gitleaks`, which runs the same digest-pinned image.
+  # ---------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (pinned container, staged diff)
+        description: >-
+          Detect hardcoded secrets in the staged diff using the digest-pinned
+          gitleaks container with ci/gitleaks.toml. Commit-time only; see
+          ci/checks.sh gitleaks for the working-tree and history scans.
+        language: docker_image
+        entry: >-
+          ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          git --pre-commit --staged --redact --verbose --no-banner
+          --config ci/gitleaks.toml
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

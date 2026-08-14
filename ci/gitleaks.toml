@@ -1,0 +1,261 @@
+# =============================================================================
+# Orbital-Drift gitleaks configuration  (Constitution VII)
+#
+# Used identically by the pre-commit hook (.pre-commit-config.yaml, staged diff)
+# and by CI (ci/checks.sh gitleaks, working tree + full history). Both run the
+# same digest-pinned container; the reference lives in ci/versions.env
+# (GITLEAKS_IMAGE) and is deliberately NOT repeated here. A version written into
+# a comment is outside the reach of tests/unit/test_version_pins.py, so it would
+# be the one copy of the pin that is free to go stale and lie.
+# tests/unit/test_gitleaks_config.py asserts this file names no image at all.
+#
+# WHY CUSTOM RULES EXIST HERE
+# The default ruleset is prefix-driven: it is excellent at AKIA..., ghp_..., and
+# PEM armour headers. (Those headers are not quoted literally anywhere in this
+# repo — the pre-commit `detect-private-key` hook matches on the literal string
+# and will fail the commit even inside a comment. That is correct behaviour;
+# leave it alone.) It is weak at exactly the secrets this project generates,
+# which are unprefixed 32-44 char base64 blobs:
+#   * the Airflow Fernet key (pre-created per D-09; regenerating it silently
+#     invalidates every stored connection, so it WILL be handled by hand)
+#   * SeaweedFS / lakeFS S3 access + secret keys (D-05, D-09)
+#   * the CloudNativePG Postgres password (D-04)
+# Those live in terraform state and *.tfvars, which .gitignore excludes — that
+# is the primary control. The rules below are the backstop for the day someone
+# runs `git add -f`.
+#
+# -----------------------------------------------------------------------------
+# READ THIS BEFORE ADDING A `paths` KEY TO A GLOBAL `[[allowlists]]` BLOCK
+# -----------------------------------------------------------------------------
+# In gitleaks v8 a GLOBAL allowlist's `paths` is not a finding filter — it is a
+# WALK filter. Matching files and directories are pruned from the traversal
+# before their bytes are ever read, so EVERY rule (including every default rule)
+# is switched off for them, not just the stopwords the block was written for.
+# `condition = "AND"` does not change this: pruning happens ahead of condition
+# evaluation.
+#
+# This was a live defect here. An earlier revision carried
+#   [[allowlists]] regexes = [...stopwords...] paths = ['''^docs/''', '''^specs/''', ...]
+# intending "let prose quote a dummy credential". Measured effect: a byte-
+# identical AWS key was CAUGHT in infra/k3s/ and MISSED in docs/runbooks/,
+# docs/incidents/, specs/, .specify/ and CLAUDE.md — ~59% of the repo, including
+# the two directories Constitution VI REQUIRES operators to write incident and
+# runbook notes into. gitleaks logged `skipping directory: global allowlist`.
+#
+# Therefore: NO global allowlist in this file carries `paths`. Exemptions are
+# attached to the individual rule that produces the false positive, via
+# `[[rules.allowlists]]`, which is evaluated per finding and prunes nothing.
+# The one place a path-based exclusion is legitimate is the working-tree walk,
+# where it is DERIVED from `git ls-files` at scan time — see ci/checks.sh.
+# tests/unit/test_gitleaks_config.py parses this file and fails if a top-level
+# [[allowlists]] entry ever regrows a `paths` key.
+#
+# -----------------------------------------------------------------------------
+# WHEN GITLEAKS FIRES ON PROSE THAT IS NOT A SECRET
+# -----------------------------------------------------------------------------
+# This will happen, and soon. Constitution VI requires operators to write
+# runbooks into docs/runbooks/ and incident notes into docs/incidents/; those
+# directories are empty today only because nobody has written one yet. The first
+# runbook that spells out
+#     kubectl create secret generic airflow-fernet --from-literal=fernet-key=...
+# reddens this gate, as will any prose that quotes a realistic-looking example
+# value. The ~150 default rules ship no exemption mechanism of their own, so the
+# response has to be decided here, in advance, before somebody is mid-incident
+# and reaching for the fastest way out.
+#
+# THE ONLY SANCTIONED RESPONSE: add the offending placeholder to `stopwords` on
+# the `[[rules.allowlists]]` of the rule that fired. `stopwords` matches a
+# substring of the EXTRACTED SECRET, so it exempts the dummy value and nothing
+# else — the identical line with a real 44-char key still fails. If the rule
+# that fired is a DEFAULT rule (it has no [[rules]] block here), add one:
+#
+#     [[rules]]
+#     id = "generic-api-key"          # the id gitleaks printed in the finding
+#     [[rules.allowlists]]
+#     description = "why this specific literal is not a secret, and who agreed"
+#     stopwords = ["<the placeholder literal>"]
+#
+# Prefer, in this order: (1) change the prose to use an obvious non-secret such
+# as CHANGEME or $FERNET_KEY — costs nothing and needs no config change;
+# (2) a `stopwords` entry as above; (3) a `regexes` entry on the same
+# [[rules.allowlists]], anchored with ^...$.
+#
+# NEVER, under any circumstances:
+#   * `git commit --no-verify`      — disables every hook, not just this one
+#   * `SKIP=gitleaks`               — ci/checks.sh unsets it for this reason
+#   * a `paths` key on a global [[allowlists]]  — see the ~59% blind spot above
+#   * widening a rule's `regex` or dropping its `entropy` floor
+# Each of those trades a one-line config change for a permanent, invisible hole,
+# and the first three train the operator to route around a red gitleaks — the
+# single outcome Constitution VII cannot survive.
+#
+# Every exemption added here is a reviewable diff with a `description` naming
+# the reason. That is the whole point: a hole in this gate should cost a code
+# review, not a keystroke.
+# =============================================================================
+
+title = "Orbital-Drift"
+
+[extend]
+useDefault = true
+
+# -----------------------------------------------------------------------------
+# Path rules — whole classes of file that must never be committed.
+# These fire on the filename alone, independent of content entropy, which is the
+# only reliable way to catch a terraform state blob.
+#
+# They describe COMMITTED files. ci/checks.sh excludes .gitignore'd paths from
+# the working-tree walk, so a local `.env` (which .env.example instructs the
+# operator to create) does not trip them; the history and staged scans, which
+# see only repository content, do.
+# -----------------------------------------------------------------------------
+
+[[rules]]
+id = "orbital-drift-terraform-state"
+description = "Terraform state file committed (embeds Postgres/S3/Fernet secrets in plaintext)"
+path = '''\.tfstate(\.[0-9]+)?(\.backup)?$'''
+tags = ["terraform", "state", "constitution-vii"]
+
+[[rules]]
+id = "orbital-drift-terraform-tfvars"
+description = "Terraform variables file committed (host-specific values and GPU UUIDs — D-10)"
+path = '''\.tfvars(\.json)?$'''
+tags = ["terraform", "constitution-vii", "d-10"]
+
+  # `terraform.tfvars.example` is a committed template and does not end in
+  # .tfvars, but `*.tfvars.example` written the other way round would. Scope the
+  # exemption to this rule so it cannot silence anything else.
+  [[rules.allowlists]]
+  description = "Committed *.example templates carry placeholders, never real values."
+  regexTarget = "match"
+  regexes = ['''\.example$''']
+
+[[rules]]
+id = "orbital-drift-kubeconfig-file"
+description = "kubeconfig committed (cluster admin credential — Principle I forbids agents holding one at all)"
+path = '''(^|/)(kubeconfig|k3s\.yaml)$|\.kubeconfig$'''
+tags = ["kubernetes", "constitution-i", "constitution-vii"]
+
+[[rules]]
+id = "orbital-drift-dotenv-file"
+description = "Local .env committed (local dev secrets — Constitution VII)"
+path = '''(^|/)\.env$'''
+tags = ["env", "constitution-vii"]
+
+# -----------------------------------------------------------------------------
+# Content rules — unprefixed high-entropy values this stack actually produces.
+#
+# Each carries its own placeholder allowlist. `stopwords` matches a substring of
+# the EXTRACTED SECRET, so `fernet_key = "changeme"` in a template is exempt
+# while `fernet_key = "<44 chars of real base64>"` on the next line is not —
+# which is the property the old path-scoped block was trying and failing to buy.
+# -----------------------------------------------------------------------------
+
+[[rules]]
+id = "orbital-drift-airflow-fernet-key"
+description = "Airflow Fernet key (44-char urlsafe base64; no prefix, invisible to default rules)"
+regex = '''(?i)\b(fernet[_-]?key|AIRFLOW__CORE__FERNET_KEY)\b\s*[:=]\s*["']?([A-Za-z0-9_\-]{42,44}=?)["']?'''
+secretGroup = 2
+keywords = ["fernet"]
+entropy = 3.5
+tags = ["airflow", "constitution-vii"]
+
+  [[rules.allowlists]]
+  description = "Placeholder value in a template or in prose."
+  stopwords = ["changeme", "example", "placeholder", "redacted", "xxxxxxxx"]
+
+[[rules]]
+id = "orbital-drift-airflow-webserver-secret"
+description = "Airflow webserver / API secret key"
+regex = '''(?i)\b(AIRFLOW__(WEBSERVER|API)__SECRET_KEY|webserver[_-]?secret[_-]?key|api[_-]?secret[_-]?key)\b\s*[:=]\s*["']?([A-Za-z0-9_\-+/=]{16,})["']?'''
+secretGroup = 3
+keywords = ["secret_key", "secretkey", "SECRET_KEY"]
+entropy = 3.2
+tags = ["airflow", "constitution-vii"]
+
+  [[rules.allowlists]]
+  description = "Placeholder value in a template or in prose."
+  stopwords = ["changeme", "example", "placeholder", "redacted", "xxxxxxxx"]
+
+[[rules]]
+id = "orbital-drift-object-store-secret-key"
+description = "S3-compatible secret key for SeaweedFS / lakeFS / MLflow artifact store (D-05, D-09)"
+regex = '''(?i)\b(secret[_-]?access[_-]?key|s3[_-]?secret[_-]?key|lakefs[_-]?secret[_-]?key|encrypt[_-]?secret[_-]?key)\b\s*[:=]\s*["']?([A-Za-z0-9_\-+/=]{16,})["']?'''
+secretGroup = 2
+keywords = ["secret_access_key", "secretaccesskey", "s3_secret", "lakefs"]
+entropy = 3.2
+tags = ["s3", "lakefs", "seaweedfs", "constitution-vii"]
+
+  [[rules.allowlists]]
+  description = "Placeholder value in a template or in prose."
+  stopwords = ["changeme", "example", "placeholder", "redacted", "xxxxxxxx"]
+
+[[rules]]
+id = "orbital-drift-postgres-password"
+description = "PostgreSQL password inline in values/manifest instead of an existingSecret reference (D-09)"
+regex = '''(?i)\b(postgres[_-]?password|POSTGRES_PASSWORD|PGPASSWORD|metadata[_-]?password)\b\s*[:=]\s*["']?([^\s"'{}$][^\s"']{7,})["']?'''
+secretGroup = 2
+entropy = 2.8
+keywords = ["postgres_password", "pgpassword", "POSTGRES_PASSWORD"]
+tags = ["postgres", "constitution-vii"]
+
+  [[rules.allowlists]]
+  description = "Placeholder value in a template or in prose."
+  stopwords = ["changeme", "example", "placeholder", "redacted", "xxxxxxxx"]
+
+[[rules]]
+id = "orbital-drift-kubeconfig-embedded-data"
+description = "Base64 client key / cert data from a kubeconfig pasted into another file"
+regex = '''(?i)\b(client-key-data|client-certificate-data|certificate-authority-data)\b\s*:\s*["']?([A-Za-z0-9+/]{60,}={0,2})["']?'''
+secretGroup = 2
+keywords = ["client-key-data", "client-certificate-data", "certificate-authority-data"]
+tags = ["kubernetes", "constitution-vii"]
+
+  [[rules.allowlists]]
+  description = "Placeholder value in a template or in prose."
+  stopwords = ["changeme", "example", "placeholder", "redacted", "xxxxxxxx"]
+
+# -----------------------------------------------------------------------------
+# Global allowlists
+#
+# Kept deliberately short, and NONE of them may carry `paths` — see the header.
+# Every entry here is a hole in the gate; adding one needs a written reason, same
+# as any other constitution-adjacent change.
+# -----------------------------------------------------------------------------
+
+[[allowlists]]
+description = """
+Shell/Terraform interpolation placeholders. Principle III requires every
+host-specific value to be parameterised (${NODE_A_LAN_IP}, ${NODE_A_HOSTNAME}),
+so these appear in real infra files and are definitionally not secrets.
+Nothing is pruned: this filters findings, never the walk.
+
+ANCHORED, and deliberately without regexTarget. The default target is the
+EXTRACTED SECRET, so this exempts a finding only when the secret is EXACTLY one
+interpolation and nothing else. The previous form used regexTarget = "match"
+with an unanchored pattern, which exempted any finding whose matched region
+merely CONTAINED a ${VAR} — so a line such as
+    postgres_password: "${NODE_A_PREFIX}Sup3rSecretRealPassword"
+was silenced by the placeholder that happened to be next to the real secret.
+"""
+regexes = ['''^\$\{[A-Za-z0-9_]+\}$''']
+
+[[allowlists]]
+description = """
+Lock/pin artifacts are hashes, not secrets (.terraform.lock.hcl is required
+committed by Constitution IV). Scoped to the rules that fire on high-entropy
+blobs via targetRules rather than to a path, so the files stay in the walk and
+every other rule — including the default AKIA/ghp_/PEM rules — still sees them.
+"""
+targetRules = [
+  "orbital-drift-airflow-fernet-key",
+  "orbital-drift-airflow-webserver-secret",
+  "orbital-drift-object-store-secret-key",
+  "orbital-drift-postgres-password",
+  "orbital-drift-kubeconfig-embedded-data",
+]
+regexTarget = "line"
+regexes = [
+  '''h1:[A-Za-z0-9+/]{40,}=''',
+  '''sha256:[a-f0-9]{64}''',
+]

@@ -1,0 +1,168 @@
+"""Meta-test: the working tree matches plan.md's Project Structure block.
+
+At T001 there is no source code, so a `pytest` run would exit 5 ("no tests
+collected") and redden the unit gate. Rather than paper over that with
+``|| true`` (forbidden — it disarms the gate permanently), the unit suite
+carries one real assertion from the start: that the scaffold this task is
+responsible for actually exists and survives a clone.
+
+It is not a placeholder. It fails for three genuine reasons:
+
+* a directory required by plan.md was deleted or renamed;
+* an empty directory lost its ``.gitkeep`` and therefore vanished from git
+  (git does not track directories — this is the classic way a scaffold decays);
+* a Python package under ``src/orbital_drift`` lost its ``__init__.py`` and
+  stopped being importable.
+
+Source of truth: ``specs/001-orbital-drift-ct/plan.md`` -> Project Structure.
+When that block changes, change this file in the same PR.
+"""
+
+from __future__ import annotations
+
+import importlib
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Directories named in plan.md's Project Structure block.
+REQUIRED_DIRECTORIES: tuple[str, ...] = (
+    ".specify/memory",
+    ".claude/agents",
+    "ci",
+    "dags",
+    "dashboards",
+    "docs/decisions",
+    "docs/incidents",
+    "docs/runbooks",
+    "docs/soak-log",
+    "infra/helm-values",
+    "infra/k3s",
+    "infra/terraform",
+    "specs/001-orbital-drift-ct",
+    "src/orbital_drift",
+    "tests/contract",
+    "tests/smoke",
+    "tests/unit",
+    "workflows",
+)
+
+# Directories that are legitimately empty at T001. Git does not track empty
+# directories, so each needs a .gitkeep or it silently disappears on clone and
+# the CI stage that scans it starts passing for the wrong reason.
+DIRECTORIES_NEEDING_GITKEEP: tuple[str, ...] = (
+    "dags",
+    "dashboards",
+    "docs/incidents",
+    "docs/runbooks",
+    "docs/soak-log",
+    "infra/helm-values",
+    "infra/k3s",
+    "infra/terraform",
+    "tests/contract",
+    "tests/smoke",
+    "workflows",
+)
+
+# Importable subpackages of orbital_drift, one per pipeline stage in plan.md.
+REQUIRED_SUBPACKAGES: tuple[str, ...] = (
+    "data",
+    "drift",
+    "ingest",
+    "registry",
+    "serve",
+    "train",
+)
+
+# Repo-root files this task is accountable for. Each is load-bearing:
+#   .gitattributes  authored on Windows, executed on Linux (D-10) — committed
+#                   CRLF kills shell scripts on node A.
+#   .gitignore      the repo is public; this is the primary secrets control
+#                   (Constitution VII), gitleaks is the backstop.
+#   .env.example    the only documented description of the host-specific values
+#                   the repo deliberately does not carry (D-10). Losing it turns
+#                   `cp .env.example .env` in README.md into a dead instruction.
+#   README.md       the one documented bootstrap command path (Principle IV).
+REQUIRED_FILES: tuple[str, ...] = (
+    ".env.example",
+    ".gitattributes",
+    ".gitignore",
+    ".pre-commit-config.yaml",
+    ".github/workflows/ci.yml",
+    "CLAUDE.md",
+    "README.md",
+    "ci/checks.sh",
+    "ci/gitleaks.toml",
+    "ci/versions.env",
+    "pyproject.toml",
+    ".specify/memory/constitution.md",
+)
+
+
+@pytest.mark.parametrize("relative_path", REQUIRED_DIRECTORIES)
+def test_required_directory_exists(relative_path: str) -> None:
+    """Every directory in plan.md's Project Structure block is present."""
+    target = REPO_ROOT / relative_path
+    assert target.is_dir(), f"missing directory required by plan.md: {relative_path}"
+
+
+@pytest.mark.parametrize("relative_path", DIRECTORIES_NEEDING_GITKEEP)
+def test_empty_directory_is_preserved_by_gitkeep(relative_path: str) -> None:
+    """An intentionally-empty directory keeps a .gitkeep so git preserves it."""
+    target = REPO_ROOT / relative_path
+    has_tracked_content = any(
+        child.name != ".gitkeep" and not child.name.startswith(".") for child in target.iterdir()
+    )
+    if has_tracked_content:
+        pytest.skip(f"{relative_path} now has real content; .gitkeep no longer required")
+    assert (target / ".gitkeep").is_file(), (
+        f"{relative_path} is empty and has no .gitkeep — it will not survive a clone"
+    )
+
+
+@pytest.mark.parametrize("subpackage", REQUIRED_SUBPACKAGES)
+def test_subpackage_is_importable(subpackage: str) -> None:
+    """Each pipeline-stage subpackage has an __init__.py and imports cleanly."""
+    package_dir = REPO_ROOT / "src" / "orbital_drift" / subpackage
+    assert (package_dir / "__init__.py").is_file(), (
+        f"src/orbital_drift/{subpackage}/__init__.py is missing"
+    )
+    module = importlib.import_module(f"orbital_drift.{subpackage}")
+    assert module.__doc__, f"orbital_drift.{subpackage} has no module docstring"
+
+
+@pytest.mark.parametrize("relative_path", REQUIRED_FILES)
+def test_required_file_exists(relative_path: str) -> None:
+    """Scaffold files that gates and runbooks depend on are present."""
+    target = REPO_ROOT / relative_path
+    assert target.is_file(), f"missing required file: {relative_path}"
+
+
+def test_gitignore_covers_the_high_value_leaks() -> None:
+    """The public repo ignores terraform state, tfvars, kubeconfigs and .env.
+
+    These are the four file classes that reliably carry plaintext credentials in
+    this stack (Postgres password, S3 keys, Airflow Fernet key, cluster admin
+    creds). gitleaks' default rules do not reliably flag an unprefixed 32-char
+    base64 blob inside a JSON state file, so .gitignore is the real control.
+    """
+    patterns = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    entries = {line.strip() for line in patterns if line.strip() and not line.startswith("#")}
+    for required in ("*.tfstate", "*.tfstate.*", ".terraform/", "*.tfvars", ".env"):
+        assert required in entries, f".gitignore must ignore {required} (public repo)"
+
+
+def test_terraform_lock_file_is_not_ignored() -> None:
+    """`.terraform.lock.hcl` is a pin artifact and MUST stay committed.
+
+    Constitution IV requires provider versions pinned; the lock file is how that
+    pin is enforced. It is routinely mistaken for a build artifact and ignored.
+    """
+    patterns = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    entries = {line.strip() for line in patterns if line.strip() and not line.startswith("#")}
+    forbidden = {".terraform.lock.hcl", "*.lock.hcl", "**/.terraform.lock.hcl"}
+    assert not (entries & forbidden), (
+        ".terraform.lock.hcl must NOT be gitignored — it is a Constitution IV pin artifact"
+    )
