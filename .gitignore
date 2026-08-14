@@ -1,0 +1,165 @@
+# =============================================================================
+# Orbital-Drift .gitignore
+#
+# THE REPOSITORY IS PUBLIC (github.com/ianshank/Orbital-Drift). Constitution
+# Principle VII: no credentials in the repo, ever.
+#
+# Read this before relaxing anything below:
+#   gitleaks is a *second* line of defence, not the first. Terraform state
+#   routinely embeds plaintext secrets — the CloudNativePG Postgres password,
+#   the SeaweedFS S3 access/secret key, the Airflow Fernet key — as ordinary
+#   JSON string values. gitleaks' default ruleset keys on recognisable prefixes
+#   (AKIA..., ghp_..., -----BEGIN ... KEY-----) and will NOT reliably flag a
+#   generated 32-char base64 blob sitting in a state file. Ignoring the file is
+#   the real control.
+# =============================================================================
+
+# --- Secrets and local environment -------------------------------------------
+.env
+.env.*
+!.env.example
+*.env
+# ci/versions.env is a PIN FILE, not an environment file, and `*.env` above
+# would swallow it. The negation is anchored to its exact path rather than
+# written `!versions.env`, which would also un-ignore a `versions.env` dropped
+# anywhere else in the tree.
+#
+# This is a trap worth naming: any FUTURE `ci/*.env` is silently gitignored by
+# the line above AND — because ci/checks.sh derives the working-tree scan's
+# exclusions from `git ls-files --others --ignored` — silently dropped from the
+# gitleaks walk. It would be invisible to git and to the secret gate at the same
+# time. tests/unit/test_ci_contract.py fails if anything under ci/ is ignored.
+!/ci/versions.env
+secrets.yaml
+secrets.yml
+*.secret
+*.secrets
+
+# Private keys and certificates. The pre-commit `detect-private-key` hook is the
+# content-side control; these three lines are the path-side one, and they cost
+# nothing. Node A's k3s/registry TLS material and any SSH key used to reach it
+# land here.
+*.pem
+*.key
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+
+# --- Kubernetes credentials ---------------------------------------------------
+kubeconfig
+kubeconfig*
+*.kubeconfig
+.kube/
+k3s.yaml
+
+# --- Terraform ----------------------------------------------------------------
+# State first: it is the highest-value leak in this repo (see header).
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+.terraform.tfstate.lock.info
+crash.log
+crash.*.log
+terraform.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Variable files carry operator-specific values (${NODE_A_LAN_IP}, GPU UUIDs —
+# D-03/D-10). Examples are committed; real ones never are.
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+!*.tfvars.json.example
+
+# NOT ignored, deliberately: .terraform.lock.hcl
+# It is a provider *pin* artifact and Constitution IV requires it committed.
+# Do not add it here.
+
+# --- Helm ---------------------------------------------------------------------
+charts/*.tgz
+infra/helm-values/**/*.local.yaml
+infra/helm-values/**/*.secret.yaml
+
+# --- Python -------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+sdist/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtualenvs
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.tox/
+.nox/
+.cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# --- ML / data artefacts ------------------------------------------------------
+# Datasets and models are addressed by lakeFS commit and MLflow run ID
+# (Constitution IV), never by a file in git.
+mlruns/
+mlartifacts/
+data/raw/
+data/interim/
+data/processed/
+*.tif
+*.tiff
+*.jp2
+*.nc
+*.parquet
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+
+# --- Editors / OS -------------------------------------------------------------
+.idea/
+.vscode/
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Local scratch ------------------------------------------------------------
+scratch/
+tmp/
+.local/

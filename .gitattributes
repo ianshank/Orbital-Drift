@@ -1,0 +1,62 @@
+# Line-ending policy — see docs/decisions/000-phase0-technical-decisions.md, D-10.
+#
+# This repository is AUTHORED on Windows and EXECUTED on the Linux k3s node
+# (terraform/helm run on node A). Committing CRLF would reach the node and kill
+# every shell script with:  /bin/sh: 1: $'\r': command not found
+#
+# `text=auto eol=lf` normalises to LF in the index and checks LF out everywhere,
+# regardless of core.autocrlf on the authoring machine.
+
+* text=auto eol=lf
+
+# --- Explicit LF for everything the node executes or parses -------------------
+*.sh          text eol=lf
+*.bash        text eol=lf
+*.py          text eol=lf
+*.yaml        text eol=lf
+*.yml         text eol=lf
+*.tf          text eol=lf
+*.tfvars      text eol=lf
+*.hcl         text eol=lf
+*.toml        text eol=lf
+*.json        text eol=lf
+*.md          text eol=lf
+*.cfg         text eol=lf
+*.ini         text eol=lf
+*.env         text eol=lf
+Makefile      text eol=lf
+Dockerfile    text eol=lf
+.gitkeep      text eol=lf
+
+# --- Windows-only files keep CRLF --------------------------------------------
+# No PowerShell ships today (D-10 puts terraform/helm on the Linux node), but if
+# a *.ps1 helper is ever added it must stay CRLF or Windows PowerShell chokes.
+*.ps1         text eol=crlf
+*.psm1        text eol=crlf
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+
+# --- Binary: never touch ------------------------------------------------------
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.gif         binary
+*.ico         binary
+*.pdf         binary
+*.tif         binary
+*.tiff        binary
+*.jp2         binary
+*.zip         binary
+*.gz          binary
+*.tar         binary
+*.parquet     binary
+*.pt          binary
+*.pth         binary
+*.safetensors binary
+*.onnx        binary
+
+# --- Diff/merge hygiene -------------------------------------------------------
+*.tfstate      -diff
+*.tfstate.*    -diff
+uv.lock        -diff linguist-generated=true
+poetry.lock    -diff linguist-generated=true
