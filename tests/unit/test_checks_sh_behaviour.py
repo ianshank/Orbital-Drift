@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -1008,33 +1009,199 @@ def test_a_genuine_version_mismatch_names_a_usable_repository(tmp_path: Path) ->
 # The stub harness above puts a fake `docker` on PATH by construction (that is
 # how it observes what ci/checks.sh would have run), so "Docker is genuinely
 # absent from PATH" cannot be driven through `run_checks`/`Stubs` at all. This
-# section drives the REAL `sh ci/checks.sh unit` directly, with the real PATH
-# stripped of every directory that provides a real `docker`, which is the only
-# way to prove docker_or_fail's branch fires for real rather than trusting that
-# the stub harness's model of it is faithful.
+# section drives the REAL `sh ci/checks.sh unit` directly, with a PATH that
+# genuinely does not provide `docker`, which is the only way to prove
+# docker_or_fail's branch fires for real rather than trusting that the stub
+# harness's model of it is faithful. The git section below does the same thing
+# with the two tools swapped.
+#
+# ROUND 11 — HOW THAT PATH IS BUILT, and the CI-only defect that came of
+# building it the other way round. This is the standing "the workflow has never
+# run on a real runner" risk paying out, on the first real GitHub Actions run of
+# this repository's own CI.
+#
+# The original helper SUBTRACTED from the real PATH: drop every directory that
+# provides the tool under test.
+#
+#     PATH = [d for d in PATH if not (d/"git").exists()]
+#
+# On the Windows/Git-Bash authoring box `git` lives in /mingw64/bin while
+# `sed`, `tr`, `sort`, `tail` and `dirname` live in /usr/bin, so dropping git's
+# directory left every coreutil in place and all three tests passed — by
+# accident of that layout, not by design. On ubuntu-24.04 /usr/bin provides
+# `git` AND every coreutil, so dropping it removed the lot, and ci/checks.sh
+# died on its own first line:
+#
+#     /home/runner/work/.../ci/checks.sh: 63: dirname: not found
+#     /home/runner/work/.../ci/checks.sh: 70: .: cannot open .../versions.env
+#     assert 'git is not on PATH' in '<that stderr>'
+#
+# 3 failed / 234 passed, with an assertion message pointing at the guard while
+# the actual fault was in the PATH the test itself had constructed. What those
+# runs measured was "does ci/checks.sh survive a PATH with no coreutils", which
+# is not what any of these three tests is about. (The script's own half of that
+# defect — a `dirname` dependency on line one, before any diagnostic machinery
+# exists — is fixed in ci/checks.sh and covered by its own tests at the end of
+# this section.)
+#
+# SO: BUILD THE PATH, DO NOT SUBTRACT FROM IT. `_toolbox_without` populates one
+# directory with a launcher for each command ci/checks.sh genuinely needs
+# (enumerated and justified at `_UNIT_PREGUARD_COMMANDS`), deliberately omitting
+# the one under test, and PATH becomes exactly that one directory. What is
+# present is then a property of this file rather than of the host's filesystem
+# layout — which is the property that was missing, and the reason a green local
+# run said nothing about a Linux runner.
+#
+# ABSENCE HAS TO BE REAL ABSENCE. Both guards use `command -v`, which resolves a
+# NAME to a FILE and succeeds for any executable file whatever that file does
+# when run: a stub `docker` that exits 1 would leave `command -v docker`
+# succeeding, the guard silently not firing, and these tests passing for the
+# wrong reason. The tool under test therefore has no file in the toolbox at all,
+# and `test_the_reduced_path_makes_command_v_fail_for_the_omitted_tool` asserts
+# that directly rather than leaving it as a claim.
 # =============================================================================
 
+# Every external command `sh ci/checks.sh unit` runs BEFORE either of
+# stage_unit's fail-fast guards can print anything.
+#
+# DETERMINED EMPIRICALLY, leave-one-out: each name below was removed from an
+# otherwise-complete toolbox and both scenarios re-run. Every removal stopped
+# the guard message appearing (or, for `rm`, corrupted the exit status), and no
+# other command's removal changed anything. Recorded here so the next person
+# does not have to rediscover it by reading ci/checks.sh top to bottom.
+#
+#   sh      `_healthy_docker_shim`'s `#!/usr/bin/env sh` line. `env` resolves
+#           `sh` on PATH, so the toolbox has to carry it.
+#   sed     pin_value() and versions_env_tools(), both reading ci/versions.env.
+#   tail    pin_value() takes the last match.
+#   tr      versions_env_tools(), require_python_interpreter(), tool_version().
+#   sort    declared_stage_pins() -> `sort -u`, via require_pin_coverage().
+#   mktemp  docker_probe_errfile(), reached once docker_or_fail is past
+#           `command -v docker` and into the round-10 `docker info` probe.
+#   rm      the EXIT trap docker_probe_errfile() installs. Measured: without it
+#           the guard still fires and still prints, but the trap fails and the
+#           process exits 127 instead of 1, so the returncode assertions end up
+#           measuring the trap.
+#
+# NOT here, deliberately: `awk`. tool_version() uses it for the ruff, mypy and
+# pre-commit probes, and the unit stage's only pin is pytest, which is probed
+# with `python -c 'import pytest;...'`. If that ever changes, the run fails with
+# `awk: not found` and `_assert_only_the_omitted_tool_was_missing` names it and
+# points back here — rather than the failure surfacing as a guard assertion,
+# which is exactly how the round-11 defect hid.
+_UNIT_PREGUARD_COMMANDS: Final[tuple[str, ...]] = (
+    "sh",
+    "sed",
+    "tail",
+    "tr",
+    "sort",
+    "mktemp",
+    "rm",
+)
 
-def _path_without_executable(name: str) -> str:
-    """The current ``PATH``, minus every directory that provides ``name``.
+# "the shell could not find a command", in the spellings the shells this project
+# runs on actually use. Used to turn "the toolbox is incomplete" into a failure
+# that SAYS SO, instead of the unreadable
+# ``assert 'git is not on PATH' in '<coreutils error>'`` the round-11 CI run
+# produced.
+_MISSING_COMMAND_RES: Final[tuple[re.Pattern[str], ...]] = (
+    # dash:  ci/checks.sh: 63: dirname: not found
+    # bash:  ci/checks.sh: line 63: dirname: command not found
+    re.compile(r":\s*(?:line\s+)?\d+:\s*([^\s:]+):\s*(?:command )?not found"),
+    # `#!/usr/bin/env sh` with no sh on PATH:
+    #        /usr/bin/env: 'sh': No such file or directory
+    re.compile(r"\benv: '([^']+)': No such file or directory"),
+)
 
-    Checks both the bare name and ``name.exe`` so this is meaningful on
-    Windows (the authoring box) as well as the Linux CI runner.
+
+def _launcher(directory: Path, name: str) -> None:
+    """Put a working ``name`` in ``directory``, resolved from the REAL ``PATH``.
+
+    A ``#!/bin/sh`` wrapper that ``exec``s the real binary by absolute path,
+    rather than a symlink or a copy, because that is the one mechanism that
+    works unprivileged on both platforms this project runs on:
+
+    * ``os.symlink`` needs SeCreateSymbolicLinkPrivilege on Windows. Measured on
+      the authoring box: ``OSError: [WinError 1314] A required privilege is not
+      held by the client``.
+    * a COPY of an MSYS binary cannot start from a directory that is not
+      /usr/bin — Windows looks for msys-2.0.dll next to the executable first,
+      and a toolbox directory has no copy of it.
+
+    One code path for both platforms, so there is no second path to be wrong
+    only on the one nobody runs locally. That is the whole lesson of round 11.
     """
-    kept = []
-    for entry in os.environ.get("PATH", "").split(os.pathsep):
-        directory = Path(entry) if entry else None
-        provides_it = (
-            directory is not None
-            and directory.is_dir()
-            and ((directory / name).exists() or (directory / f"{name}.exe").exists())
+    resolved = shutil.which(name)
+    if resolved is None:
+        raise RuntimeError(
+            f"{name!r} is not on this machine's PATH, so ci/checks.sh cannot be run "
+            "with a reduced PATH at all. It is in _UNIT_PREGUARD_COMMANDS because "
+            "ci/checks.sh needs it before either stage_unit guard can speak."
         )
-        if not provides_it:
-            kept.append(entry)
-    return os.pathsep.join(kept)
+    quoted = "'" + Path(resolved).as_posix().replace("'", "'\\''") + "'"
+    launcher = directory / name
+    launcher.write_text(f'#!/bin/sh\nexec {quoted} "$@"\n', encoding="utf-8", newline="\n")
+    launcher.chmod(0o755)
 
 
-def _run_real_unit_stage_without_docker() -> subprocess.CompletedProcess[str]:
+def _toolbox_without(directory: Path, *, omitted: str) -> Path:
+    """One directory holding everything ci/checks.sh needs except ``omitted``.
+
+    The returned directory is intended to be the ENTIRE ``PATH`` of the child.
+    ``omitted`` is not written at all — no stub, no shim, no file — so
+    ``command -v <omitted>`` genuinely fails inside it.
+    """
+    assert omitted not in _UNIT_PREGUARD_COMMANDS, (
+        f"{omitted!r} is in _UNIT_PREGUARD_COMMANDS, so a toolbox omitting it cannot "
+        "run ci/checks.sh far enough to reach any guard; the test would pass on a "
+        "startup failure rather than on the guard it names"
+    )
+    toolbox = directory / "toolbox"
+    toolbox.mkdir(parents=True, exist_ok=True)
+    for name in _UNIT_PREGUARD_COMMANDS:
+        _launcher(toolbox, name)
+    assert not (toolbox / omitted).exists(), f"the toolbox provides {omitted!r} after all"
+    return toolbox
+
+
+def _command_v_rc(path: str, name: str) -> int:
+    """Exit status of ``command -v <name>`` with ``PATH`` set to ``path``.
+
+    ``command -v`` is what both guards in ``stage_unit`` use, so this is the
+    exact predicate the reduced PATH has to change — not "does running the tool
+    fail", which is a different and much weaker thing.
+    """
+    return subprocess.run(
+        [posix_shell(), "-c", 'command -v "$1" >/dev/null 2>&1', "sh", name],
+        env={**os.environ, "PATH": path},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    ).returncode
+
+
+def _assert_only_the_omitted_tool_was_missing(output: str, *, omitted: str) -> None:
+    """Fail about the TOOLBOX when the shell, not the guard, was what spoke.
+
+    Without this, an incomplete ``_UNIT_PREGUARD_COMMANDS`` surfaces as
+    ``assert 'git is not on PATH' in '<some coreutils error>'`` — which is
+    precisely the message the round-11 CI run produced, and precisely why it
+    read as a guard regression rather than as a bug in the test's own PATH.
+    """
+    missing = set()
+    for pattern in _MISSING_COMMAND_RES:
+        missing |= {name for name in pattern.findall(output) if name != omitted}
+    assert not missing, (
+        f"the shell could not find {sorted(missing)} while running ci/checks.sh with a "
+        f"PATH built to omit only {omitted!r}. That is a gap in "
+        "_UNIT_PREGUARD_COMMANDS (this file), not a failure of the guard under "
+        f"test: ci/checks.sh needs each of those before its guards run. Full "
+        f"output:\n{output}"
+    )
+
+
+def _run_real_unit_stage_without_docker(workspace: Path) -> subprocess.CompletedProcess[str]:
     """``sh ci/checks.sh unit`` with a genuinely docker-free ``PATH``.
 
     ``PYTHON`` is pointed at ``sys.executable`` — the interpreter running this
@@ -1042,10 +1209,13 @@ def _run_real_unit_stage_without_docker() -> subprocess.CompletedProcess[str]:
     ``preflight unit``'s pytest-version pin for the docker_or_fail branch
     (which runs AFTER preflight, inside stage_unit) to be what stops the
     stage, and this test process could not be running under pytest at all
-    unless its own interpreter already does.
+    unless its own interpreter already does. It is invoked by ABSOLUTE path, so
+    the reduced ``PATH`` cannot affect which interpreter runs; the same is true
+    of ``sh`` itself, resolved up front by ``posix_shell()`` from the real
+    ``PATH``.
     """
     env = dict(os.environ)
-    env["PATH"] = _path_without_executable("docker")
+    env["PATH"] = str(_toolbox_without(workspace, omitted="docker"))
     env["PYTHON"] = sys.executable
     return subprocess.run(
         [posix_shell(), str(CHECKS_SH), "unit"],
@@ -1058,7 +1228,43 @@ def _run_real_unit_stage_without_docker() -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_stage_unit_fails_fast_when_docker_is_genuinely_absent_from_path() -> None:
+def test_the_reduced_path_makes_command_v_fail_for_the_omitted_tool(tmp_path: Path) -> None:
+    """The crux the other tests in this section rest on, asserted rather than assumed.
+
+    Both guards ask ``command -v <tool>``, which resolves a NAME to a FILE and
+    succeeds for any executable file regardless of what running it does. A stub
+    that exists and exits non-zero therefore does NOT simulate absence: it would
+    leave every test below passing while the guard never fired. So this measures
+    the actual predicate — ``command -v`` returning non-zero for the omitted
+    tool, and zero for everything ci/checks.sh needs — inside the very PATH the
+    other tests hand the script.
+    """
+    for omitted in ("docker", "git"):
+        toolbox = _toolbox_without(tmp_path / omitted, omitted=omitted)
+
+        assert sorted(entry.name for entry in toolbox.iterdir()) == sorted(
+            _UNIT_PREGUARD_COMMANDS
+        ), (
+            "the reduced PATH holds something other than exactly "
+            "_UNIT_PREGUARD_COMMANDS. Its contents must be a property of this file, "
+            "never of the host's filesystem layout — a PATH derived by SUBTRACTING "
+            "from the host's is what made these tests pass on Windows and fail on "
+            "ubuntu-24.04 (round 11)."
+        )
+        assert _command_v_rc(str(toolbox), omitted) != 0, (
+            f"`command -v {omitted}` still SUCCEEDS under the reduced PATH {toolbox}. "
+            "The guard tests below would then pass without the guard ever firing."
+        )
+        for needed in _UNIT_PREGUARD_COMMANDS:
+            assert _command_v_rc(str(toolbox), needed) == 0, (
+                f"`command -v {needed}` fails under the reduced PATH, so ci/checks.sh "
+                "cannot reach its guards at all"
+            )
+
+
+def test_stage_unit_fails_fast_when_docker_is_genuinely_absent_from_path(
+    tmp_path: Path,
+) -> None:
     """A Docker-less machine used to see a false GREEN, silently.
 
     ``tests/unit/test_gitleaks_positive_control.py``'s own ``_tool("docker")``
@@ -1070,9 +1276,10 @@ def test_stage_unit_fails_fast_when_docker_is_genuinely_absent_from_path() -> No
     table claims run had actually run. This measures the real script with a
     real docker-free PATH, not a simulation of one.
     """
-    result = _run_real_unit_stage_without_docker()
+    result = _run_real_unit_stage_without_docker(tmp_path)
     output = result.stdout + result.stderr
 
+    _assert_only_the_omitted_tool_was_missing(output, omitted="docker")
     assert result.returncode != 0, f"stage_unit passed with no docker on PATH:\n{output}"
     assert "docker is not on PATH" in output, output
     assert "test session starts" not in output, (
@@ -1092,8 +1299,9 @@ def test_stage_unit_docker_message_is_distinct_from_the_other_two_stages(
     operator reading any one of these three messages must be able to tell
     which stage they ran and why, not read three identical sentences.
     """
-    unit_result = _run_real_unit_stage_without_docker()
+    unit_result = _run_real_unit_stage_without_docker(tmp_path / "no-docker")
     unit_output = unit_result.stdout + unit_result.stderr
+    _assert_only_the_omitted_tool_was_missing(unit_output, omitted="docker")
     assert "test_gitleaks_positive_control.py" in unit_output, unit_output
 
     # gitleaks/hooks are exercised through the stub harness only as a
@@ -1124,10 +1332,16 @@ def test_stage_unit_docker_message_is_distinct_from_the_other_two_stages(
 # ci/checks.sh's git_or_fail comment and
 # tests/unit/test_ci_contract.py's test_unit_stage_requires_git_for_its_own_named_reason
 # for the full argument on both sides); the operator resolved it in favour of
-# the guard. This section strips only git — not docker — from a real PATH, so
-# docker_or_fail (which runs first in stage_unit) still passes and git_or_fail
-# is the guard actually exercised, exactly mirroring the docker section above
-# with the two tools swapped.
+# the guard. This section omits only git — not docker — from the built toolbox,
+# so docker_or_fail (which runs first in stage_unit) still passes and
+# git_or_fail is the guard actually exercised, exactly mirroring the docker
+# section above with the two tools swapped.
+#
+# ROUND 11 — this is the test that made the platform dependency visible: on
+# ubuntu-24.04 the /usr/bin that provides `git` also provides every coreutil
+# ci/checks.sh needs, so the old subtract-from-PATH helper took them all out
+# together. See the block comment at the head of the docker section for the
+# measurement and the replacement.
 # =============================================================================
 
 
@@ -1154,21 +1368,23 @@ def _healthy_docker_shim(directory: Path) -> Path:
     return shim_dir
 
 
-def _run_real_unit_stage_without_git(docker_shim: Path) -> subprocess.CompletedProcess[str]:
+def _run_real_unit_stage_without_git(
+    docker_shim: Path, workspace: Path
+) -> subprocess.CompletedProcess[str]:
     """``sh ci/checks.sh unit`` with a genuinely git-free ``PATH``, docker healthy.
 
-    Mirrors ``_run_real_unit_stage_without_docker`` exactly, stripping the
-    other tool instead, so ``docker_or_fail`` (which runs first in
-    ``stage_unit``) passes and ``git_or_fail`` is the guard actually
-    exercised. ``sh`` itself is resolved once, up front, from the CURRENT
-    (unmodified) ``PATH`` by ``posix_shell()`` and then invoked by its
-    absolute path, so stripping every git-providing directory from the
-    child's ``PATH`` cannot also remove the shell needed to run it — even on
-    the Windows/Git-Bash authoring box, where ``git.exe`` and ``sh.exe``
-    happen to ship in the same product but from different directories.
+    Mirrors ``_run_real_unit_stage_without_docker`` exactly, omitting the other
+    tool instead, so ``docker_or_fail`` (which runs first in ``stage_unit``)
+    passes and ``git_or_fail`` is the guard actually exercised. ``sh`` itself is
+    resolved once, up front, from the CURRENT (unmodified) ``PATH`` by
+    ``posix_shell()`` and then invoked by its absolute path, so the reduced
+    ``PATH`` cannot remove the shell needed to run the script — and the toolbox
+    carries a second, PATH-resolvable ``sh`` besides, because
+    ``_healthy_docker_shim``'s ``#!/usr/bin/env sh`` line needs one.
     """
     env = dict(os.environ)
-    env["PATH"] = str(docker_shim) + os.pathsep + _path_without_executable("git")
+    toolbox = _toolbox_without(workspace, omitted="git")
+    env["PATH"] = str(docker_shim) + os.pathsep + str(toolbox)
     env["PYTHON"] = sys.executable
     return subprocess.run(
         [posix_shell(), str(CHECKS_SH), "unit"],
@@ -1195,9 +1411,10 @@ def test_stage_unit_fails_fast_when_git_is_genuinely_absent_from_path(tmp_path: 
     false-confidence shape MAJOR 3 (round 5) found and fixed for Docker. This
     measures the real script with a real git-free PATH, not a simulation.
     """
-    result = _run_real_unit_stage_without_git(_healthy_docker_shim(tmp_path))
+    result = _run_real_unit_stage_without_git(_healthy_docker_shim(tmp_path), tmp_path)
     output = result.stdout + result.stderr
 
+    _assert_only_the_omitted_tool_was_missing(output, omitted="git")
     assert result.returncode != 0, f"stage_unit passed with no git on PATH:\n{output}"
     assert "git is not on PATH" in output, output
     assert "test_gitleaks_positive_control.py" in output, (
@@ -1212,6 +1429,96 @@ def test_stage_unit_fails_fast_when_git_is_genuinely_absent_from_path(tmp_path: 
     assert "the Docker daemon is not reachable" not in output, (
         "the git-absence guard produced the round-10 DAEMON message instead, which "
         f"means the docker shim above is no longer satisfying docker_or_fail:\n{output}"
+    )
+
+
+# =============================================================================
+# ROUND 11 — THE PRODUCT HALF of the same defect.
+#
+# The three tests above had a bug. ci/checks.sh had one too, and it is the
+# deeper of the two: its very first executable line resolved SCRIPT_DIR with
+# `$(dirname -- "$0")` — an EXTERNAL command — before ci/versions.env is
+# sourced, before a single diagnostic function is defined, before any guard
+# exists to speak. So on a minimal, hostile or merely unusual PATH the operator
+# got a coreutils error and a phantom missing file
+#
+#     ci/checks.sh: 63: dirname: not found
+#     ci/checks.sh: 70: .: cannot open .../versions.env: No such file
+#
+# instead of this script's own message about whatever was actually wrong —
+# precisely when good diagnostics matter most. That is a defect independent of
+# the tests that exposed it: fixing only the tests would have left the script
+# one unusual PATH away from the same unreadable failure, with nothing watching.
+#
+# SCRIPT_DIR is now derived with POSIX parameter expansion and shell builtins
+# only. The two tests below pin both halves of that: the resolution itself
+# (with NO PATH AT ALL), and the fact that a reduced PATH now reaches a real
+# guard instead of dying at line one.
+# =============================================================================
+
+
+def test_checks_sh_resolves_script_dir_with_no_path_at_all() -> None:
+    """``PATH=""`` and the script still speaks for itself.
+
+    The unknown-stage branch of the dispatch ``case`` is chosen deliberately: it
+    is the only path through ci/checks.sh that runs ZERO external commands, so
+    an empty PATH isolates exactly the top-of-file resolution this test is
+    about. Reaching it at all proves both halves of that resolution worked —
+    SCRIPT_DIR pointed at ci/, and ``. "${VERSIONS_ENV}"`` succeeded, which
+    under ``set -e`` it must have or the dispatch below it would never have run.
+
+    (``case``, ``cd``, ``pwd``, ``[`` and ``printf`` are builtins in both dash —
+    the shell ubuntu-24.04 and node A run — and bash. Nothing here needs PATH.)
+
+    Measured before the fix, same invocation:
+        ``dirname: not found`` then ``cannot open .../versions.env``, rc 1.
+    """
+    result = subprocess.run(
+        [posix_shell(), str(CHECKS_SH), "definitely-not-a-stage"],
+        cwd=REPO_ROOT,
+        env={**os.environ, "PATH": ""},
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+
+    assert "dirname" not in output, (
+        f"ci/checks.sh still shells out to dirname before it can diagnose anything:\n{output}"
+    )
+    assert "versions.env" not in output, (
+        "ci/checks.sh failed to source ci/versions.env, which means SCRIPT_DIR did not "
+        f"resolve to ci/:\n{output}"
+    )
+    assert result.returncode == 2, (
+        f"expected the script's own usage exit (2), got {result.returncode}:\n{output}"
+    )
+    assert "unknown stage: definitely-not-a-stage" in output, output
+    assert "usage: sh ci/checks.sh" in output, output
+
+
+def test_a_reduced_path_reaches_the_guard_instead_of_dying_at_script_dir(
+    tmp_path: Path,
+) -> None:
+    """The round-11 CI failure, as a regression test rather than as prose.
+
+    Distinct from ``test_stage_unit_fails_fast_when_docker_is_genuinely_absent
+    _from_path`` above, which asserts the GUARD's behaviour and would still pass
+    if a future edit reintroduced an external-command dependency at the top of
+    the script under a PATH that happened to provide it. This one asserts the
+    absence of the specific startup failure by its own text, so a regression
+    names itself.
+    """
+    result = _run_real_unit_stage_without_docker(tmp_path)
+    output = result.stdout + result.stderr
+
+    assert "dirname" not in output, output
+    assert "cannot open" not in output, output
+    assert "versions.env: No such file" not in output, output
+    assert "docker is not on PATH" in output, (
+        "the reduced PATH did not reach docker_or_fail, so something before it "
+        f"stopped the script:\n{output}"
     )
 
 

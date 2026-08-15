@@ -60,7 +60,89 @@
 
 set -eu
 
-SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+# =============================================================================
+# SCRIPT_DIR, resolved with NO external command.
+#
+# This line used to be:
+#
+#     SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+#
+# `dirname` is an external binary, and this is the FIRST thing the script does:
+# before ci/versions.env is sourced, before a single diagnostic function is
+# defined, before any guard can speak. On a PATH that does not provide it, the
+# operator got
+#
+#     ci/checks.sh: 63: dirname: not found
+#     ci/checks.sh: 70: .: cannot open .../versions.env: No such file
+#
+# — a coreutils error plus a phantom missing file — instead of this script's own
+# message about whatever was actually wrong. (`cd -- ""` is "stay where you
+# are", not an error, so SCRIPT_DIR silently became the caller's cwd and the
+# second line is a consequence of the first, not a separate fault.)
+#
+# Measured on the first real GitHub Actions run of this workflow: three tests in
+# tests/unit/test_checks_sh_behaviour.py build a deliberately reduced PATH to
+# prove the docker/git guards fire, and on ubuntu-24.04 — where /usr/bin
+# provides the tool under test AND every coreutil — the script died here rather
+# than at the guard being measured. Those tests had a bug of their own and are
+# fixed too, but a top-of-file dependency on an external command is a defect in
+# THIS file independently of them: the moment diagnostics matter most (a
+# hostile, minimal or misordered PATH) is exactly the moment they disappeared.
+#
+# POSIX parameter expansion replaces it, including the two cases a bare
+# `${0%/*}` gets wrong:
+#
+#   * `$0` containing no slash at all — the script was found via a PATH lookup,
+#     so `${0%/*}` yields `$0` UNCHANGED, i.e. the script rather than its
+#     directory. Correct answer: `.`, which is what dirname returns.
+#   * `$0` = `/checks.sh` — `${0%/*}` yields the empty string, and `cd -- ""`
+#     means "stay here". Correct answer: `/`.
+#
+# Trailing separators are stripped first, matching dirname's own behaviour
+# (`dirname a/b/` is `a`), and the `?*` prefix leaves a lone separator alone so
+# the root case still lands on the `[ -n ... ]` fallback below.
+#
+# BOTH SEPARATORS, and this is replicated MEASURED behaviour rather than
+# invented behaviour. On the Windows/Git-Bash authoring box a caller can hand
+# this script a native `$0` — `sh ci\checks.sh unit` from PowerShell, or any
+# Python `subprocess.run([sh, str(path), ...])`, which is what
+# tests/unit/shell_harness.py's sibling call sites do. Measured under MSYS:
+#
+#     dirname -- 'E:\...\ci\checks.sh'   ->  E:\...\ci        (rc 0)
+#     CDPATH='' cd -- 'E:\...\ci' && pwd ->  /e/.../ci
+#
+# i.e. the `dirname` this replaces treated `\` as a separator, and `cd` accepts
+# the result. Matching only `/` would therefore have REGRESSED that invocation
+# into precisely the "no separator found -> `.` -> versions.env not found"
+# failure this block exists to abolish. `*[/\\]*` is POSIX pattern-matching
+# notation, verified byte-identical under dash and under bash-as-sh, including
+# the mixed-separator case (`a/b\c/d.sh` -> `a/b\c`: the LAST separator of
+# either kind wins, which is what MSYS's dirname measurably does too). The cost
+# on a real POSIX system is that a `\` inside a path COMPONENT — legal, and
+# pathological — would be read as a separator; `cd` then fails, `set -e` aborts
+# the assignment below, and nothing proceeds on a wrong SCRIPT_DIR. GNU dirname
+# would have returned `.` there; neither answer is usable, and this one fails
+# loudly rather than sourcing versions.env from somewhere unrelated.
+#
+# The `CDPATH='' cd -- ... && pwd` normalisation stays exactly as it was, and
+# should: it is what turns a relative `ci` into an absolute path, and the empty
+# CDPATH is what stops an operator's own CDPATH from silently redirecting that
+# cd. `cd` and `pwd` are shell builtins, so neither needs PATH.
+# =============================================================================
+self_path=$0
+while :; do
+  case "${self_path}" in
+    ?*[/\\]) self_path=${self_path%[/\\]} ;;
+    *) break ;;
+  esac
+done
+case "${self_path}" in
+  *[/\\]*) self_dir=${self_path%[/\\]*} ;;
+  *) self_dir=. ;;
+esac
+[ -n "${self_dir}" ] || self_dir=/
+
+SCRIPT_DIR=$(CDPATH='' cd -- "${self_dir}" && pwd)
 REPO_ROOT=$(CDPATH='' cd -- "${SCRIPT_DIR}/.." && pwd)
 cd "${REPO_ROOT}"
 
