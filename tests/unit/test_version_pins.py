@@ -102,15 +102,87 @@ HOOK_REVS: Final = _read_hook_revs()
 PRE_COMMIT_TEXT: Final = PRE_COMMIT_CONFIG.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize(
-    ("pin_key", "distribution"),
-    [
-        ("RUFF_VERSION", "ruff"),
-        ("MYPY_VERSION", "mypy"),
-        ("PYTEST_VERSION", "pytest"),
-        ("PRE_COMMIT_VERSION", "pre-commit"),
-    ],
-)
+# ``<NAME>_VERSION`` keys in ci/versions.env that are NOT distributions in
+# pyproject's ``[dev]`` extra, each with the reason. Every other pin in that file
+# MUST appear in ``[dev]`` at the same version.
+#
+# DERIVED, not hand-listed, and that is the whole point of this block. This test
+# used to carry a hardcoded parametrize list of four ``(pin_key, distribution)``
+# tuples, which meant a fifth pin added to BOTH ci/versions.env and
+# pyproject.toml was lockstep-checked by nothing at all — the one silent drift
+# path in a file whose entire job is catching drift. Every other pin mechanism in
+# the repo screams when you extend it: ci/checks.sh's require_pin_coverage() hard
+# errors on an unclaimed pin, tool_version()'s ``*)`` arm hard errors on an
+# unprobed one. This one failed quietly.
+#
+# ci/versions.env:12-14 already states the rule — the preflight "DERIVES its tool
+# list from the <NAME>_VERSION keys in this file, so adding a pin here and
+# forgetting to enforce it is a hard error rather than a silent gap". That was
+# stated for the shell side and simply never applied here. It is now.
+#
+# Adding a name below is therefore a deliberate, reviewable act, exactly as
+# adding one to ci/checks.sh's PREFLIGHT_EXEMPT_PINS is:
+#
+#   PYTHON      the interpreter, not a pip-installable distribution. Its
+#               provenance is pyproject requires-python; asserted separately by
+#               test_python_pin_agrees_with_requires_python.
+#   PIP         bootstrap-level: it is what INSTALLS the [dev] extra, so it
+#               cannot be a member of it. Pinned in .github/workflows/ci.yml.
+#   HATCHLING   PEP 517 build backend, resolved by pip in an isolated build
+#               environment; asserted against [build-system].requires instead by
+#               test_build_backend_is_pinned_and_agrees_with_versions_env.
+#   GITLEAKS    runs as a pinned container, not a Python distribution.
+#   SHELLCHECK  same.
+NOT_A_DEV_EXTRA: Final = frozenset({"PYTHON", "PIP", "HATCHLING", "GITLEAKS", "SHELLCHECK"})
+
+
+def _dev_extra_pins() -> list[tuple[str, str]]:
+    """``[(pin_key, distribution)]`` for every pin ``[dev]`` is required to carry.
+
+    ``PRE_COMMIT_VERSION`` -> ``pre-commit``, ``PYTEST_COV_VERSION`` ->
+    ``pytest-cov``: the same ``lower()`` + ``_``-to-``-`` fold that
+    ``ci/checks.sh``'s ``versions_env_tools()`` applies, so the two derivations
+    cannot disagree about what a pin is called.
+    """
+    pairs: list[tuple[str, str]] = []
+    for key in sorted(VERSIONS):
+        if not key.endswith("_VERSION"):
+            continue
+        stem = key[: -len("_VERSION")]
+        if stem in NOT_A_DEV_EXTRA:
+            continue
+        pairs.append((key, stem.lower().replace("_", "-")))
+    return pairs
+
+
+DEV_EXTRA_PINS: Final = _dev_extra_pins()
+
+
+def test_the_dev_extra_pin_list_is_still_derived_from_versions_env() -> None:
+    """The parametrize below must keep coming from the pin file, not from a list.
+
+    Without this, the derivation above could be quietly replaced by a literal
+    list again and every other test in this file would still pass. It also fails
+    if ``NOT_A_DEV_EXTRA`` names something that is not a pin at all, so the
+    exempt set cannot rot into a place where typos go to hide.
+    """
+    assert DEV_EXTRA_PINS, "no [dev] pins derived from ci/versions.env at all"
+
+    for stem in sorted(NOT_A_DEV_EXTRA):
+        assert f"{stem}_VERSION" in VERSIONS, (
+            f"NOT_A_DEV_EXTRA names {stem}, but ci/versions.env has no {stem}_VERSION pin to exempt"
+        )
+
+    # The four this list named by hand before it was derived. Pinned here so a
+    # careless edit to NOT_A_DEV_EXTRA cannot silently drop one back out of the
+    # lockstep check.
+    derived = {distribution for _, distribution in DEV_EXTRA_PINS}
+    assert {"ruff", "mypy", "pytest", "pre-commit"} <= derived, (
+        f"the originally-checked pins must still be derived; got {sorted(derived)}"
+    )
+
+
+@pytest.mark.parametrize(("pin_key", "distribution"), DEV_EXTRA_PINS)
 def test_versions_env_matches_pyproject_dev_extra(pin_key: str, distribution: str) -> None:
     """What CI announces is what ``pip install -e ".[dev]"`` will install."""
     assert pin_key in VERSIONS, f"ci/versions.env has no {pin_key}"
