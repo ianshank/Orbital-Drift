@@ -259,6 +259,30 @@ _od_seq_next() {
 }
 """
 
+# ORDERING IS LOAD-BEARING, AND THE TRAP IS SUBTLE. `case` patterns are globs
+# matched top-down against the WHOLE argv (`$*`), and several of these are
+# substring patterns, so an arm added in the wrong place silently shadows a
+# later one. Two live instances:
+#
+#   * `*'import pytest'*` matches `import pytest_cov` too. Any pytest-cov
+#     version probe written as `python -c 'import pytest_cov;...'` would be
+#     answered with PYTEST's version, and the resulting pin mismatch names a
+#     tool that is fine. ci/checks.sh's pytest-cov probe therefore uses
+#     `importlib.metadata.version("pytest-cov")`, whose argv contains no
+#     `import pytest` substring at all — the ordering dependency is designed
+#     out rather than commented around.
+#   * the `--collect-only` arm MUST precede the bare `-m pytest ` arm: a
+#     collect-only argv matches both, and `case` takes the first.
+#
+# The two pytest arms are round 11. Before them, EVERY `python -m pytest ...`
+# invocation fell through this `case` untouched and exited `@PYTHON_RC@` (0),
+# so `pytest_suite()`'s `collect_rc` was always 0 and its entire exit-5 ladder
+# — DECLARED-EMPTY vs collection-error vs helper-modules-only, the mechanism
+# two of FR-011's six gates rest on — was unreachable by any test that could
+# be written through this harness. Its only coverage was three source-level
+# greps in test_ci_contract.py, and the file's own docstring concedes those are
+# secondary. That is precisely the gap `test_checks_sh_behaviour.py` exists to
+# close for every other claim in the script.
 PYTHON_STUB = r"""
 case "$*" in
   *'version_info[:3]'*)   printf '%s\n' "$(_od_seq_next PY_FULL '@PY_FULL@')" ;;
@@ -266,7 +290,16 @@ case "$*" in
   "-m ruff --version")    printf 'ruff %s\n' "$(_od_seq_next RUFF '@RUFF@')" ;;
   "-m mypy --version")    printf 'mypy %s (compiled: yes)\n' "$(_od_seq_next MYPY '@MYPY@')" ;;
   *'import pytest'*)      printf '%s\n' "$(_od_seq_next PYTEST '@PYTEST@')" ;;
+  *'pytest-cov'*)         printf '%s\n' "$(_od_seq_next PYTEST_COV '@PYTEST_COV@')" ;;
+  *'"coverage"'*)         printf '%s\n' "$(_od_seq_next COVERAGE '@COVERAGE@')" ;;
   "-m pre_commit --version") printf 'pre-commit %s\n' "$(_od_seq_next PRE_COMMIT '@PRE_COMMIT@')" ;;
+  "-m pytest "*"--collect-only"*)
+    if [ -n "@PYTEST_COLLECT_STDOUT@" ]; then
+      printf '%s\n' "@PYTEST_COLLECT_STDOUT@"
+    fi
+    exit "$(_od_seq_next PYTEST_COLLECT_RC '@PYTEST_COLLECT_RC@')" ;;
+  "-m pytest "*)
+    exit "$(_od_seq_next PYTEST_RUN_RC '@PYTEST_RUN_RC@')" ;;
 esac
 exit @PYTHON_RC@
 """
@@ -311,6 +344,15 @@ class Stubs:
     "(not installed, or not importable by this interpreter)" message or its
     "(PYTHON=... is not a working interpreter)" message through this harness,
     and grepping ``tests/`` for either string found zero tests exercising them.
+
+    ``pytest_collect_rc`` AND ``pytest_run_rc`` DEFAULT TO ``None`` MEANING
+    "USE ``python_rc``" (round 11), not to ``0``. That is what makes adding the
+    two pytest arms to ``PYTHON_STUB`` a no-op for every test written before
+    them: previously a ``python -m pytest ...`` call fell through the ``case``
+    and exited ``python_rc``, so resolving these two to ``python_rc`` when
+    unset reproduces that byte for byte. Defaulting them to ``0`` instead would
+    have silently changed the meaning of ``Stubs(python_rc=1)`` for any stage
+    that runs pytest.
     """
 
     ignored: bytes = b".mypy_cache/\x00.pytest_cache/\x00"
@@ -323,6 +365,9 @@ class Stubs:
     docker_info_rc: int = 0
     docker_info_stderr: str = UNIX_SOCKET_DAEMON_DOWN_STDERR
     python_rc: int = 0
+    pytest_collect_rc: int | None = None
+    pytest_run_rc: int | None = None
+    pytest_collect_stdout: str = ""
     gitleaks_reports: str | None = None
     shellcheck_reports: str | None = None
     py_full: str | None = None
@@ -330,6 +375,8 @@ class Stubs:
     ruff: str | None = None
     mypy: str | None = None
     pytest: str | None = None
+    pytest_cov: str | None = None
+    coverage: str | None = None
     pre_commit: str | None = None
 
 
@@ -369,6 +416,9 @@ class _ResolvedStubs:
     docker_info_rc: int
     docker_info_stderr: str
     python_rc: int
+    pytest_collect_rc: int
+    pytest_run_rc: int
+    pytest_collect_stdout: str
     gitleaks_reports: str
     shellcheck_reports: str
     py_full: str
@@ -376,6 +426,8 @@ class _ResolvedStubs:
     ruff: str
     mypy: str
     pytest: str
+    pytest_cov: str
+    coverage: str
     pre_commit: str
 
 
@@ -398,6 +450,15 @@ def _defaults(stubs: Stubs) -> _ResolvedStubs:
         docker_info_rc=stubs.docker_info_rc,
         docker_info_stderr=stubs.docker_info_stderr,
         python_rc=stubs.python_rc,
+        # `None` -> `python_rc`, NOT -> 0. See the Stubs docstring: this is what
+        # makes the two pytest arms in PYTHON_STUB a no-op for every test
+        # written before they existed, when a `-m pytest` call fell through the
+        # `case` and exited `python_rc`.
+        pytest_collect_rc=(
+            stubs.python_rc if stubs.pytest_collect_rc is None else stubs.pytest_collect_rc
+        ),
+        pytest_run_rc=(stubs.python_rc if stubs.pytest_run_rc is None else stubs.pytest_run_rc),
+        pytest_collect_stdout=stubs.pytest_collect_stdout,
         gitleaks_reports=(
             PINS["GITLEAKS_VERSION"] if stubs.gitleaks_reports is None else stubs.gitleaks_reports
         ),
@@ -411,6 +472,15 @@ def _defaults(stubs: Stubs) -> _ResolvedStubs:
         ruff=(PINS["RUFF_VERSION"] if stubs.ruff is None else stubs.ruff),
         mypy=(PINS["MYPY_VERSION"] if stubs.mypy is None else stubs.mypy),
         pytest=(PINS["PYTEST_VERSION"] if stubs.pytest is None else stubs.pytest),
+        # `.get`, not `[...]`: these two pins land with the `coverage` stage. Until
+        # then the knobs resolve to "" and the corresponding stub arms answer with
+        # an empty string, which is exactly ci/checks.sh's "(not installed, or not
+        # importable by this interpreter)" shape — the honest answer for a tool
+        # that genuinely is not pinned yet.
+        pytest_cov=(
+            PINS.get("PYTEST_COV_VERSION", "") if stubs.pytest_cov is None else stubs.pytest_cov
+        ),
+        coverage=(PINS.get("COVERAGE_VERSION", "") if stubs.coverage is None else stubs.coverage),
         pre_commit=(PINS["PRE_COMMIT_VERSION"] if stubs.pre_commit is None else stubs.pre_commit),
     )
 
@@ -439,9 +509,11 @@ def run_checks(
 
     ``python_sequences`` (round 8) is the mechanism-agnostic, black-box
     no-memoization mechanism: a mapping from probe name (``PY_FULL``,
-    ``PY_MINOR``, ``RUFF``, ``MYPY``, ``PYTEST`` or ``PRE_COMMIT``) to a tuple
-    of values to return on the 1st, 2nd, ... call to that probe WITHIN THIS
-    ONE run — the Nth-and-beyond call repeats the last value in the tuple. A
+    ``PY_MINOR``, ``RUFF``, ``MYPY``, ``PYTEST``, ``PYTEST_COV``, ``COVERAGE``,
+    ``PRE_COMMIT``, and — round 11 — ``PYTEST_COLLECT_RC`` / ``PYTEST_RUN_RC``,
+    whose queued values are exit statuses rather than version strings) to a
+    tuple of values to return on the 1st, 2nd, ... call to that probe WITHIN
+    THIS ONE run — the Nth-and-beyond call repeats the last value in the tuple. A
     probe not present in this mapping behaves exactly as before (the single
     value from ``stubs``/the real pin, for every call). This is what lets a
     test observe "call 1 says the pin is correct, call 2 — same process, same
@@ -511,6 +583,21 @@ def run_checks(
             },
         ),
     )
+    # Same guard, same reason, as docker_info_stderr above: this value is
+    # interpolated into a double-quoted `printf` argument in the generated stub,
+    # so a quote/backslash/backtick/dollar would either break its syntax or be
+    # re-expanded by the shell. Real pytest collection output is multi-line, so
+    # the newline in _UNSAFE_IN_STUB_STRING bites here in practice rather than
+    # theoretically — pass a single representative line.
+    unsafe_collect = sorted(set(resolved.pytest_collect_stdout) & set(_UNSAFE_IN_STUB_STRING))
+    if unsafe_collect:
+        raise ValueError(
+            f"pytest_collect_stdout contains {unsafe_collect!r}, which cannot be interpolated "
+            "into the generated python stub's double-quoted printf argument without either "
+            "breaking its syntax or being re-expanded by the shell. Use a single-line message "
+            "that avoids them, or teach _stub a quoting pass."
+        )
+
     _write_executable(
         bin_dir / "python",
         _stub(
@@ -524,8 +611,13 @@ def run_checks(
                 "@RUFF@": resolved.ruff,
                 "@MYPY@": resolved.mypy,
                 "@PYTEST@": resolved.pytest,
+                "@PYTEST_COV@": resolved.pytest_cov,
+                "@COVERAGE@": resolved.coverage,
                 "@PRE_COMMIT@": resolved.pre_commit,
                 "@PYTHON_RC@": str(resolved.python_rc),
+                "@PYTEST_COLLECT_RC@": str(resolved.pytest_collect_rc),
+                "@PYTEST_RUN_RC@": str(resolved.pytest_run_rc),
+                "@PYTEST_COLLECT_STDOUT@": resolved.pytest_collect_stdout,
             },
         ),
     )

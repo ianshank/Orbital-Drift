@@ -613,19 +613,52 @@ pytest_suite() {
   fi
 
   # Files pytest's default `python_files` would collect from.
-  collectable_count=$(find "${suite_dir}" -type f \( -name 'test_*.py' -o -name '*_test.py' \) |
+  #
+  # The prune list mirrors pytest's own `norecursedirs` default. `find` does not
+  # honour it, so without this a stray `test_*.py` under a nested virtualenv,
+  # build tree or egg inside a suite directory counted towards
+  # `collectable_count` while pytest collected nothing from it — producing a
+  # FAIL that names a "collection error" for a file pytest never looked at. The
+  # corroborating count has to corroborate what pytest actually does, or it
+  # argues with the tool it exists to double-check.
+  collectable_count=$(find "${suite_dir}" \
+    \( -name '.*' -o -name '__pycache__' -o -name 'build' -o -name 'dist' \
+    -o -name 'node_modules' -o -name 'venv' -o -name '*.egg' \) -prune -o \
+    -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print |
     wc -l | tr -d '[:space:]')
   # Any .py that is not package plumbing — the wider "somebody put code here".
-  module_count=$(find "${suite_dir}" -type f -name '*.py' \
-    ! -name '__init__.py' ! -name 'conftest.py' | wc -l | tr -d '[:space:]')
+  module_count=$(find "${suite_dir}" \
+    \( -name '.*' -o -name '__pycache__' -o -name 'build' -o -name 'dist' \
+    -o -name 'node_modules' -o -name 'venv' -o -name '*.egg' \) -prune -o \
+    -type f -name '*.py' ! -name '__init__.py' ! -name 'conftest.py' -print |
+    wc -l | tr -d '[:space:]')
 
-  # If pyproject overrides `python_files`, the two counts above no longer bound
-  # what pytest collects and this function cannot tell (b) from (c). Say so
+  # If a `python_files` override is in force, the two counts above no longer
+  # bound what pytest collects and this function cannot tell (b) from (c). Say so
   # rather than guessing.
+  #
+  # ALL FOUR config files pytest reads ini options from, not just pyproject.toml.
+  # Until round 11 this checked pyproject alone, which missed the one file that
+  # would win outright: `pytest.ini` overrides pyproject entirely, so a
+  # `python_files` there would have silently unsound the (b)/(c) split while this
+  # guard reported "no override". None of the other three exists in this repo
+  # today, which is why the gap was latent rather than live — but a suite
+  # directory is not where anyone should discover it.
+  #
+  # A bare grep can false-positive on a `python_files` key sitting in some other
+  # section of setup.cfg or tox.ini. That direction is deliberate: a false
+  # positive fails this stage closed with a message telling the operator to teach
+  # pytest_suite about the override, whereas a false negative silently unsounds
+  # the split. Fail towards the loud one.
   python_files_overridden=0
-  if grep -Eq '^[[:space:]]*python_files[[:space:]]*=' pyproject.toml; then
-    python_files_overridden=1
-  fi
+  python_files_source=''
+  for override_config in pytest.ini pyproject.toml tox.ini setup.cfg; do
+    [ -f "${override_config}" ] || continue
+    if grep -Eq '^[[:space:]]*python_files[[:space:]]*=' "${override_config}"; then
+      python_files_overridden=1
+      python_files_source="${override_config}"
+    fi
+  done
 
   set +e
   collect_output=$("${PYTHON}" -m pytest "${suite_dir}" --collect-only -q 2>&1)
@@ -645,7 +678,8 @@ pytest_suite() {
     fi
     if [ "${python_files_overridden}" = "1" ]; then
       {
-        printf 'FAIL: %s collected nothing and pyproject.toml overrides python_files, so\n' "${label}"
+        printf 'FAIL: %s collected nothing and %s overrides python_files, so\n' \
+          "${label}" "${python_files_source}"
         printf '      this script cannot tell an unauthored suite from a collection error.\n'
         printf '      Teach pytest_suite in ci/checks.sh about the override, or remove it.\n'
       } >&2

@@ -1821,6 +1821,235 @@ def test_the_generated_overlay_stays_a_reasonable_size_for_a_typical_checkout(
 
 
 # =============================================================================
+# ROUND 11 — `pytest_suite()`'s exit-5 ladder, driven for the first time.
+#
+# `stage_contract` and `stage_smoke` are two of FR-011's six gates, and both are
+# DECLARED-EMPTY today. The claim that they "arm automatically when a test module
+# lands" is the only thing standing between that and a permanently vacuous pass,
+# and until this section it had NO behavioural coverage at all: its entire test
+# surface was three source-level greps in test_ci_contract.py (which that file's
+# own docstring concedes are secondary), because the harness's python stub had no
+# `-m pytest` arm — every collect probe fell through the `case` and exited 0, so
+# `collect_rc` was ALWAYS 0 and the exit-5 ladder was unreachable by construction.
+#
+# The five branches below are the ones `ci/checks.sh:606-673` discriminates. Each
+# gets a test that drives the real script against a synthetic repository root,
+# with the collect probe's exit status supplied by the stub. Two of them assert
+# a FAILURE, which is the half that matters: a gate that cannot tell "nobody has
+# written this suite yet" from "this suite is broken" is not a gate.
+# =============================================================================
+
+
+def _synthetic_root(tmp_path: Path, *, pyproject: str | None = None) -> Path:
+    """A minimal repo root holding a real ``ci/checks.sh`` and its own suites.
+
+    ``run_checks`` runs the script with ``cwd`` set to the script's grandparent,
+    and ``pytest_suite()`` resolves both the suite directory and its
+    ``python_files``-override grep relative to that cwd. Copying the script into
+    a scratch root therefore lets a test control exactly what the suite directory
+    contains, without touching the real ``tests/contract``.
+
+    The copied ``ci/versions.env`` is the real one on purpose: the preflight this
+    stage runs must still assert the genuine pins, so a test cannot accidentally
+    pass by running against a root where the pin file was weakened.
+    """
+    root = tmp_path / "root"
+    (root / "ci").mkdir(parents=True)
+    (root / "tests" / "contract").mkdir(parents=True)
+    shutil.copy2(CHECKS_SH, root / "ci" / "checks.sh")
+    shutil.copy2(REPO_ROOT / "ci" / "versions.env", root / "ci" / "versions.env")
+    (root / "pyproject.toml").write_text(
+        "[tool.pytest.ini_options]\n" if pyproject is None else pyproject,
+        encoding="utf-8",
+        newline="\n",
+    )
+    return root
+
+
+def test_an_unauthored_suite_is_declared_empty_and_passes(tmp_path: Path) -> None:
+    """Branch (a): nothing in the directory at all -> DECLARED-EMPTY, exit 0."""
+    root = _synthetic_root(tmp_path)
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode == 0, recording.output
+    assert "DECLARED-EMPTY" in recording.output, recording.output
+    assert "arms automatically" in recording.output, recording.output
+
+
+def test_a_suite_holding_only_helper_modules_is_declared_empty_not_an_error(
+    tmp_path: Path,
+) -> None:
+    """Branch (c): ``fixtures.py`` is not a collection failure.
+
+    Reporting this one as a collection error would send the operator hunting an
+    import failure that does not exist — the specific misdiagnosis the third
+    branch was added to prevent.
+    """
+    root = _synthetic_root(tmp_path)
+    (root / "tests" / "contract" / "fixtures.py").write_text("X = 1\n", encoding="utf-8")
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode == 0, recording.output
+    assert "DECLARED-EMPTY" in recording.output, recording.output
+    assert "helper module" in recording.output, recording.output
+
+
+@pytest.mark.parametrize("filename", ["test_stac.py", "stac_boundary_test.py"])
+def test_a_collectable_module_that_collects_nothing_fails_as_a_collection_error(
+    tmp_path: Path, filename: str
+) -> None:
+    """Branch (b), for BOTH of pytest's default ``python_files`` patterns.
+
+    ``stac_boundary_test.py`` is the measured regression named in
+    ``ci/checks.sh``'s own header: when the count was ``find -name 'test_*.py'``
+    only, a ``*_test.py`` file containing no test functions produced exit 5, a
+    find count of 0, and a green DECLARED-EMPTY — contract coverage could drop to
+    zero with the gate still passing. Parametrizing both names is what stops a
+    "simplification" back to one pattern from going unnoticed.
+    """
+    root = _synthetic_root(tmp_path)
+    (root / "tests" / "contract" / filename).write_text("X = 1\n", encoding="utf-8")
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5, pytest_collect_stdout="no tests ran"),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode != 0, recording.output
+    assert "collection error" in recording.output, recording.output
+    assert "DECLARED-EMPTY" not in recording.output, recording.output
+
+
+def test_a_non_five_collect_failure_is_reported_as_a_collection_failure(
+    tmp_path: Path,
+) -> None:
+    """A collect probe that dies for any other reason must not be mistaken for empty."""
+    root = _synthetic_root(tmp_path)
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=2, pytest_collect_stdout="INTERNALERROR"),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode != 0, recording.output
+    assert "failed collection" in recording.output, recording.output
+    assert "DECLARED-EMPTY" not in recording.output, recording.output
+
+
+def test_a_clean_collect_runs_the_suite_and_propagates_its_failure(tmp_path: Path) -> None:
+    """Branch (e): collect succeeds -> the real run happens, and its status is the stage's.
+
+    Asserts the run actually occurred rather than trusting the exit code alone:
+    a stage that returned the collect probe's status would look identical from
+    the outside if the second invocation were dropped.
+    """
+    root = _synthetic_root(tmp_path)
+    (root / "tests" / "contract" / "test_stac.py").write_text("X = 1\n", encoding="utf-8")
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=0, pytest_run_rc=1),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode != 0, recording.output
+
+    real_runs = [
+        call
+        for call in recording.of("python")
+        if "-m" in call.argv and "pytest" in call.argv and "--collect-only" not in call.argv
+    ]
+    assert real_runs, (
+        "a clean collect must be followed by a real pytest run; "
+        f"python was called with {[call.argv for call in recording.of('python')]!r}"
+    )
+
+
+def test_the_suite_is_not_declared_empty_merely_because_the_run_was_skipped(
+    tmp_path: Path,
+) -> None:
+    """The default stubs must not make an authored suite look unauthored.
+
+    Guards the round-11 harness change itself: ``pytest_collect_rc`` defaults to
+    ``python_rc`` (0), so an authored suite under default stubs must take the
+    real-run branch, not any DECLARED-EMPTY branch. If a future edit defaulted
+    the knob to 5, every branch above would still pass while this one caught it.
+    """
+    root = _synthetic_root(tmp_path)
+    (root / "tests" / "contract" / "test_stac.py").write_text("X = 1\n", encoding="utf-8")
+    recording = run_checks("contract", tmp_path, checks_sh=root / "ci" / "checks.sh")
+    assert recording.returncode == 0, recording.output
+    assert "DECLARED-EMPTY" not in recording.output, recording.output
+
+
+@pytest.mark.parametrize("pruned", [".venv", "build", "node_modules", "__pycache__"])
+def test_a_stray_test_file_in_a_non_collected_directory_is_not_a_collection_error(
+    tmp_path: Path, pruned: str
+) -> None:
+    """``find`` must prune what pytest's ``norecursedirs`` prunes.
+
+    ``find`` descends unconditionally. Before round 11 a ``test_*.py`` under a
+    nested virtualenv, build tree or ``__pycache__`` inside a suite directory
+    counted towards ``collectable_count`` while pytest collected nothing from
+    it — so the stage FAILED, reporting a "collection error" for a file pytest
+    had never looked at, and the operator got sent hunting an import error that
+    did not exist. The corroborating count has to corroborate what pytest
+    actually does.
+    """
+    root = _synthetic_root(tmp_path)
+    stray = root / "tests" / "contract" / pruned / "lib"
+    stray.mkdir(parents=True)
+    (stray / "test_stray.py").write_text("X = 1\n", encoding="utf-8")
+
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode == 0, recording.output
+    assert "DECLARED-EMPTY" in recording.output, recording.output
+    assert "collection error" not in recording.output, recording.output
+
+
+@pytest.mark.parametrize("config", ["pytest.ini", "tox.ini", "setup.cfg"])
+def test_a_python_files_override_outside_pyproject_still_fails_closed(
+    tmp_path: Path, config: str
+) -> None:
+    """All four config files pytest reads ini options from, not just pyproject.
+
+    ``pytest.ini`` is the sharp one: it overrides ``pyproject.toml`` ENTIRELY, so
+    checking pyproject alone missed the single file whose override would actually
+    win. With a `python_files` override in force neither count bounds what pytest
+    collects, the (b)/(c) split is unsound, and the stage must say so instead of
+    guessing. The message must name the file that carries it, or the operator has
+    four places to look.
+    """
+    root = _synthetic_root(tmp_path)
+    (root / config).write_text(
+        "[pytest]\npython_files = check_*.py\n", encoding="utf-8", newline="\n"
+    )
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode != 0, recording.output
+    assert "overrides python_files" in recording.output, recording.output
+    assert config in recording.output, (
+        f"the failure must name {config!r} as the source of the override; got:\n{recording.output}"
+    )
+
+
+# =============================================================================
 # ROUND 8 — the newest, most important tests in this file must not be silently
 # deletable. Mirrors test_ci_contract.py's own LOAD_BEARING_ANTI_BYPASS_TESTS /
 # PRIMARY_STRUCTURAL_TESTS guard, kept LOCAL to this module rather than folded
