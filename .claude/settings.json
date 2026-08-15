@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "deny": [
+      "mcp__Kubernetes_MCP_Server",
+      "mcp__Kubernetes_MCP_Server__*",
+      "Bash(kubectl:*)",
+      "Bash(kubectl *)",
+      "Bash(k3s:*)",
+      "Bash(k3s *)",
+      "Bash(k9s:*)",
+      "Bash(k9s *)",
+      "Bash(kustomize build:*)",
+      "Bash(argo:*)",
+      "Bash(argo *)",
+      "Bash(argocd:*)",
+      "Bash(argocd *)",
+      "Bash(helm install:*)",
+      "Bash(helm install *)",
+      "Bash(helm upgrade:*)",
+      "Bash(helm upgrade *)",
+      "Bash(helm uninstall:*)",
+      "Bash(helm uninstall *)",
+      "Bash(helm delete:*)",
+      "Bash(helm delete *)",
+      "Bash(helm rollback:*)",
+      "Bash(helm rollback *)",
+      "Bash(terraform apply:*)",
+      "Bash(terraform apply *)",
+      "Bash(terraform destroy:*)",
+      "Bash(terraform destroy *)",
+      "Bash(terraform plan:*)",
+      "Bash(terraform plan *)",
+      "Bash(terraform import:*)",
+      "Bash(terraform state:*)",
+      "Bash(terraform refresh:*)",
+      "Bash(terraform taint:*)",
+      "Bash(terraform untaint:*)",
+      "Bash(terraform force-unlock:*)"
+    ]
+  }
+}

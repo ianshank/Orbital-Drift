@@ -1,0 +1,206 @@
+# =============================================================================
+# Orbital-Drift CI — thin caller only.
+#
+# The gates themselves live in ci/checks.sh (plan.md puts "pipeline defs,
+# gitleaks config" under ci/). This file's only jobs are: provision a runner,
+# install pinned tools, and invoke `sh ci/checks.sh <stage>`. Do not add gate
+# logic here — it would immediately diverge from what runs locally and on node A.
+#
+# That rule was previously broken: this file inlined a `gitleaks git .` full-
+# history scan as a raw `docker run`, so a secret in an older commit was
+# invisible to every local check while CI claimed to be reproducible. The
+# history scan now lives in `ci/checks.sh gitleaks` alongside the working-tree
+# scan, and this file just calls it.
+#
+# BOOTSTRAP: every job installs with `python -m pip install -e ".[dev]"` —
+# the exact command README.md documents as the single Principle IV command
+# path. It previously installed four distributions by name instead, so CI never
+# once executed the documented bootstrap: a broken build backend, a malformed
+# [project] table or a bad `requires-python` would have been invisible here and
+# surfaced first on node A. The two now meet. hatchling, the PEP 517 backend
+# that command resolves, is pinned in pyproject.toml [build-system].requires and
+# in ci/versions.env like everything else.
+#
+# EVERYTHING MUTABLE IS PINNED, including the installer. Action versions are
+# pinned to a commit SHA, because a tag like `@v7` is mutable and a supply-chain
+# rewrite of it would silently run in a workflow that has repository read
+# access. The runner label is pinned for the same reason (`ubuntu-latest` is
+# mutable), the gitleaks and shellcheck images are pinned by digest rather than
+# tag for the same reason again, and `pip` itself is pinned to
+# ci/versions.env PIP_VERSION — this file used to run a bare
+# `pip install --upgrade pip`, an unpinned upgrade to a moving target executed
+# immediately before the step that installs every other pin.
+#
+# CACHING. `~/.cache/pip` comes from actions/setup-python; `~/.cache/pre-commit`
+# is cached explicitly, keyed on the hash of .pre-commit-config.yaml, because a
+# cold pre-commit cache clones three hook repositories and builds three
+# virtualenvs on every run. The `unit` stage needs it too: one of its tests
+# enumerates the hooks that actually execute at --hook-stage manual by running
+# pre-commit, which is the only way to see the MERGED hook definition.
+#
+# TIMEOUTS. Every job carries `timeout-minutes`. The default is 360, so a hung
+# `docker pull` against a rate-limited registry sat there for six hours.
+#
+# FORBIDDEN in this file: `continue-on-error`, `|| true`, `if: always()` on a
+# gate step. A gate that cannot fail the build is not a gate (Constitution V).
+#
+# STAGE COVERAGE: the matrix below plus the `gitleaks` and `hooks` jobs must
+# together cover every label in ci/checks.sh's dispatch `case`.
+# tests/unit/test_ci_contract.py asserts that, so a stage added to stage_all
+# cannot silently never run here.
+# =============================================================================
+
+name: ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Resolve the pinned tool versions once and hand them to every other job.
+  #
+  # This job's own `runs-on` is the single unavoidable literal: it has to boot
+  # before it can read CI_RUNNER_IMAGE. tests/unit/test_version_pins.py asserts
+  # the literal below equals ci/versions.env CI_RUNNER_IMAGE.
+  # ---------------------------------------------------------------------------
+  versions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      runner: ${{ steps.read.outputs.CI_RUNNER_IMAGE }}
+      python: ${{ steps.read.outputs.PYTHON_VERSION }}
+      pip: ${{ steps.read.outputs.PIP_VERSION }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read ci/versions.env
+        id: read
+        run: grep -E '^[A-Z0-9_]+=' ci/versions.env >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # lint | type-check | unit | contract | smoke   (FR-011, Constitution V)
+  # One matrix entry per stage so a failure names the gate that broke.
+  #
+  # Every stage runs ci/checks.sh's preflight for the pins IT executes, which
+  # fails closed if the installed versions differ — so the install step below
+  # cannot silently under-deliver.
+  # ---------------------------------------------------------------------------
+  python-gates:
+    needs: versions
+    runs-on: ${{ needs.versions.outputs.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: [lint, typecheck, unit, contract, smoke]
+    name: ${{ matrix.stage }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python ${{ needs.versions.outputs.python }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ needs.versions.outputs.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # tests/unit enumerates the hooks that run at --hook-stage manual by
+      # running pre-commit (the only way to observe the MERGED definition), so
+      # the unit stage wants this cache as much as the hooks job does.
+      - name: Cache pre-commit hook environments
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-py${{ needs.versions.outputs.python }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Bootstrap (the command README.md documents)
+        run: |
+          python -m pip install --upgrade "pip==${{ needs.versions.outputs.pip }}"
+          python -m pip install -e ".[dev]"
+
+      - name: Run stage
+        run: sh ci/checks.sh "${{ matrix.stage }}"
+
+  # ---------------------------------------------------------------------------
+  # gitleaks (Constitution VII). Separate job: it needs full history, which the
+  # Python gates do not, and a red result here halts everything.
+  #
+  # `fetch-depth: 0` matters, and so does the ABSENCE of `filter:`. A shallow
+  # clone makes the history scan see almost nothing and pass vacuously; a
+  # partial (blobless) clone does the same while `--is-shallow-repository` still
+  # reports false. `ci/checks.sh` refuses to run on either rather than trusting
+  # this block, but the block still has to be right or the job fails every run.
+  #
+  # NO PYTHON HERE, deliberately. `ci/checks.sh gitleaks` needs Docker and git
+  # and nothing else: it runs a pinned container and asserts that container's
+  # version itself. Installing the Python toolchain would make the secrets gate
+  # fail on a PyPI outage or a yanked build backend — a job named `gitleaks`
+  # going red for a reason that has nothing to do with secrets is how an
+  # operator learns to skim past it.
+  # ---------------------------------------------------------------------------
+  gitleaks:
+    needs: versions
+    runs-on: ${{ needs.versions.outputs.runner }}
+    timeout-minutes: 15
+    name: gitleaks
+    steps:
+      - name: Checkout (full history, unfiltered)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Scan working tree and full history
+        run: sh ci/checks.sh gitleaks
+
+  # ---------------------------------------------------------------------------
+  # pre-commit hooks. Without this job the hook set is enforced only where
+  # somebody ran `pre-commit install`, and one `git commit --no-verify` bypasses
+  # detect-private-key, check-added-large-files, mixed-line-ending and the
+  # check-yaml/toml/json hooks with CI still green.
+  #
+  # check-added-large-files carries `--enforce-all` for exactly that claim to be
+  # true: without it the hook only inspects files staged as added, of which a
+  # clean checkout has none, so it checked nothing and reported Passed.
+  #
+  # Not one of FR-011's six gates; it enforces the config those gates assume.
+  # ---------------------------------------------------------------------------
+  hooks:
+    needs: versions
+    runs-on: ${{ needs.versions.outputs.runner }}
+    timeout-minutes: 25
+    name: hooks
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python ${{ needs.versions.outputs.python }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ needs.versions.outputs.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Cache pre-commit hook environments
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-py${{ needs.versions.outputs.python }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Bootstrap (the command README.md documents)
+        run: |
+          python -m pip install --upgrade "pip==${{ needs.versions.outputs.pip }}"
+          python -m pip install -e ".[dev]"
+
+      - name: Run stage
+        run: sh ci/checks.sh hooks

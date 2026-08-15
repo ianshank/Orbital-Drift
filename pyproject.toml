@@ -1,0 +1,134 @@
+# =============================================================================
+# Orbital-Drift — project + tooling configuration
+#
+# Python 3.12 per specs/001-orbital-drift-ct/plan.md (Technical Context).
+# Runtime dependencies are deliberately EMPTY at T001: torch/torchgeo/airflow/
+# mlflow/lakefs-client land with the tasks that first import them (Phase 1+).
+# Adding them now would be scope creep and would pin versions nobody has
+# verified against the GPU stack yet (R-05).
+#
+# Every pin below was verified against a live source on 2026-08-08; see
+# docs/decisions/versions.md for the platform-side pins and the pinning
+# protocol (Constitution IV).
+# =============================================================================
+
+[build-system]
+# Pinned like every other tool (Constitution IV). `pip install -e ".[dev]"` —
+# the one documented bootstrap command, and now the command CI runs too —
+# resolves this in an isolated PEP 517 build environment, so an unpinned backend
+# would be a floating dependency of every install anyone ever makes of this
+# project. Mirrored in ci/versions.env HATCHLING_VERSION with its provenance
+# URL; tests/unit/test_version_pins.py asserts the two agree.
+requires = ["hatchling==1.31.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "orbital-drift"
+version = "0.0.0"
+description = "Self-retraining Sentinel-2 change-detection pipeline on k3s"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+# Installed by ci/checks.sh and by the pre-commit hooks' own isolated envs.
+# Keep in lockstep with ci/versions.env and .pre-commit-config.yaml revs.
+dev = [
+  "ruff==0.16.2",
+  "mypy==2.3.0",
+  "pytest==9.1.1",
+  "pre-commit==4.6.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/orbital_drift"]
+
+# -----------------------------------------------------------------------------
+# ruff — lint + format
+# -----------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+# `tests/unit` is listed so isort classifies `shell_harness` — the sibling
+# helper module that runs ci/checks.sh under stubs — as first-party. It is not
+# a package (no __init__.py) because pytest and mypy both resolve sibling
+# modules by directory, and adding one would put `tests` on the import path as
+# a distributable name.
+src = ["src", "tests", "tests/unit"]
+extend-exclude = [".terraform", "infra/**/*.tf"]
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "W",    # pycodestyle warnings
+  "F",    # pyflakes
+  "I",    # isort
+  "N",    # pep8-naming
+  "UP",   # pyupgrade
+  "B",    # flake8-bugbear
+  "A",    # flake8-builtins
+  "C4",   # flake8-comprehensions
+  "SIM",  # flake8-simplify
+  "PTH",  # flake8-use-pathlib
+  "ARG",  # unused arguments
+  "ANN",  # missing type annotations (feeds mypy strict)
+  "S",    # flake8-bandit — secrets/subprocess hygiene (Principle VII)
+  "T20",  # no print() — structured logging only
+  "TID",  # tidy imports
+  "RUF",  # ruff-specific
+]
+ignore = [
+  "ANN401",  # allow typing.Any where a boundary genuinely is dynamic
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+  "S101",  # assert is the point of a test
+  # The behavioural tests RUN ci/checks.sh (with git/docker/python stubbed on
+  # PATH), run pre-commit to enumerate the hooks that really execute, and run
+  # the pinned gitleaks container against planted secrets. Executing those
+  # commands is the mechanism, not a risk: every argv is a fixed list built from
+  # repository paths and `shutil.which` results, never from test input. Scoped
+  # to tests/ so production code keeps the check. Ignored here rather than with
+  # `# noqa`, because a per-file-ignore makes the rule non-enabled for the file
+  # and an inline suppression would then trip RUF100.
+  "S603",  # subprocess call: check for execution of untrusted input
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["orbital_drift"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# -----------------------------------------------------------------------------
+# mypy — type check
+# -----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tests"]
+mypy_path = "src"
+strict = true
+warn_unreachable = true
+warn_no_return = true
+show_error_codes = true
+pretty = true
+# Third-party geospatial/ML packages ship incomplete stubs; loosen per-module
+# in Phase 1+ with an explicit [[tool.mypy.overrides]] block and a reason,
+# never globally.
+ignore_missing_imports = false
+
+# -----------------------------------------------------------------------------
+# pytest
+# -----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "9.0"
+# src layout is importable without an editable install, so `pytest` works on a
+# clean checkout and inside a CI container with no build step.
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+  "contract: pipeline-boundary contract test (Constitution V)",
+  "smoke: DAG/workflow import + structural smoke test",
+]
