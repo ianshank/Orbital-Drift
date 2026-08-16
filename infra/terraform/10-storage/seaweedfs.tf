@@ -40,6 +40,27 @@
 # including 20-platform/lakefs.tf in this PR). T008 (mlflow.tf) and T009
 # (airflow.tf) should point their own existingSecret.name at this same secret
 # and use these same two discrete key names, not invent new ones.
+#
+# INNER JSON SCHEMA — peer-reviewer finding on the integrated T007-T010 set
+# (docs/decisions/006-t007-t010-integration.md): the citations above verify
+# the OUTER Helm field path (s3.existingConfigSecret) but never verified the
+# seaweedfs_s3_config payload's own inner shape (identities[].name,
+# .credentials[].{accessKey,secretKey}, .actions) against anything beyond
+# D-002/D-10's own relayed, not-independently-verified values.yaml excerpt —
+# a real citation gap, closed here. Confirmed via unmediated `curl` (not an
+# LLM-summarized fetch) of the chart's OWN README.md, 2026-08-16:
+#   https://raw.githubusercontent.com/seaweedfs/seaweedfs/master/k8s/charts/seaweedfs/README.md
+# which documents this exact shape as a complete, byte-exact worked example
+# (a full example Secret manifest, not just a field-path mention):
+#   seaweedfs_s3_config: '{"identities":[{"name":"...","credentials":
+#   [{"accessKey":"...","secretKey":"..."}],"actions":["Admin","Read",
+#   "Write"]}, ...]}'
+# — matching this resource's jsonencode() output field-for-field
+# (identities/name/credentials/accessKey/secretKey/actions). Residual risk,
+# stated plainly: this is the chart maintainers' own documented contract,
+# not SeaweedFS core's S3 IAM-loader source code directly — genuinely
+# undecidable with more certainty than that without a live gateway to
+# smoke-test against, which is exactly what T012 is for.
 
 variable "seaweedfs_s3_secret_name" {
   description = <<-EOT

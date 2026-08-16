@@ -307,9 +307,16 @@ resource "helm_release" "argo_workflows" {
   # confirmed against terraform-provider-helm's docs/resources/release.md at
   # the pinned v3.2.0 tag (see docs/decisions/005-t010-argo-workflows.md).
   set = [
-    # Namespace(s) this controller instance manages Workflow CRs in — host
-    # topology, not chart behavior, so it cannot be a static value in
-    # infra/helm-values/argo-workflows.yaml (D-002/D-07).
+    # Namespace(s) this generates per-namespace RBAC (ServiceAccount/Role/
+    # RoleBinding) for — host topology, not chart behavior, so it cannot be
+    # a static value in infra/helm-values/argo-workflows.yaml (D-002/D-07).
+    # NOT a controller watch-scope flag: with singleNamespace: false (this
+    # chart's config), the controller reconciles Workflow CRs cluster-wide
+    # regardless of this list — see the "RESIDUAL RBAC GAP" comment above
+    # for what this field actually provides (peer-reviewer finding on the
+    # integrated set, docs/decisions/006-t007-t010-integration.md; an
+    # earlier version of this comment incorrectly described this as
+    # controller-scoping, which it is not).
     {
       name  = "controller.workflowNamespaces[0]"
       value = kubernetes_namespace_v1.orbital_drift_training.metadata[0].name
