@@ -138,7 +138,7 @@ nvidia-smi
 
 ## Step 3 — CUDA 13.x validation
 
-**Context:** the GPU Operator's driver container is disabled on this host (`driver.enabled: false`, per the D-000/D-01 reference block and the "Reference: GPU Operator v26.3.3 values" section of `docs/decisions/000-phase0-technical-decisions.md`). CUDA userspace libraries for *containerized* workloads (training/serving pods) are supplied by the container images themselves via the NVIDIA Container Toolkit, installed later at `T004`/`T006` — not by a host-wide CUDA toolkit package. This step validates only that the installed driver's advertised CUDA ceiling is `13.x`, which every container image running on this host must stay at or under.
+**Context:** the GPU Operator's driver container is disabled on this host (`driver.enabled: false`, per the D-000/D-01 reference block and the "Reference: GPU Operator v26.3.3 values" section of `docs/decisions/000-phase0-technical-decisions.md`). CUDA userspace libraries for *containerized* workloads (training/serving pods) are supplied by the container images themselves via the NVIDIA Container Toolkit, authored in `T006`'s Helm values but only actually installed when they're applied at `T012` — not by a host-wide CUDA toolkit package, and not by `T004` (the k3s-install runbook, unrelated to the Toolkit). This step validates only that the installed driver's advertised CUDA ceiling is `13.x`, which every container image running on this host must stay at or under.
 
 **3.1 — Command:**
 ```
