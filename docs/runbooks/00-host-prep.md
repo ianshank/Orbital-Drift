@@ -150,7 +150,7 @@ nvidia-smi | grep -oP 'CUDA Version:\s*\K[0-9]+\.[0-9]+'
 
 **Abort / rollback path:** if the reported CUDA version is not on the `13.x` line (e.g. it reports `12.x`), the installed driver build does not match the `610.57.04` pin — re-run Step 2's verification (`dpkg --status nvidia-driver-610-open | grep Version`) rather than proceeding. **Do not** install a separate host CUDA toolkit package to try to "fix" this number — it is derived purely from the driver, and a toolkit package will not change it.
 
-**3.2 — Optional deeper validation (skip if Docker + NVIDIA Container Toolkit are not yet present on this host — they are formally installed at `T004`/`T006`, not here):**
+**3.2 — Optional deeper validation (skip if Docker + NVIDIA Container Toolkit are not yet present on this host — the Toolkit is authored in `T006`'s Helm values but only actually installed when they're applied at `T012`; Docker itself is an operator convenience for this sub-step, not something any task installs):**
 ```
 docker run --rm --gpus all nvidia/cuda:13.0.0-base-ubuntu24.04 nvidia-smi
 ```
@@ -158,7 +158,7 @@ docker run --rm --gpus all nvidia/cuda:13.0.0-base-ubuntu24.04 nvidia-smi
 
 **Verification check:** exit code `0`, both GPUs visible inside the container.
 
-**Abort path:** a non-zero exit or `could not select device driver` error here means the Container Toolkit isn't installed yet — this is expected and fine to defer to `T004`/`T006`. Do not treat a failure in this optional sub-step as a Step 2 driver failure; re-confirm with Step 2.5's bare-metal `nvidia-smi` first, which is the authoritative check.
+**Abort path:** a non-zero exit or `could not select device driver` error here means the Container Toolkit isn't installed yet — this is expected and fine to defer to `T006`/`T012`. Do not treat a failure in this optional sub-step as a Step 2 driver failure; re-confirm with Step 2.5's bare-metal `nvidia-smi` first, which is the authoritative check.
 
 ---
 
