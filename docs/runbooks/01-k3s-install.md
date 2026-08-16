@@ -23,7 +23,7 @@ Two clearly separated phases follow:
 
 1. **Host prep complete (T002/T003).** NVIDIA driver `610.57.04`, open kernel modules (D-000/D-01), must already be installed and verified on node A via `nvidia-smi`. Confirm T003's runbook verification block (`docs/runbooks/00-host-prep.md`) is filled in and green before continuing. Step 1 below re-checks this immediately before mutating anything.
 
-2. **`.env` populated locally, never committed.** This runbook uses `${NODE_A_LAN_IP}` and `${NODE_A_HOSTNAME}` as shell-variable placeholders throughout, sourced from your local, gitignored `.env` (copied from `.env.example`). Constitution III: this file is public — never substitute the literal IP/hostname into this document, a commit message, or a PR description. Before Step 1, run:
+2. **`.env` populated locally, never committed.** This runbook uses `${NODE_A_LAN_IP}` and `${NODE_A_HOSTNAME}` as shell-variable placeholders throughout, sourced from your local, gitignored `.env` (copied from `.env.example`). Per D-000/D-10's public-repo parameterization rule: this file is public — never substitute the literal IP/hostname into this document, a commit message, or a PR description. Before Step 1, run:
    ```
    set -a; source .env; set +a
    ```
@@ -94,13 +94,13 @@ NODE_A_LAN_IP is set: yes
 
 **Verification:** both lines read `yes`. This step deliberately does not print the values themselves, to keep them out of terminal-scrollback copies that might later get pasted somewhere public.
 
-**Rollback/Abort:** No mutation performed. If either reads `no`: **STOP** — populate `.env` from `.env.example` (`cp .env.example .env`, fill in locally, never commit) before continuing.
+**Rollback/Abort:** No mutation performed by the check itself, but the obvious fix is destructive if done carelessly — **read this before touching `.env`.** By this point in the runbook, `.env` was already created and populated with the GPU UUIDs during `docs/runbooks/00-host-prep.md` Step 4 (T002/T003). `.env.example`'s values are all blank, so re-running `cp .env.example .env` to "fix" a missing `NODE_A_*` value would silently wipe those UUIDs — a loss that would not surface until `T006`/`T010` read an empty `${ORBITAL_DRIFT_TRAIN_GPU_UUID}` much later, far from this cause. If either variable reads `no`: **STOP**, then **edit the existing `.env` in place** (`nano .env` or equivalent) and add or correct only the two `NODE_A_*` lines. Only run `cp .env.example .env` if `.env` genuinely does not exist yet at all — confirm with `[ -f .env ] && echo EXISTS || echo MISSING` first.
 
 ---
 
 ### Step 4 — Install k3s, pinned to `v1.35.7+k3s1`
 
-**Why this pin, not `v1.36.3+k3s1` ("latest stable"):** GPU Operator `v26.3.3` supports k3s `1.33`–`1.35` and containerd `1.7`–`2.2`. k3s `v1.36.3+k3s1` ships containerd `2.3.2` — outside both supported ranges. k3s `v1.35.7+k3s1` (released 2026-08-04) ships containerd `2.2.5-k3s2` — inside both. Chasing "latest" buys nothing here and moves the component most likely to fail (plan.md risk R-05) outside its tested envelope. Full reasoning: `docs/decisions/000-phase0-technical-decisions.md` D-07. Version provenance: `docs/decisions/versions.md`, "Host / cluster" table.
+**Why this pin, not `v1.36.3+k3s1` ("latest stable"):** GPU Operator `v26.3.3` supports k3s `1.33`–`1.35` and containerd `1.7`–`2.2`. k3s `v1.36.3+k3s1` ships containerd `2.3.2` — outside both supported ranges. k3s `v1.35.7+k3s1` ships containerd `2.2.5-k3s2` — inside both (confirmed against `https://github.com/k3s-io/k3s/releases/tag/v1.35.7%2Bk3s1`). Chasing "latest" buys nothing here and moves the component most likely to fail (plan.md risk R-05) outside its tested envelope. Full reasoning: `docs/decisions/000-phase0-technical-decisions.md` D-07. Version provenance: `docs/decisions/versions.md`, "Host / cluster" table.
 
 **Command:**
 ```
@@ -151,9 +151,11 @@ Go version go<...>
 
 ---
 
-### Step 6 — Confirm containerd is not directly invokable, and `RUNTIME_CONFIG_SOURCE=file` is therefore required
+### Step 6 — Record supporting context for `RUNTIME_CONFIG_SOURCE=file` (the underlying question stays open until T006/T012)
 
-**Context:** this closes the third empirical-verification item in `docs/decisions/000-phase0-technical-decisions.md`'s "Requires empirical verification on the hardware (T003/T005)" section: *"the default `command,file` runs `containerd config dump`, and k3s ships containerd as a subcommand; unverified whether it fails gracefully. `file` is the safe setting."* T006's reference GPU Operator values (same decision doc, `toolkit.env`) already set `RUNTIME_CONFIG_SOURCE=file` on that basis. This step confirms the environmental fact that motivates the override, on this actual host — it does **not**, and cannot, confirm that the toolkit's file-mode write itself succeeds, since the toolkit is not installed until T006/T012. That second half of the verification is what Steps 11/13 below already check (a correctly-wired `nvidia` containerd handler is only possible if the toolkit's file-mode config write worked — a broken write and a wired handler are mutually exclusive outcomes, so no separate "did file-mode work" check exists beyond that one).
+**Context — read the scoping carefully, this step does less than it might look like it does:** `docs/decisions/000-phase0-technical-decisions.md`'s "Requires empirical verification on the hardware (T003/T005)" section, item 3, names an unresolved question: *"the default `command,file` runs `containerd config dump`, and k3s ships containerd as a subcommand; unverified whether it fails gracefully. `file` is the safe setting."* The actual open question is whether the GPU Operator toolkit's own `command`-mode config injection — invoked from inside the toolkit's own container, in its own process environment — fails gracefully or badly when it cannot find a standalone `containerd` binary. **That question cannot be tested here, or by anything in this runbook: the toolkit does not exist on this host until T006/T012.** This step does not close it.
+
+What this step DOES do: it records one fact about this host, from the operator's own shell, that is context for whoever reviews T006's Helm values (which already set `RUNTIME_CONFIG_SOURCE=file` on the basis of this same reasoning, per the decision doc's reference values) — namely, that no standalone `containerd` binary is present here for the toolkit's `command` mode to have found in the first place, consistent with (not proof of) the "file is the safe setting" choice.
 
 **Command:**
 ```
@@ -162,13 +164,14 @@ command -v containerd
 
 **Expected output:** no output; non-zero exit — `containerd` is not present as a standalone binary on PATH, only as a subcommand of `k3s`.
 
-**Verification:** exit code non-zero (`echo $?` after the command, or run `command -v containerd; echo "exit: $?"`). Corroborate with:
+**Verification:** exit code non-zero (`echo $?` after the command, or run `command -v containerd; echo "exit: $?"`). Optionally, for the operator's own orientation only (this does **not** corroborate the toolkit's behavior — it only shows k3s's own embedded containerd is reachable from an interactive shell via `k3s containerd`, which is a different invocation path and a different process environment than the toolkit will use):
 ```
 sudo k3s containerd config dump | head -5
 ```
-which should succeed via the `k3s` subcommand path — a differently-invoked mechanism than the bare `containerd config dump` the toolkit's default `command`-mode would attempt against a standalone binary that does not exist here.
 
-**Rollback/Abort:** No mutation performed. If `command -v containerd` unexpectedly **succeeds** (a standalone `containerd` binary is present — e.g. from a prior Docker Engine or containerd install on this host), the risk profile `RUNTIME_CONFIG_SOURCE=file` was chosen to avoid may not apply the way D-000 assumed. Record this deviation in the Verification Block below and flag it explicitly in T006's Helm values PR description as a fact to reconsider before assuming `file` mode is still the correct setting — do not silently proceed as if nothing changed.
+**What still needs to happen for this coupling to actually close:** the toolkit's real, in-container behavior can only be observed once it is running — Steps 11/13 below are that observation. A correctly-wired `nvidia` containerd handler after T006/T012 is the only available evidence that the toolkit's file-mode config write worked; there is no way to test the "fails gracefully" question directly, before or after, since a graceful failure and a successful write look identical from the outside (a wired handler either way). If Steps 11/13 ever show a handler that will not wire even after a restart, treat `RUNTIME_CONFIG_SOURCE`'s behavior — not just the template deployment mechanism — as a candidate cause worth raising in that escalation.
+
+**Rollback/Abort:** No mutation performed. If `command -v containerd` unexpectedly **succeeds** (a standalone `containerd` binary is present — e.g. from a prior Docker Engine or containerd install on this host), record this deviation in the Verification Block below and flag it explicitly in T006's Helm values PR description as a fact worth reconsidering before assuming `file` mode is still the right setting — do not silently proceed as if nothing changed.
 
 ---
 
@@ -263,7 +266,7 @@ Per D-000/D-02b: k3s scans its runtime-binary PATH **once per k3s start**. If th
 
 **Command:**
 ```
-grep -A3 'runtimes.*nvidia' /var/lib/rancher/k3s/agent/etc/containerd/config.toml
+grep -A3 'runtimes\.nvidia\]' /var/lib/rancher/k3s/agent/etc/containerd/config.toml
 ```
 
 **Expected output (handler wired):** a block resembling:
@@ -273,7 +276,7 @@ grep -A3 'runtimes.*nvidia' /var/lib/rancher/k3s/agent/etc/containerd/config.tom
   ...
 ```
 
-**Verification:** `echo $?` immediately after the `grep` — `0` means the pattern was found (wired); `1` means not found (not wired). Do not rely on eyeballing the terminal alone; check the exit code.
+**Verification:** `echo $?` immediately after the `grep` — `0` means the pattern was found (wired); `1` means not found (not wired). Do not rely on eyeballing the terminal alone; check the exit code. **Either way, proceed to Step 13 next** — a fast "wired" result here is not sufficient on its own (Step 13 exists specifically because RuntimeClass presence and handler wiring must be checked together, and this step only checks the latter); a "not wired" result means Step 12 first.
 
 **Rollback/Abort:** No mutation performed by this step (it is read-only). If not wired (exit code `1`), proceed to Step 12 — this is the documented, expected recovery path, not an abort condition.
 
@@ -304,7 +307,7 @@ sudo k3s kubectl get runtimeclass
 ```
 followed by re-running Step 11's grep once more as the second half of this check:
 ```
-grep -A3 'runtimes.*nvidia' /var/lib/rancher/k3s/agent/etc/containerd/config.toml
+grep -A3 'runtimes\.nvidia\]' /var/lib/rancher/k3s/agent/etc/containerd/config.toml
 ```
 
 **Expected output:** `kubectl get runtimeclass` lists a row named `nvidia`; the grep independently returns the `runtimes.nvidia` block (exit code `0`).
@@ -315,7 +318,7 @@ grep -A3 'runtimes.*nvidia' /var/lib/rancher/k3s/agent/etc/containerd/config.tom
 
 A `nvidia` RuntimeClass with a grep exit code of `1` is **not verified** — treat it as "not wired" and return to Step 12, not as a pass.
 
-**Rollback/Abort:** No mutation performed by this step. If the RuntimeClass row is absent entirely (unusual — per D-000/D-02b it ships natively and unconditionally with k3s), this indicates a k3s install problem rather than a GPU Operator problem: fall back to Step 4's full uninstall/reinstall rollback path, then repeat Phase A and Phase B in order.
+**Rollback/Abort:** No mutation performed by this step. If the RuntimeClass row is absent entirely (unusual — per D-000/D-02b it ships natively and unconditionally with k3s), this indicates a k3s install problem, not a GPU Operator problem — but by this point in the runbook (Phase B, after T006/T012), **do not treat this as a routine retry.** This same k3s instance is now hosting the entire platform: GPU Operator, and whatever of Argo/Airflow/MLflow/lakeFS/CloudNativePG/SeaweedFS T007–T012 have deployed, plus any Constitution VI soak history accumulated since. Step 4's rollback (`k3s-uninstall.sh`) wipes `/var/lib/rancher/k3s`'s entire datastore — every object on the cluster, not just the RuntimeClass. **STOP. Do not run the uninstaller from here.** First: confirm this is not a transient scheduling/apply-order artifact (`sudo k3s kubectl get runtimeclass -o yaml` for a fuller picture; check `sudo journalctl -u k3s -n 200 --no-pager` for errors around the time the GPU Operator release applied). If the RuntimeClass is still genuinely and reproducibly absent, this is an incident, not a step in this runbook: open `docs/incidents/` per Constitution VI and involve the operator's own judgment on next steps before any destructive action — full uninstall/reinstall is a last resort weighed against what it costs to lose, not a default response to this symptom.
 
 **Optional additional confirmation** (from the D-000 reference verification block, not required to pass this runbook but useful for deeper troubleshooting): `ls -la /var/run/cdi/` should show a generated `nvidia.com-gpu.yaml`; `nvidia-smi -L` should still list both UUIDs unchanged from Step 1.
 
@@ -332,9 +335,10 @@ Complete this during T005 execution (Phase A fields) and again after Phase B is 
 | k3s version installed (`k3s --version` output) | |
 | Node label applied (`node-role.kubernetes.io/gpu=true`)? | yes / no |
 | kubeconfig local file path (path only — NEVER contents, NEVER commit the file itself) | |
+| Standalone `containerd` binary on PATH? (Step 6) — expected `no`; `yes` is a deviation, see Step 6's Rollback/Abort | yes / no |
 | — Phase B (complete after T006/T012) — | |
 | RuntimeClass `nvidia` present? (`kubectl get runtimeclass`) | yes / no / not yet reached |
-| containerd `nvidia` handler wired? (Step 12/13 grep) | yes / no / not yet reached |
+| containerd `nvidia` handler wired? (Step 11/13 grep) | yes / no / not yet reached |
 | k3s restart required after GPU Operator install? | yes / no / not yet reached |
 | Deviations from this runbook (if any) | |
 

@@ -32,7 +32,7 @@ The *version numbers* below (driver `610.57.04`, CUDA `13.x`, GPU Operator `v26.
 | GPU Operator chart (installed later at `T006`/`T012`; referenced here only for Step 6's compatibility check) | `v26.3.3` | https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html |
 | k3s (installed later at `T004`/`T005`, out of scope here) | `v1.35.7+k3s1` — **not** `v1.36.3+k3s1`, see D-000/D-07 | `docs/decisions/versions.md` |
 
-Host prep in this runbook is also a prerequisite for the `RUNTIME_CONFIG_SOURCE=file` question, but the resolution is split across three tasks, not configured in any one of them: `docs/runbooks/01-k3s-install.md` (`T004`) Step 6 empirically verifies, on the running k3s host, the environmental fact that motivates the override (containerd is reachable only as a `k3s` subcommand, not a standalone binary — see `docs/decisions/000-phase0-technical-decisions.md`'s "Requires empirical verification" item 3); `T006`'s GPU Operator Helm values are what actually set `toolkit.env`'s `RUNTIME_CONFIG_SOURCE=file`; and `T004`'s Phase B (post-`T006`/`T012`) containerd-handler-wiring checks are the only available proof that the file-mode write itself worked, since the toolkit that performs it does not exist until then.
+Host prep in this runbook is also a prerequisite for the `RUNTIME_CONFIG_SOURCE=file` question, but no single task fully resolves it — the question stays genuinely open until the toolkit exists. `docs/runbooks/01-k3s-install.md` (authored at `T004`, **executed at `T005`**, matching that document's own Phase A framing and `tasks.md`'s Dependencies table, which names this coupling "Resolved at: T005") Step 6 records one supporting fact on the running k3s host — that containerd is reachable only as a `k3s` subcommand, not a standalone binary — but explicitly does not and cannot confirm the actual unverified question from `docs/decisions/000-phase0-technical-decisions.md`'s "Requires empirical verification" item 3 (whether the toolkit's config-injection fails gracefully in this environment), since the toolkit does not exist yet. `T006`'s GPU Operator Helm values are what actually set `toolkit.env`'s `RUNTIME_CONFIG_SOURCE=file`. The closest thing to real evidence either way is `01-k3s-install.md`'s Phase B containerd-handler-wiring checks, executed at **T012** once the toolkit is live — a correctly-wired `nvidia` handler there is the only available proxy for "the file-mode write worked," since a graceful failure and a successful write are otherwise indistinguishable from the outside.
 
 ---
 
@@ -173,15 +173,15 @@ nvidia-smi -L
 GPU 0: NVIDIA GeForce RTX 5060 Ti (UUID: GPU-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
 GPU 1: NVIDIA GeForce RTX 5060 (UUID: GPU-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
 ```
-(The `x`-filled string above is a literal placeholder pattern for this document, per Constitution III — never write a real UUID into this file or any other committed file.)
+(The `x`-filled string above is a literal placeholder pattern for this document, per D-000/D-10's public-repo parameterization rule — never write a real UUID into this file or any other committed file.)
 
 **Verification check:** exactly two lines; each UUID begins with the literal `GPU-` prefix followed by 8-4-4-4-12 hex groups. **Match each UUID to a card by the model name printed on the same line ("RTX 5060 Ti" vs "RTX 5060"), never by the `GPU 0`/`GPU 1` index** — index-to-card mapping is not guaranteed stable across reboots or PCI slot reordering (D-000/D-03).
 
-**4.2 — Create the local `.env` (never commit this file):**
+**4.2 — Create the local `.env` (never commit this file) — non-destructively:**
 ```
-cp .env.example .env
+[ -f .env ] && echo "ALREADY EXISTS — not overwriting, see below" || cp .env.example .env
 ```
-**Expected output:** `.env` created in the repo root.
+**Expected output:** either `.env` created fresh in the repo root (typical — this is usually the first time `.env` is populated), or the `ALREADY EXISTS` message if a `.env` from a prior partial run, or from something unrelated, is already present. **If it already exists, do not delete or re-copy it** — `.env.example`'s values are all blank, so `cp .env.example .env` would silently discard anything already recorded there. Instead open the existing `.env` and confirm it has the two `ORBITAL_DRIFT_*_GPU_UUID` keys (add them by hand, per 4.3 below, if missing).
 
 **Verification check:**
 ```
@@ -365,5 +365,5 @@ Evidence (URL(s) checked, date checked):
 Notes for T006 Helm values PR:
 
 --- Overall ---
-Host prep result: PASS (proceed to T004/T005) / BLOCKED (state the blocking issue)
+Host prep result: PASS (proceed to T004/T005) / PASS WITH T006 CAVEAT (host prep itself is done — Steps 1-5 all PASS — but Step 6's verdict is FAIL or UNRESOLVED-PROCEED; proceed to T004/T005 as normal, but T006's Helm values PR must cite this block and address the caveat before that PR can be review-APPROVED) / BLOCKED (state the blocking issue — Steps 1-5 did not all PASS)
 ```
