@@ -62,7 +62,7 @@ That condition is now partly stale and partly met, and both halves are worth sta
 
 The gate ran enforcing throughout, which cost nothing and still costs nothing: with zero measurable statements the threshold is cleared by any value, so the pin does not begin to bite until Phase 1 lands executable code. What changes here is only the provenance of the number — from "agent proposal" to "operator decision" — which is the distinction `D-000`'s header format exists to keep honest.
 
-The commitment in the paragraph above is unaffected and still binding: revisit and **raise** this floor when Phase 1 makes it load-bearing. Lowering it to make a red build green remains the failure mode to watch.
+The commitment in the paragraph above is unaffected and still binding: revisit and **raise** this floor when Phase 1 makes it load-bearing.
 
 Lowering it to make a red build green is the failure mode to watch. The correct response to a breach is tests, or an explicit, reviewed change to this pin with the reason recorded here.
 
