@@ -1,0 +1,64 @@
+# infra/helm-values/cnpg-cluster.yaml
+#
+# CloudNativePG `cluster` chart 0.8.1 (infra/terraform/10-storage/cnpg_cluster.tf).
+# Static, literal, fully reviewable (D-002/D-07) — carries no secret-name
+# strings.
+#
+# Provenance for every non-default value below:
+#   https://raw.githubusercontent.com/cloudnative-pg/charts/cluster-v0.8.1/charts/cluster/values.yaml
+#   (fetched 2026-08-16)
+
+type: postgresql
+mode: standalone
+
+cluster:
+  # Chart default is 3. Single-node k3s cluster with local-path (node-local,
+  # RWO-only, D-000/D-08) storage — a 3-instance CNPG cluster on one physical
+  # node buys zero HA (every replica is one disk failure away from every
+  # other replica) while tripling the storage/CPU footprint node A owes the
+  # GPU workloads. 1 instance is the correct choice for this topology, not a
+  # placeholder; revisit if/when a second node joins the cluster.
+  instances: 1
+
+  storage:
+    size: 8Gi
+    # Empty string resolves to the cluster's default StorageClass, which on
+    # this k3s install is `local-path` (D-000/D-08) — no literal storageClass
+    # name is buried here because k3s's default-class behaviour already
+    # provides it without one.
+    storageClass: ""
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  # Hardened default (D-000/D-04, dispatch charter): nothing in T007-T010
+  # needs superuser access. Chart's own default is `true` — this is an
+  # EXPLICIT override, not a restatement of the chart default.
+  enableSuperuserAccess: false
+  superuserSecret: ""
+
+  # Deliberately unset (chart default is already an empty/commented block):
+  # leaving bootstrap.initdb.secret.name unset lets CNPG auto-create
+  # "<cluster-name>-app" from this Cluster's own metadata.name
+  # (D-002/D-07/D-08). Not written here at all — an explicit empty block
+  # would be indistinguishable from "we thought about this and left it
+  # blank," which is exactly what happened, so no override is needed beyond
+  # the chart's own default.
+
+  postgresql:
+    parameters: {}
+
+  monitoring:
+    enabled: false
+    podMonitor:
+      enabled: false
+
+# No `backups` / `plugins` configuration (D-002 Follow-up #1) — see
+# infra/terraform/00-crds/cnpg_operator.tf's header comment for why
+# plugin-barman-cloud is deliberately NOT wired in this PR.
+backups: {}

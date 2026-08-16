@@ -1,0 +1,51 @@
+# infra/helm-values/lakefs.yaml
+#
+# lakeFS chart 1.12.24 (infra/terraform/20-platform/lakefs.tf). Static,
+# literal, fully reviewable (D-002/D-07) — carries no secret-name strings
+# (existingSecret, secretKeys.*, and every extraEnvVars secretKeyRef are all
+# injected via set{} in lakefs.tf; see that file's header for the full
+# D-002/D-11 write-up).
+#
+# Provenance for every non-default value below:
+#   https://raw.githubusercontent.com/treeverse/charts/lakefs-1.12.24/charts/lakefs/values.yaml
+#   (fetched 2026-08-16)
+
+replicaCount: 1
+
+image:
+  pullPolicy: IfNotPresent
+  # Explicitly pinned to match this session's confirmed appVersion (1.103.0)
+  # rather than relying on the chart's own internal default binding — two
+  # fetches of this chart's values.yaml in this session returned inconsistent
+  # community.tag defaults ("1.86.0" vs the confirmed 1.103.0 appVersion),
+  # which is exactly the kind of ambiguity Constitution IV's explicit-pin
+  # requirement exists to remove. Re-verify at T011/T012 against the actual
+  # rendered chart if this looks wrong.
+  community:
+    tag: "1.103.0"
+
+useDevPostgres: false
+
+# database.type / blockstore.type select the BACKEND; the actual connection
+# string and S3 credentials are injected as env vars by lakefs.tf (existingSecret
+# + extraEnvVars), not written here — see that file's header for why.
+lakefsConfig: |
+  database:
+    type: postgres
+  blockstore:
+    type: s3
+    s3:
+      force_path_style: true
+      region: us-east-1
+      discover_bucket_region: false
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+ingress:
+  enabled: false

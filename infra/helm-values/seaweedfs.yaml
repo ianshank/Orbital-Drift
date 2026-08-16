@@ -1,0 +1,68 @@
+# infra/helm-values/seaweedfs.yaml
+#
+# SeaweedFS chart 4.41.0 (infra/terraform/10-storage/seaweedfs.tf). Static,
+# literal, fully reviewable (D-002/D-07) — carries no secret-name strings
+# (s3.existingConfigSecret is injected via set{} in seaweedfs.tf, since it
+# names a Kubernetes Secret object).
+#
+# Provenance for every non-default value below:
+#   https://raw.githubusercontent.com/seaweedfs/seaweedfs/master/k8s/charts/seaweedfs/values.yaml
+#   https://raw.githubusercontent.com/seaweedfs/seaweedfs/master/k8s/charts/seaweedfs/README.md
+#   (both fetched 2026-08-16; residual risk on chart-version provenance is
+#   recorded in seaweedfs.tf's header, not repeated here)
+
+global:
+  seaweedfs:
+    image:
+      name: chrislusf/seaweedfs
+    imagePullPolicy: IfNotPresent
+
+# Single-node k3s cluster (D-000/D-08): one replica per component is correct
+# for this topology — SeaweedFS's own erasure-coding/replication model
+# assumes multiple volume servers across failure domains, which does not
+# exist here. Revisit if/when a second node joins the cluster.
+master:
+  enabled: true
+  replicas: 1
+  data:
+    type: "hostPath"
+    size: "2Gi"
+    hostPathPrefix: /var/lib/orbital-drift/seaweedfs/master
+
+volume:
+  enabled: true
+  replicas: 1
+  dataDirs:
+    - name: data1
+      type: "hostPath"
+      hostPathPrefix: /var/lib/orbital-drift/seaweedfs/volume
+      maxVolumes: 0
+
+filer:
+  enabled: true
+  replicas: 1
+  data:
+    type: "hostPath"
+    size: "1Gi"
+    hostPathPrefix: /var/lib/orbital-drift/seaweedfs/filer
+
+# Standalone S3 API gateway component (top-level `s3:`), not the
+# filer-embedded form (`filer.s3.*`) the chart's own README happens to use in
+# its worked example — T007's call, documented in seaweedfs.tf's header. Chart
+# default is `enabled: false`; every downstream consumer in this stack
+# (lakeFS blockstore now, MLflow/Airflow artifact stores in T008/T009) needs
+# S3, so this must be turned on explicitly.
+s3:
+  enabled: true
+  enableAuth: true
+  replicas: 1
+  # s3.existingConfigSecret is set via set{} in seaweedfs.tf — it is a
+  # secret-name-shaped value and must not be a literal here (D-002/D-07).
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

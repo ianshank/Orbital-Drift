@@ -197,6 +197,9 @@ case "$*" in
     printf 'version: @SHELLCHECK_REPORTS@\n'
     printf 'license: GNU General Public License, version 3\n'
     printf 'website: https://www.shellcheck.net\n' ;;
+  *" -version")
+    printf 'Terraform v@TERRAFORM_REPORTS@\n'
+    printf 'on linux_amd64\n' ;;
 esac
 exit @DOCKER_RC@
 """
@@ -388,6 +391,7 @@ class Stubs:
     pytest_run_stdout: str = ""
     gitleaks_reports: str | None = None
     shellcheck_reports: str | None = None
+    terraform_reports: str | None = None
     py_full: str | None = None
     py_minor: str | None = None
     ruff: str | None = None
@@ -440,6 +444,7 @@ class _ResolvedStubs:
     pytest_run_stdout: str
     gitleaks_reports: str
     shellcheck_reports: str
+    terraform_reports: str
     py_full: str
     py_minor: str
     ruff: str
@@ -486,6 +491,11 @@ def _defaults(stubs: Stubs) -> _ResolvedStubs:
             PINS["SHELLCHECK_VERSION"]
             if stubs.shellcheck_reports is None
             else stubs.shellcheck_reports
+        ),
+        terraform_reports=(
+            PINS["TERRAFORM_VERSION"]
+            if stubs.terraform_reports is None
+            else stubs.terraform_reports
         ),
         py_full=(f"{PINS['PYTHON_VERSION']}.10" if stubs.py_full is None else stubs.py_full),
         py_minor=(PINS["PYTHON_VERSION"] if stubs.py_minor is None else stubs.py_minor),
@@ -599,6 +609,7 @@ def run_checks(
                 "@COMMAND@": "docker",
                 "@GITLEAKS_REPORTS@": resolved.gitleaks_reports,
                 "@SHELLCHECK_REPORTS@": resolved.shellcheck_reports,
+                "@TERRAFORM_REPORTS@": resolved.terraform_reports,
                 "@DOCKER_RC@": str(resolved.docker_rc),
                 "@DOCKER_INFO_RC@": str(resolved.docker_info_rc),
                 "@DOCKER_INFO_STDERR@": resolved.docker_info_stderr,

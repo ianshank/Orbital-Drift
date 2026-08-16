@@ -133,7 +133,10 @@ PRE_COMMIT_TEXT: Final = PRE_COMMIT_CONFIG.read_text(encoding="utf-8")
 #               test_build_backend_is_pinned_and_agrees_with_versions_env.
 #   GITLEAKS    runs as a pinned container, not a Python distribution.
 #   SHELLCHECK  same.
-NOT_A_DEV_EXTRA: Final = frozenset({"PYTHON", "PIP", "HATCHLING", "GITLEAKS", "SHELLCHECK"})
+#   TERRAFORM   same: a digest-pinned container, not a Python distribution.
+NOT_A_DEV_EXTRA: Final = frozenset(
+    {"PYTHON", "PIP", "HATCHLING", "GITLEAKS", "SHELLCHECK", "TERRAFORM"}
+)
 
 
 def _dev_extra_pins() -> list[tuple[str, str]]:
@@ -224,14 +227,15 @@ def test_mypy_hook_pins_the_same_pytest() -> None:
 
 
 @pytest.mark.parametrize(
-    ("image_key", "version_key", "digest_key", "repository"),
+    ("image_key", "version_key", "digest_key", "repository", "tag_prefix"),
     [
-        ("GITLEAKS_IMAGE", "GITLEAKS_VERSION", "GITLEAKS_DIGEST", "ghcr.io/gitleaks/gitleaks"),
-        ("SHELLCHECK_IMAGE", "SHELLCHECK_VERSION", "SHELLCHECK_DIGEST", "koalaman/shellcheck"),
+        ("GITLEAKS_IMAGE", "GITLEAKS_VERSION", "GITLEAKS_DIGEST", "ghcr.io/gitleaks/gitleaks", "v"),
+        ("SHELLCHECK_IMAGE", "SHELLCHECK_VERSION", "SHELLCHECK_DIGEST", "koalaman/shellcheck", "v"),
+        ("TERRAFORM_IMAGE", "TERRAFORM_VERSION", "TERRAFORM_DIGEST", "hashicorp/terraform", ""),
     ],
 )
 def test_container_image_is_digest_pinned_and_agrees_everywhere(
-    image_key: str, version_key: str, digest_key: str, repository: str
+    image_key: str, version_key: str, digest_key: str, repository: str, tag_prefix: str
 ) -> None:
     """A pinned container is a pin: repository, tag, digest and hook all agree.
 
@@ -251,6 +255,14 @@ def test_container_image_is_digest_pinned_and_agrees_everywhere(
     the human-readable version survives in the reference, while docker resolves
     the content by digest — the tag becomes a comment that cannot affect what
     runs.
+
+    ``tag_prefix`` exists because not every pinned repository shares
+    gitleaks/shellcheck's ``v``-prefixed tag convention: ``hashicorp/terraform``'s
+    Docker Hub tags carry no ``v`` at all — confirmed against the live registry's
+    own tag list (``1.15.8`` exists, ``v1.15.8`` does not), not assumed from the
+    other two entries in this table. Hardcoding ``v`` here would force a choice
+    between a test that fails on the real, pullable terraform image, or a pin
+    that satisfies the test but does not exist on the registry.
     """
     image = VERSIONS[image_key]
     version = VERSIONS[version_key]
@@ -259,8 +271,8 @@ def test_container_image_is_digest_pinned_and_agrees_everywhere(
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", digest), (
         f"{digest_key}={digest!r} is not a sha256 digest"
     )
-    assert image == f"{repository}:v{version}@{digest}", (
-        f"{image_key}={image} must be exactly {repository}:v{version}@{digest} "
+    assert image == f"{repository}:{tag_prefix}{version}@{digest}", (
+        f"{image_key}={image} must be exactly {repository}:{tag_prefix}{version}@{digest} "
         f"(from {version_key} and {digest_key})"
     )
 

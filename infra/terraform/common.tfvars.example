@@ -1,0 +1,56 @@
+# infra/terraform/common.tfvars.example
+#
+# Shared, host-level values every stage directory's `-var-file` invocation
+# needs (D-002/D-04). Copy to `common.tfvars` (gitignored — see
+# infra/terraform's *.tfvars pattern) and fill in with node A's real values
+# before T012's `terraform apply` runs.
+#
+#     cp infra/terraform/common.tfvars.example infra/terraform/common.tfvars
+#
+# Applied from inside a stage directory as, e.g.:
+#     cd infra/terraform/20-platform
+#     terraform apply -var-file=../common.tfvars -var-file=terraform.tfvars
+#
+# Mirrors .env.example's NODE_A_LAN_IP / NODE_A_HOSTNAME /
+# ORBITAL_DRIFT_TRAIN_GPU_UUID / ORBITAL_DRIFT_SERVE_GPU_UUID names exactly,
+# lowercased to Terraform's snake_case convention (Constitution III: one
+# name for one value, not a second invented name for the same thing).
+# Terraform cannot read .env directly, so this is a deliberate parallel
+# copy, not drift (D-002/D-04).
+#
+# Authorship / provenance note: this file does not exist yet in T010's own
+# worktree (worktree isolation — see docs/decisions/005-t010-argo-workflows.md,
+# renumbered from 004 during orchestrator integration, docs/decisions/006-t007-t010-integration.md).
+# A sibling T007 dispatch has, in its own separate worktree, already
+# authored this same file scoped to node_a_lan_ip / node_a_hostname /
+# kubeconfig_path, with an explicit instruction that "T010 should APPEND
+# [the GPU UUID] lines to this existing file rather than replacing it or
+# inventing a second common.tfvars-shaped file." This copy is authored to
+# match that structure/wording as closely as possible from the outside, with
+# the GPU UUID section appended per that instruction. Reconcile against
+# whichever copy actually merges first (D-002/D-03's "first-merged wins"
+# convention for versions.tf, extended here by analogy) — the values below
+# are placeholders (empty), so there is no real data to lose either way.
+
+# LAN IP of node A (the k3s host).
+node_a_lan_ip = ""
+
+# Hostname of node A.
+node_a_hostname = ""
+
+# Path to the kubeconfig Terraform's helm/kubernetes providers use in every
+# stage's providers.tf. Terraform runs ON node A (D-000/D-10), so this is
+# normally the node's own /etc/rancher/k3s/k3s.yaml or an equivalent
+# operator-owned copy — never committed (.gitignore's kubeconfig* patterns).
+kubeconfig_path = ""
+
+# --- GPU pinning (D-000/D-03), consumed only by
+# 20-platform/argo_workflows.tf (T010) — the only GPU-RBAC-relevant file
+# among T007-T010 (D-002/D-04). From `nvidia-smi -L` on node A. Include the
+# `GPU-` prefix; UUIDs only — PCI bus IDs and indices are rejected by the
+# JIT-CDI path / are not reboot-stable. These identify physical hardware and
+# MUST NOT be committed. ------------------------------------------------------
+#   orbital_drift_train_gpu_uuid -> RTX 5060 Ti 16GB (training)
+#   orbital_drift_serve_gpu_uuid -> RTX 5060 8GB     (serving / aux)
+orbital_drift_train_gpu_uuid = ""
+orbital_drift_serve_gpu_uuid = ""

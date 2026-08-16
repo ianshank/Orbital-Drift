@@ -1,0 +1,43 @@
+# infra/terraform/10-storage/terraform.tfvars.example
+# Component-specific values for the 10-storage stage (D-002/D-04).
+# Copy to terraform.tfvars (gitignored) and fill in.
+#
+#     cd infra/terraform/10-storage
+#     terraform apply -var-file=../common.tfvars -var-file=terraform.tfvars
+
+# Namespace holding the CNPG Cluster CR, SeaweedFS, and lakeFS (D-002/D-06).
+orbital_drift_namespace = "orbital-drift"
+
+# Name of the CloudNativePG Cluster CR (D-002/D-07). CNPG auto-creates
+# "${cnpg_cluster_name}-app" from this.
+cnpg_cluster_name = "orbital-drift-postgres"
+
+# Name of the pre-created Secret holding SeaweedFS's S3 identity config
+# (D-002/D-07, D-002/D-10). Re-declared identically in
+# 20-platform/terraform.tfvars.example for lakeFS (and, later, T008/T009's
+# MLflow/Airflow) to reference — see seaweedfs.tf's header comment for why one
+# secret carries two credential shapes.
+seaweedfs_s3_secret_name = "orbital-drift-seaweedfs-s3-credentials"
+
+# Name of the admin identity inside that secret's seaweedfs_s3_config JSON
+# blob (D-002/D-07's naming convention, extended here per a spec-guardian
+# finding on the integrated T007-T010 set — an identity NAME, not a
+# credential value, so it belongs alongside the other proposed-default names
+# above, not in the secret-VALUES section below).
+seaweedfs_s3_admin_identity_name = "orbital-drift-admin"
+
+# --- Secret VALUES: intentionally absent -------------------------------------
+# seaweedfs_s3_admin_access_key_id and seaweedfs_s3_admin_secret_access_key
+# are NOT listed here, even as empty placeholders. Per D-000/D-09
+# ("operator-supplied TF_VAR_* -> kubernetes_secret ... No inline passwords in
+# values files") and this dispatch's explicit instruction, actual secret
+# VALUES get no default anywhere, including this example file. Supply them at
+# apply time only:
+#
+#     export TF_VAR_seaweedfs_s3_admin_access_key_id="..."
+#     export TF_VAR_seaweedfs_s3_admin_secret_access_key="..."
+#     terraform apply -var-file=../common.tfvars -var-file=terraform.tfvars
+#
+# Generate them however the operator prefers (e.g. `openssl rand -hex 16` for
+# the access key ID, `openssl rand -base64 32` for the secret) — the exact
+# command belongs in the T011 bring-up runbook, not this file.

@@ -1,7 +1,7 @@
 # D-001: The `coverage` CI gate
 
 **Status:** decided 2026-08-15.
-**Provenance, stated precisely:** the operator asked for "full test suite with coverage". That request is the authority for **FR-011a**; everything below is an agent research conclusion with measurements, not an operator decision. The threshold *number* is an agent proposal and is the one item here most in need of operator confirmation.
+**Provenance, stated precisely:** the operator asked for "full test suite with coverage". That request is the authority for **FR-011a**; everything below is an agent research conclusion with measurements, not an operator decision — **except the threshold number, which the operator ratified at 85 on 2026-08-16** after being shown D-05's reasoning and the alternatives. It was an agent proposal until that date, and this line said so.
 **Decision-ID namespace:** this file's `D-001/D-nn` series is independent of `plan.md`'s Decision Log and of `D-000`'s. Cross-references from spec/plan/tasks to this file are written `D-001/D-nn`.
 **Why this exists:** a gate that no requirement asks for is scope creep, and a threshold with no stated rationale is a magic number wearing a config file as a disguise. Both are `spec-guardian` BLOCKs. This file supplies the missing reasoning.
 
@@ -56,7 +56,13 @@ Pinned as `coverage==7.15.4`, **without** the `[toml]` extras bracket: that extr
 
 It is deliberately **not** set to a number chosen to match whatever the first real module happens to score. When Phase 1 lands and the number becomes load-bearing, it should be revisited against measured reality and raised — a floor that never moves is a floor nobody is using.
 
-**Status of this number.** The gate is live at 85 and enforcing, and today that costs nothing: with zero measurable statements the threshold is cleared by any value, so the pin does not begin to bite until Phase 1 lands executable code. It is therefore safe to run enforcing while still awaiting the operator's word on the value itself — which is why `T001a` stays unchecked in `tasks.md` and its pull request stays a draft until the operator confirms both the coverage request and this number. Nothing about the gate needs to change if they pick differently; only this line does.
+**Status of this number: RATIFIED by the operator, 2026-08-16, at 85.** It was an agent proposal until then, and this paragraph previously said so — recording that `T001a` would stay unchecked in `tasks.md` and its pull request stay a draft until the operator confirmed both the coverage request and this number.
+
+That condition is now partly stale and partly met, and both halves are worth stating precisely rather than deleting. The pull request (#2) **merged on 2026-08-16 without being a draft**, so the draft half of the condition did not hold in practice. The number half did: the operator was asked directly, was shown this section's reasoning and the alternatives (90, and 75–80), and chose 85 — explicitly ratifying the existing pin rather than picking a new one. `T001a` is checked off on that basis, not on the merge.
+
+The gate ran enforcing throughout, which cost nothing and still costs nothing: with zero measurable statements the threshold is cleared by any value, so the pin does not begin to bite until Phase 1 lands executable code. What changes here is only the provenance of the number — from "agent proposal" to "operator decision" — which is the distinction `D-000`'s header format exists to keep honest.
+
+The commitment in the paragraph above is unaffected and still binding: revisit and **raise** this floor when Phase 1 makes it load-bearing.
 
 Lowering it to make a red build green is the failure mode to watch. The correct response to a breach is tests, or an explicit, reviewed change to this pin with the reason recorded here.
 
@@ -146,6 +152,23 @@ A third pass (`spec-guardian` APPROVE; `peer-reviewer` BLOCK-then-fixed, 2026-08
 ## Follow-ups found during this review, NOT fixed here
 
 Recorded so they are not rediscovered, per CLAUDE.md's "surface unknowns to the operator". **Each is unscheduled and needs operator triage before it becomes a task** — none corresponds to any of T001–T052, and items 7–10 in particular are new-scope proposals rather than defects in T001's artifacts. Listing them here is not agreement to do them. None blocks FR-011a.
+
+> **Triage, 2026-08-16.** The operator triaged this table. Outcomes, so the next reader does not re-triage it:
+>
+> | # | Outcome |
+> |---|---|
+> | 1 | **Accepted.** `D-nn` namespace sweep plus one mechanical guard, landed once, in its own PR. Not bundled — an earlier draft of the Phase 0 plan put the guard in two concurrent branches at once. |
+> | 2 | **Accepted.** `docs/ideas/` created; it is the escape valve `ml-engineer.md` and `plan.md` R-06 already cite. |
+> | 3 | **Accepted, fixed here.** `infra/k3s/` given an owner (T004) rather than deleted — `D-000/D-02b` requires a version-controlled `config-v3.toml.tmpl`, so the directory is real; only its task assignment was missing. |
+> | 4 | **Accepted, fixed here.** `tasks.md` is the plan of record (CLAUDE.md), so `plan.md` was the wrong document: promotion is a `dags/retrain.py` step, not a third Argo workflow. |
+> | 5 | **Accepted, fixed here.** `plan.md` R-05 now cites T002/T003. |
+> | 6 | **Accepted, fixed here.** Package-relative paths in `tasks.md` expanded to repo-relative. |
+> | 7 | **Accepted, deferred to its own PR**, scoped to `github-actions` + `docker` only. A Dependabot bump touching `pyproject.toml` alone reddens `test_versions_env_matches_pyproject_dev_extra` by design, so Python pins stay `pin-a-tool`'s job. |
+> | 8 | **Accepted.** PR template. |
+> | 9 | **Accepted, operator-applied.** The ruleset is committed as a reviewable artifact; the operator applies it — the same Principle I split that governs the cluster. |
+> | 10 | **Accepted.** `py.typed`. |
+>
+> Items 7–10 were correctly flagged above as new scope. They are **not** absorbed into T001a, which is closed; each carries its own task ID or an explicit recorded ruling that it needs none.
 
 | # | Finding |
 |---|---|

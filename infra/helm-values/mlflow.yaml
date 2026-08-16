@@ -1,0 +1,98 @@
+# infra/helm-values/mlflow.yaml
+#
+# Community MLflow chart 1.11.4 (app 3.15.1) — D-000/D-05b. Tracking server +
+# model registry: Postgres backend store on CloudNativePG (T007), S3 artifact
+# store on SeaweedFS (T007). Flat, kebab-case, one file per release (D-002/D-02).
+#
+# Secret NAMES and any value derived from a cross-cutting Terraform variable
+# (Postgres host/database, the S3 identity secret name and its per-key names,
+# the SeaweedFS endpoint URL, the artifact bucket name) are injected by
+# infra/terraform/20-platform/mlflow.tf's `helm_release.mlflow` `set` list —
+# never typed here (D-002/D-07). This file stays static, literal, and fully
+# reviewable: only genuinely static chart configuration lives below.
+
+replicaCount: 1
+
+image:
+  repository: burakince/mlflow
+  # Chart appVersion is 3.15.1 (D-000/D-05b); pinned explicitly rather than
+  # relying on the chart's own tag-defaults-to-AppVersion fallback
+  # (Constitution IV — pin every image tag, not just every chart version).
+  tag: "3.15.1"
+  # Digest-pinned for the same reason ci/versions.env digest-pins gitleaks/
+  # shellcheck: a tag is a mutable pointer. This is the manifest-list digest
+  # (spans amd64/arm64/unknown) resolved from the Docker Hub API for
+  # burakince/mlflow:3.15.1 on 2026-08-16 — the container runtime selects the
+  # correct platform manifest from within it automatically, the same pattern
+  # already used for ghcr.io/gitleaks/gitleaks in ci/versions.env.
+  digest: "sha256:b52ff6360acc74d448ac42efc4718a35997f16199cb7771ae9a4743bd84ce787"
+
+# MLflow tracking/registry is CPU+memory only. Deliberately no GPU request,
+# no runtimeClassName, no NVIDIA_VISIBLE_DEVICES: it never touches either
+# card in this node's training(16GB)/serving(8GB) GPU split. Modest Phase 0
+# starting point for a single-node home-lab cluster; revisit once the soak
+# shows real usage (Constitution VI).
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+telemetry:
+  # No anonymized usage data leaves this home cluster.
+  enabled: false
+
+# -- Postgres backend store (tracking metadata). Connects to CloudNativePG's
+# Cluster CR (T007, infra/terraform/10-storage/cnpg_cluster.tf). host,
+# database, and the existingDatabaseSecret block (NOT nested under postgres —
+# see docs/decisions/003-t008-mlflow-secret-wiring-findings.md D-003/01) are
+# injected by mlflow.tf's `set` entries; only static booleans/port live here.
+backendStore:
+  databaseMigration: true # run `mlflow db upgrade` so the registry schema exists
+  databaseConnectionCheck: true # wait for Postgres to be reachable before the server starts
+  postgres:
+    enabled: true
+    port: 5432
+
+# Explicitly reject the chart's bundled Bitnami Postgres/MySQL subcharts
+# (D-000/D-04 chose CloudNativePG instead) and its bundled MinIO subchart
+# (D-000/D-05 chose SeaweedFS instead), so a reader does not have to check
+# chart source to know these were a deliberate no, not an oversight.
+postgresql:
+  enabled: false
+mysql:
+  enabled: false
+minio:
+  enabled: false
+
+# -- S3 artifact store, pointed at SeaweedFS instead of AWS (D-000/D-05).
+# bucket, the existingSecret block, and MLFLOW_S3_ENDPOINT_URL are all
+# Terraform-injected (var.mlflow_s3_bucket / var.seaweedfs_s3_secret_name /
+# var.seaweedfs_s3_endpoint) — only the static enable toggle lives here.
+artifactRoot:
+  proxiedArtifactStorage: false # every consumer (training/serving pods) is in-cluster; no need to proxy through the tracking server
+  s3:
+    enabled: true
+
+# -- MLflow's own built-in basic-auth stays OFF for Phase 0. Whether Phase 0
+# needs it at all is undecided (docs/decisions/002-infra-layout.md Follow-up
+# #4) and this task's brief does not ask for it — default to off rather than
+# assume a scope this task was not given. Revisit with an explicit operator/
+# spec-guardian call, not silently here.
+auth:
+  enabled: false
+
+# flaskServerSecretKey deliberately left unset: the chart has no
+# existingSecret-shaped field for it (only a plain-value one), and setting a
+# real secret as a literal here would violate Constitution VII. Chart default
+# auto-generates it per pod, so Phase 0 accepts that a pod restart
+# invalidates active browser sessions/CSRF tokens — no stored credential is
+# lost, since backend/artifact credentials are entirely existingSecret-based
+# above.
+
+# serviceMonitor.enabled stays at the chart default (false): kube-prometheus-stack
+# is Phase 5 (T046) and its CRD does not exist yet — enabling this before
+# then reproduces exactly the "no matches for kind" failure D-000/D-06
+# documents for kube-prometheus-stack itself. Do not flip this on before T046.

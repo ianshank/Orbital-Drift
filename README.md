@@ -15,7 +15,7 @@ in `docs/runbooks/`.
 | Thing | Version | Why |
 |---|---|---|
 | Python | 3.12 | `pyproject.toml` sets `requires-python = ">=3.12,<3.13"` |
-| Docker | any recent daemon | gitleaks and shellcheck run as pinned containers, so no Go or Haskell toolchain is needed |
+| Docker | any recent daemon | gitleaks, shellcheck, and terraform fmt run as pinned containers, so no Go, Haskell, or Terraform toolchain is needed |
 | Git | any recent version | the gitleaks history scan and the pre-commit hooks both drive git |
 
 Every tool version the gates use is pinned in [`ci/versions.env`](ci/versions.env),
