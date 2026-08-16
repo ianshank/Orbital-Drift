@@ -2154,6 +2154,9 @@ def test_hooks_stage_requires_docker_and_asserts_the_image_it_runs() -> None:
     assert "require_shellcheck_image" in body, (
         "stage_hooks does not assert the shellcheck container's version"
     )
+    assert "require_terraform_image" in body, (
+        "stage_hooks does not assert the terraform container's version"
+    )
     assert "require_gitleaks_image" not in body, (
         "stage_hooks asserts the gitleaks image again, but no gitleaks hook runs at "
         "--hook-stage manual. The printed version implies an enforcement that is not "

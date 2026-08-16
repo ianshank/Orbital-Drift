@@ -284,7 +284,10 @@ BOOTSTRAP_CMD='python -m pip install -e ".[dev]"'
 #   pin gitleaks    runs as a pinned container; asserted by
 #                   require_pinned_image() from stage_gitleaks.
 #   pin shellcheck  same, asserted from stage_hooks.
-PREFLIGHT_EXEMPT_PINS='python hatchling pip gitleaks shellcheck'
+#   pin terraform   same: runs as a pinned container, asserted from
+#                   stage_hooks by require_terraform_image — never a Python
+#                   distribution, so tool_version() has no probe for it.
+PREFLIGHT_EXEMPT_PINS='python hatchling pip gitleaks shellcheck terraform'
 
 # Which pinned Python distributions each stage actually EXECUTES. This is the
 # whole of the per-stage scoping rule; nothing else decides what a stage asserts.
@@ -1085,7 +1088,7 @@ stage_coverage() {
 }
 
 # =============================================================================
-# Pinned-container plumbing (gitleaks, shellcheck)
+# Pinned-container plumbing (gitleaks, shellcheck, terraform)
 #
 # Runs the pinned containers rather than local builds, so these stages behave
 # identically on the Windows authoring box, a GitHub runner, and node A.
@@ -1457,17 +1460,32 @@ docker_failure_report() {
 # change.
 gitleaks_reported_version() { sed -n '1s/^v\{0,1\}//p'; }
 shellcheck_reported_version() { sed -n 's/^version:[[:space:]]*//p'; }
+# terraform version prints a two-line banner, "Terraform v1.15.8" on line 1
+# ("on linux_amd64" on line 2) — confirmed against a real pulled-and-run
+# 1.15.8 binary, not just the CLI's own source. -version (not the bare
+# "version" gitleaks uses, nor the "--version" shellcheck uses) is a
+# deliberate choice: tests/unit/shell_harness.py's DOCKER_STUB dispatches on
+# the trailing suffix of the whole probe command line, and "-version" (no
+# space before the dash) matches neither of the other two tools' stub arms.
+terraform_reported_version() { sed -n '1s/^Terraform v//p'; }
 
 # The image reference is a pin like any other: assert the container agrees with
 # ci/versions.env before trusting its verdict. Digest-pinning makes docker
 # resolve the CONTENT; this assertion catches the case where the digest is
 # stale relative to the version the rest of the repo believes it is running.
+#
+# rp_tag_prefix exists because not every pinned repository's tags share
+# gitleaks/shellcheck's "v"-prefixed convention — hashicorp/terraform's
+# Docker Hub tags carry no "v" at all (confirmed against the live registry's
+# own tag list). Without a caller-supplied prefix, the remediation commands
+# printed below would suggest a tag that does not exist on the registry.
 require_pinned_image() {
   rp_tool="$1"
   rp_image="$2"
   rp_expected="$3"
-  rp_extract="$4"
-  shift 4
+  rp_tag_prefix="$4"
+  rp_extract="$5"
+  shift 5
 
   docker_probe_errfile
   set +e
@@ -1500,9 +1518,9 @@ require_pinned_image() {
       printf '        docker ran the image successfully, so this is genuine pin drift: the\n'
       printf '        digest and the version string in ci/versions.env describe different\n'
       printf '        releases. Re-resolve both together:\n\n'
-      printf '            docker pull %s:v%s\n' "${rp_repo}" "${rp_expected}"
-      printf '            docker inspect --format="{{index .RepoDigests 0}}" %s:v%s\n\n' \
-        "${rp_repo}" "${rp_expected}"
+      printf '            docker pull %s:%s%s\n' "${rp_repo}" "${rp_tag_prefix}" "${rp_expected}"
+      printf '            docker inspect --format="{{index .RepoDigests 0}}" %s:%s%s\n\n' \
+        "${rp_repo}" "${rp_tag_prefix}" "${rp_expected}"
     } >&2
     return 1
   fi
@@ -1510,13 +1528,18 @@ require_pinned_image() {
 }
 
 require_gitleaks_image() {
-  require_pinned_image gitleaks "${GITLEAKS_IMAGE}" "${GITLEAKS_VERSION}" \
+  require_pinned_image gitleaks "${GITLEAKS_IMAGE}" "${GITLEAKS_VERSION}" v \
     gitleaks_reported_version version
 }
 
 require_shellcheck_image() {
-  require_pinned_image shellcheck "${SHELLCHECK_IMAGE}" "${SHELLCHECK_VERSION}" \
+  require_pinned_image shellcheck "${SHELLCHECK_IMAGE}" "${SHELLCHECK_VERSION}" v \
     shellcheck_reported_version --version
+}
+
+require_terraform_image() {
+  require_pinned_image terraform "${TERRAFORM_IMAGE}" "${TERRAFORM_VERSION}" "" \
+    terraform_reported_version -version
 }
 
 # =============================================================================
@@ -1951,8 +1974,9 @@ stage_hooks() {
 
   log "hooks — pre-commit ${PRE_COMMIT_VERSION} (pre-commit run --all-files)"
 
-  # One hook in the config that runs at this stage is `language: docker_image`
-  # (shellcheck), so the daemon is a hard requirement and its pin is assertable.
+  # Two hooks in the config that run at this stage are `language: docker_image`
+  # (shellcheck, terraform-fmt), so the daemon is a hard requirement and both
+  # pins are assertable.
   #
   # ROUND 10 — this stage's guard had the SAME binary-only weakness stage_unit's
   # did, but not the same consequence: require_shellcheck_image two lines below
@@ -1966,9 +1990,10 @@ stage_hooks() {
   # NOTE: do not let a wrapped comment line in this file begin with the token
   # pair `#` + `shellcheck` — shellcheck parses that as a directive and fails
   # with SC1072/SC1073. This exact comment tripped it once.
-  docker_or_fail "the shellcheck pre-commit hook is language: docker_image"
+  docker_or_fail "the shellcheck and terraform-fmt pre-commit hooks are language: docker_image"
   git_or_fail "this stage builds pre-commit's --files argument from git ls-files (tracked) and git ls-files --others --exclude-standard (untracked)"
   require_shellcheck_image
+  require_terraform_image
 
   hk_tracked=$(git ls-files)
   if [ -n "${hk_tracked}" ]; then

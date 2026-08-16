@@ -142,6 +142,50 @@ repos:
         types: [shell]
 
   # ---------------------------------------------------------------------------
+  # terraform fmt -check — canonical HCL formatting for the real .tf files
+  # T007-T010 landed under infra/terraform/{00-crds,10-storage,20-platform}/.
+  #
+  # Declared as a local docker_image hook, mirroring the shellcheck hook above
+  # exactly and for the same reason: no terraform binary or Docker daemon
+  # exists on the Windows authoring box, and digest-pinning keeps this hook
+  # byte-identical to what ci/checks.sh's hooks stage runs.
+  #
+  # types: [terraform], not a files: regex — pre-commit's own `identify`
+  # library classifies both .tf and .tfvars under the `terraform` tag, the
+  # same file-selection mechanism the shellcheck hook above uses via
+  # types: [shell]. This does NOT sweep in the four *.tfvars.example templates
+  # under infra/terraform/ (D-002/D-04): identify keys off the LAST dot-suffix
+  # only, so e.g. "common.tfvars.example" resolves to extension "example", not
+  # "tfvars".
+  #
+  # pass_filenames is left at its default (true), matching the shellcheck hook
+  # above: pre-commit hands the matched .tf/.tfvars paths as trailing args,
+  # and `terraform fmt` genuinely accepts a list of file paths, not just one
+  # directory — each path is stat'd and processed independently. -recursive
+  # is a no-op in this mode (it only matters when fmt is given a directory)
+  # but costs nothing to keep as defensive convention.
+  #
+  # -check makes this READ-ONLY: exits non-zero on a diff (3) or a genuine
+  # HCL parse error (2), writes nothing. -no-color keeps CI log output clean.
+  # Neither flag makes any network call.
+  #
+  # `ci/checks.sh hooks` asserts the container reports terraform 1.15.8 before
+  # running this, mirroring the shellcheck pin check (require_terraform_image).
+  # ---------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: terraform-fmt
+        name: terraform fmt -check (pinned container)
+        description: >-
+          Check canonical HCL formatting with hashicorp/terraform 1.15.8
+          (pinned container). Read-only — fails on a diff, writes nothing.
+        language: docker_image
+        entry: >-
+          hashicorp/terraform:1.15.8@sha256:7ae513256f7ce67879e218ae8593d6fbe216ec9e123abe6c94e4e10704857963
+          fmt -check -recursive -no-color
+        types: [terraform]
+
+  # ---------------------------------------------------------------------------
   # gitleaks — Constitution VII. A red gitleaks halts everything.
   #
   # `stages: [pre-commit]` and it MATTERS. This hook scans the STAGED DIFF,
