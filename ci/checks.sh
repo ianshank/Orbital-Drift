@@ -989,7 +989,7 @@ stage_coverage() {
   # bare `FAILED ` at column 0, so `^FAILED ` cannot be satisfied by that
   # traceback text — only by pytest's own summary line for a test that actually
   # failed, including this one.
-  if printf '%s' "${cov_output}" | grep -q '^FAILED '; then
+  if printf '%s' "${cov_output}" | grep -q '^FAILED \|^ERROR '; then
     {
       printf '\n'
       printf 'FAIL: tests failed UNDER MEASUREMENT — this is not (only) a coverage breach.\n\n'
@@ -1008,8 +1008,8 @@ stage_coverage() {
     # broken test simply isn't in it), and the message's own next paragraph
     # ("if they are GREEN and this is RED, ... not a broken test") would then
     # have actively argued them away from the real, ordinary bug. Read the
-    # implicated suite(s) from the FAILED lines themselves rather than assume.
-    failed_lines=$(printf '%s' "${cov_output}" | grep '^FAILED ')
+    # implicated suite(s) from the FAILED/ERROR lines themselves rather than assume.
+    failed_lines=$(printf '%s' "${cov_output}" | grep '^FAILED \|^ERROR ')
     suite_named=0
     if printf '%s' "${failed_lines}" | grep -q 'tests/unit/'; then
       printf '            sh ci/checks.sh unit\n' >&2

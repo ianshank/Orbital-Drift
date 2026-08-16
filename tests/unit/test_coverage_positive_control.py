@@ -26,6 +26,7 @@ Isolation: each control builds a throwaway package and its own ``pytest.ini`` un
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -88,6 +89,17 @@ def _workspace(tmp_path: Path, test_body: str) -> Path:
     return tmp_path
 
 
+def _sanitized_env() -> dict[str, str]:
+    """Return a copy of the environment with PYTEST_ADDOPTS removed.
+
+    Prevents developer-local settings (e.g., --no-cov) from affecting
+    subprocess runs, keeping the positive control hermetic.
+    """
+    env = os.environ.copy()
+    env.pop("PYTEST_ADDOPTS", None)
+    return env
+
+
 def _run(root: Path, threshold: str) -> subprocess.CompletedProcess[str]:
     """Run the real pytest-cov exactly as ``stage_coverage`` invokes it."""
     return subprocess.run(
@@ -109,6 +121,7 @@ def _run(root: Path, threshold: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+        env=_sanitized_env(),
     )
 
 
@@ -211,6 +224,7 @@ def test_a_cov_path_that_does_not_exist_fails_closed(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
         check=False,
+        env=_sanitized_env(),
     )
     combined = result.stdout + result.stderr
     assert result.returncode != 0, (
