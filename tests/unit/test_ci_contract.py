@@ -1738,6 +1738,34 @@ def test_pyproject_does_not_override_python_files_without_telling_checks_sh() ->
     )
 
 
+def test_coverage_flags_never_enter_the_global_pytest_addopts() -> None:
+    """``--cov`` belongs to the coverage stage's command line, nowhere else.
+
+    ``addopts`` applies to EVERY pytest invocation in the repo. Putting a
+    coverage flag there would:
+
+    * attach coverage to ``pytest_suite()``'s ``--collect-only`` probe, which
+      exists to answer one question about emptiness and should measure nothing;
+    * make the lint/unit/contract/smoke stages hard-fail with "unrecognized
+      arguments: --cov" on any machine without pytest-cov — including two stages
+      whose ``stage_python_pins`` arm does not assert that pin, so the failure
+      would name a tool the stage never claimed to need;
+    * silently change what ``--cov-fail-under`` measures depending on which
+      stage happened to invoke pytest.
+
+    The coverage stage passes its own flags explicitly and
+    tests/unit/test_checks_sh_behaviour.py asserts that argv. This test guards
+    the other direction: that nothing put them in the shared config too.
+    """
+    config = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+    addopts = str(config["tool"]["pytest"]["ini_options"].get("addopts", ""))
+    for flag in ("--cov", "--no-cov"):
+        assert flag not in addopts, (
+            f"pyproject addopts carries {flag!r}: {addopts!r}. Coverage flags belong to "
+            "ci/checks.sh's stage_coverage command line only."
+        )
+
+
 # =============================================================================
 # MAJOR 4 — a docker failure is not a version mismatch.
 # =============================================================================
@@ -2075,7 +2103,42 @@ def test_unit_stage_requires_git_for_its_own_named_reason() -> None:
 _DOCKER_OR_FAIL_REASON_RE: Final = re.compile(r'docker_or_fail\s+"([^"]+)"')
 
 
-@pytest.mark.parametrize("stage_function", ["stage_gitleaks", "stage_hooks", "stage_unit"])
+# Every stage that guards on Docker/git. ONE list, consumed by all four tests
+# below, and cross-checked against ci/checks.sh itself by the test immediately
+# after it — so a stage that grows a `docker_or_fail` call cannot quietly escape
+# the distinctness check by nobody remembering to extend four literal lists.
+# (These were four separate hardcoded lists until the `coverage` stage was added
+# and had to be pasted into all of them. Same failure shape as the hand-written
+# parametrize in test_version_pins.py: the guard that does not extend itself is
+# the guard that silently stops covering things.)
+_OR_FAIL_STAGES: Final[tuple[str, ...]] = (
+    "stage_gitleaks",
+    "stage_hooks",
+    "stage_unit",
+    "stage_coverage",
+)
+
+
+def test_the_or_fail_stage_list_matches_the_script() -> None:
+    """``_OR_FAIL_STAGES`` must name exactly the stages that really guard.
+
+    Derived from ci/checks.sh rather than trusted, so adding a stage with a
+    Docker or git dependency fails here until it is listed — at which point the
+    distinctness tests below start covering it automatically.
+    """
+    for call, expected in (("docker_or_fail", set(_OR_FAIL_STAGES)), ("git_or_fail", None)):
+        actual = {
+            name for name, body in FUNCTIONS.items() if name.startswith("stage_") and call in body
+        }
+        target = expected if expected is not None else set(_OR_FAIL_STAGES)
+        assert actual == target, (
+            f"stages calling {call} are {sorted(actual)}, but _OR_FAIL_STAGES says "
+            f"{sorted(target)}. Update the list so the distinctness tests cover the "
+            "new stage, or remove the guard that should not be there."
+        )
+
+
+@pytest.mark.parametrize("stage_function", _OR_FAIL_STAGES)
 def test_every_docker_or_fail_reason_is_a_literal_string(stage_function: str) -> None:
     """Guard the parser used by the distinctness test below."""
     assert _DOCKER_OR_FAIL_REASON_RE.search(FUNCTIONS[stage_function]), (
@@ -2085,7 +2148,7 @@ def test_every_docker_or_fail_reason_is_a_literal_string(stage_function: str) ->
 
 
 def test_the_three_docker_or_fail_reasons_are_all_distinct() -> None:
-    """Three stages call ``docker_or_fail`` now; each must explain ITS OWN need.
+    """Every guarding stage must explain ITS OWN need, not a copy of another's.
 
     Asserting the string ``docker_or_fail`` is present (as the sibling tests
     above and below do) is satisfied by a copy-pasted reason that names the
@@ -2094,14 +2157,14 @@ def test_the_three_docker_or_fail_reasons_are_all_distinct() -> None:
     """
     reasons = {
         stage: _DOCKER_OR_FAIL_REASON_RE.search(FUNCTIONS[stage]).group(1)  # type: ignore[union-attr]
-        for stage in ("stage_gitleaks", "stage_hooks", "stage_unit")
+        for stage in _OR_FAIL_STAGES
     }
-    assert len(set(reasons.values())) == 3, (
-        f"two of the three docker_or_fail reasons are identical: {reasons}"
+    assert len(set(reasons.values())) == len(_OR_FAIL_STAGES), (
+        f"two docker_or_fail reasons are identical: {reasons}"
     )
 
 
-@pytest.mark.parametrize("stage_function", ["stage_gitleaks", "stage_hooks", "stage_unit"])
+@pytest.mark.parametrize("stage_function", _OR_FAIL_STAGES)
 def test_every_git_or_fail_reason_is_a_literal_string(stage_function: str) -> None:
     """ROUND 6 / MAJOR 2: the git analogue of the docker parser guard above."""
     assert _GIT_OR_FAIL_REASON_RE.search(FUNCTIONS[stage_function]), (
@@ -2120,10 +2183,10 @@ def test_the_three_git_or_fail_reasons_are_all_distinct() -> None:
     """
     reasons = {
         stage: _GIT_OR_FAIL_REASON_RE.search(FUNCTIONS[stage]).group(1)  # type: ignore[union-attr]
-        for stage in ("stage_gitleaks", "stage_hooks", "stage_unit")
+        for stage in _OR_FAIL_STAGES
     }
-    assert len(set(reasons.values())) == 3, (
-        f"two of the three git_or_fail reasons are identical: {reasons}"
+    assert len(set(reasons.values())) == len(_OR_FAIL_STAGES), (
+        f"two git_or_fail reasons are identical: {reasons}"
     )
 
 
@@ -2135,6 +2198,13 @@ _STAGE_TEST_DIRS: Final[dict[str, tuple[str, ...]]] = {
     "stage_unit": ("tests/unit",),
     "stage_contract": ("tests/contract",),
     "stage_smoke": ("tests/smoke",),
+    # `coverage` runs ALL THREE suites in one pytest process, so it inherits
+    # tests/unit's real docker and git dependencies wholesale. Listing it here is
+    # not bookkeeping: without the entry this sweep simply would not look at the
+    # stage, and it would pass vacuously while the stage reported a green
+    # coverage number computed from a run in which eight container-dependent
+    # positive controls had silently skipped.
+    "stage_coverage": ("tests/unit", "tests/contract", "tests/smoke"),
 }
 # `_tool("docker")` / `_tool("git")` are tests/unit/test_gitleaks_positive_control.py's
 # own helper for "resolve a real binary, skipping outside CI if absent".

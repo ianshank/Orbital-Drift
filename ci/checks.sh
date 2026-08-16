@@ -157,7 +157,7 @@ PYTHON="${PYTHON:-python}"
 # the pin-coverage self-check below can iterate them without re-parsing the
 # case, and so tests/unit/test_ci_contract.py can assert this list, the dispatch
 # and .github/workflows/ci.yml all describe the same set of stages.
-STAGE_LABELS='lint typecheck unit contract smoke gitleaks hooks all'
+STAGE_LABELS='lint typecheck unit contract smoke coverage gitleaks hooks all'
 
 log() { printf '\n\033[1m>>> %s\033[0m\n' "$*"; }
 
@@ -292,14 +292,26 @@ PREFLIGHT_EXEMPT_PINS='python hatchling pip gitleaks shellcheck'
 # `gitleaks` is deliberately empty. It runs a container and git, both of which it
 # asserts itself (require_gitleaks_image, git_or_fail,
 # require_git_history_is_scannable). It runs no Python.
+# THREE THINGS IN THIS FILE ARE NOW CALLED "coverage" AND THEY ARE UNRELATED:
+#   require_pin_coverage()  — "is every pin claimed by some stage?"
+#   the `coverage` STAGE    — the FR-011a test-coverage gate
+#   the `coverage` TOOL     — the pinned distribution that computes the number
+# The arm below claims the tool for the stage. Mechanically unambiguous; named
+# here because a reader meeting the third one cold will otherwise assume a typo.
 stage_python_pins() {
   case "$1" in
     lint)                printf 'ruff\n' ;;
     typecheck)           printf 'mypy\n' ;;
     unit|contract|smoke) printf 'pytest\n' ;;
+    coverage)            printf 'pytest\npytest-cov\ncoverage\n' ;;
     hooks)               printf 'pre-commit\n' ;;
     gitleaks)            ;;
-    all)                 printf 'ruff\nmypy\npytest\npre-commit\n' ;;
+    # `all` must list the UNION of every arm above. Not cosmetic: preflight()
+    # prints its banner when a stage needs a tool not yet logged, so omitting
+    # the two coverage pins here makes `all` print a second banner when
+    # stage_coverage's preflight meets them for the first time — which
+    # test_all_run_prints_the_preflight_banner_once_not_once_per_stage catches.
+    all)                 printf 'ruff\nmypy\npytest\npytest-cov\ncoverage\npre-commit\n' ;;
     *)
       printf 'internal error: no pin set declared for stage %s\n' "$1" >&2
       return 1
@@ -371,6 +383,16 @@ tool_version() {
     ruff)       "${PYTHON}" -m ruff --version 2>/dev/null | awk 'NR==1{print $2}' | tr -d '\r' ;;
     mypy)       "${PYTHON}" -m mypy --version 2>/dev/null | awk 'NR==1{print $2}' | tr -d '\r' ;;
     pytest)     "${PYTHON}" -c 'import pytest;print(pytest.__version__)' 2>/dev/null | tr -d '\r' ;;
+    # pytest-cov and coverage are probed through importlib.metadata rather than a
+    # module attribute, for two reasons. It is the canonical way to ask what
+    # DISTRIBUTION is installed (a plugin need not expose __version__ at all),
+    # and — load-bearing for the test harness — the resulting argv contains no
+    # `import pytest` substring, which tests/unit/shell_harness.py's stub matches
+    # as a glob. A probe written `import pytest_cov` would be answered with
+    # pytest's version by that stub, and the pin mismatch would name a tool that
+    # is perfectly fine.
+    pytest-cov) "${PYTHON}" -c 'import importlib.metadata as m;print(m.version("pytest-cov"))' 2>/dev/null | tr -d '\r' ;;
+    coverage)   "${PYTHON}" -c 'import importlib.metadata as m;print(m.version("coverage"))' 2>/dev/null | tr -d '\r' ;;
     pre-commit) "${PYTHON}" -m pre_commit --version 2>/dev/null | awk 'NR==1{print $NF}' | tr -d '\r' ;;
     *)
       printf 'internal error: no version probe defined for %s\n' "$1" >&2
@@ -770,6 +792,65 @@ stage_smoke() {
   preflight smoke
   log "smoke — pytest ${PYTEST_VERSION} (DAG import + structural validation)"
   pytest_suite tests/smoke "DAG smoke suite"
+}
+
+# -----------------------------------------------------------------------------
+# Stage: coverage  (FR-011a — minimum measured statement coverage of src/)
+#
+# NOT one of FR-011's six gates. It exists because FR-011a asks for it, which is
+# the only thing that makes it conformant: the `hooks` stage is NOT a precedent
+# here, because Constitution VII already required gitleaks as both a hook and a
+# CI gate, so `hooks` enforced an existing requirement. Nothing required coverage
+# until FR-011a. See docs/decisions/001-coverage-gate.md D-01.
+#
+# ONE PROCESS OVER ALL SUITES, deliberately. .github/workflows/ci.yml runs each
+# stage as a separate matrix JOB, so per-stage coverage could only be combined
+# via artifact upload plus a combine step — orchestration logic in a file whose
+# own header forbids gate logic. The cost is that `all` runs tests/unit twice;
+# that is accepted and recorded (D-06), not optimised away, because every cheaper
+# option weakens a gate. In particular this stage must NOT replace unit/contract/
+# smoke: a single `pytest tests/` always collects (tests/unit is never empty), so
+# pytest_suite's exit-5 discrimination — the mechanism that stops an empty or
+# broken contract suite passing vacuously — would never run again.
+#
+# THRESHOLD COMES FROM ci/versions.env, never a literal here (Constitution III).
+#
+# NO SPECIAL CASE FOR "no product code yet", because none is needed: coverage
+# reports 100% for zero measurable statements, so the docstring-only __init__.py
+# tree clears the threshold today and the gate arms itself the instant the first
+# executable line lands. An earlier draft keyed that on "the package holds no
+# module other than __init__.py" — a filename heuristic, i.e. the exact class of
+# condition pytest_suite's own header records as already measured broken here,
+# and one that would disarm the gate permanently and silently the day somebody
+# writes real code in an __init__.py. Measured instead; see D-02.
+#
+# `--cov=src/orbital_drift` is the PATH form, not `--cov=orbital_drift`. The path
+# form has no import-resolution ordering dependency under the src layout, and it
+# is what makes a module no test imports report as 0% instead of vanishing from
+# the report entirely. Verified: planting one uncovered module drops TOTAL to 0%.
+#
+# A --cov-fail-under breach exits 1, exactly as a test failure does; only the
+# "Required test coverage" line distinguishes them, so --cov-report=term-missing
+# is not decoration. Nothing here branches on the exit code.
+# -----------------------------------------------------------------------------
+stage_coverage() {
+  preflight coverage
+  log "coverage — pytest-cov ${PYTEST_COV_VERSION} / coverage ${COVERAGE_VERSION} (FR-011a, min ${COVERAGE_MIN_PERCENT}%)"
+
+  # This stage runs tests/unit, whose gitleaks positive controls drive real
+  # containers and real git, and whose own _tool() helper falls back to
+  # pytest.skip() outside CI. Without these two guards the stage is a FAIL-OPEN:
+  # on a Docker-less box it would report a green coverage number computed from a
+  # run in which eight of those controls silently skipped. Reasons are distinct
+  # from stage_unit's and stage_hooks's so the message names which stage's
+  # dependency is unmet, not merely that one is.
+  docker_or_fail "this stage measures the same tests/unit positive controls under coverage, and a control that skipped instead of running would inflate the measured number"
+  git_or_fail "this stage measures tests/unit, 5 of whose positive controls drive git directly to build the synthetic repositories and staged indices they scan"
+
+  "${PYTHON}" -m pytest tests \
+    --cov=src/orbital_drift \
+    --cov-report=term-missing \
+    --cov-fail-under="${COVERAGE_MIN_PERCENT}"
 }
 
 # =============================================================================
@@ -1713,6 +1794,11 @@ stage_all() {
   stage_unit
   stage_contract
   stage_smoke
+  # ...then FR-011a's coverage gate. After the per-suite stages because it must
+  # not replace them (see stage_coverage's header), and before gitleaks/hooks so
+  # the pytest stages stay contiguous. This is the step that makes `all` run
+  # tests/unit a second time — accepted, docs/decisions/001-coverage-gate.md D-06.
+  stage_coverage
   stage_gitleaks
   # ...then the hook enforcement stage. Last, because pre-commit hooks may
   # rewrite files (end-of-file-fixer, trailing-whitespace, ruff --fix) and must
@@ -1733,12 +1819,13 @@ case "${1:-all}" in
   unit)      stage_unit ;;
   contract)  stage_contract ;;
   smoke)     stage_smoke ;;
+  coverage)  stage_coverage ;;
   gitleaks)  stage_gitleaks ;;
   hooks)     stage_hooks ;;
   all)       stage_all ;;
   *)
     printf 'unknown stage: %s\n' "$1" >&2
-    printf 'usage: sh ci/checks.sh <lint|typecheck|unit|contract|smoke|gitleaks|hooks|all>\n' >&2
+    printf 'usage: sh ci/checks.sh <lint|typecheck|unit|contract|smoke|coverage|gitleaks|hooks|all>\n' >&2
     exit 2
     ;;
 esac

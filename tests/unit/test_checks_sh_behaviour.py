@@ -434,15 +434,15 @@ def test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it(tmp_path: 
     """The direct instrumented proof the round asked for: count how many times
     the real version-check subprocess runs across one full ``all`` invocation.
 
-    Seven of the eight ``preflight()`` calls a full ``all`` run makes carry a
-    non-empty pin set — ``all`` itself (all four tools), then ``lint`` (ruff),
+    Eight of the nine ``preflight()`` calls a full ``all`` run makes carry a
+    non-empty pin set — ``all`` itself (every tool), then ``lint`` (ruff),
     ``typecheck`` (mypy), ``unit``/``contract``/``smoke`` (pytest, three
-    times) and ``hooks`` (pre-commit); ``gitleaks``'s pin set is empty, so it
-    makes no interpreter or tool call at all. If verification were still
-    memoised the pre-round-7 way, every count below would be 1 — the tool's
-    version would be probed once, by whichever stage happened to need it
-    first, and every later stage that also needs it would trust the cached
-    result instead of probing again.
+    times), ``coverage`` (pytest + pytest-cov + coverage) and ``hooks``
+    (pre-commit); ``gitleaks``'s pin set is empty, so it makes no interpreter
+    or tool call at all. If verification were still memoised the pre-round-7
+    way, every count below would be 1 — the tool's version would be probed
+    once, by whichever stage happened to need it first, and every later stage
+    that also needs it would trust the cached result instead of probing again.
     """
     recording = run_checks("all", tmp_path)
     assert recording.returncode == 0, recording.output
@@ -456,22 +456,35 @@ def test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it(tmp_path: 
 
     # The interpreter itself: full + minor version probes, once per
     # preflight() call with a non-empty pin set (all, lint, typecheck, unit,
-    # contract, smoke, hooks = 7).
+    # contract, smoke, coverage, hooks = 8).
     full_probes = _count(contains="version_info[:3]")
     minor_probes = _count(contains="version_info[:2]")
-    assert full_probes == 7, (
-        f"expected 7 python full-version probes (one per non-empty-pin-set "
+    assert full_probes == 8, (
+        f"expected 8 python full-version probes (one per non-empty-pin-set "
         f"preflight() call), found {full_probes}: {[c.joined for c in python_calls]!r}"
     )
-    assert minor_probes == 7, f"expected 7 python minor-version probes, found {minor_probes}"
+    assert minor_probes == 8, f"expected 8 python minor-version probes, found {minor_probes}"
 
     # the ruff pin is needed by `all` and `lint` = 2 calls, not 1.
     assert _count(exact="-m ruff --version") == 2, "ruff --version did not re-probe for `lint`"
     # mypy: needed by `all` and `typecheck` = 2 calls, not 1.
     assert _count(exact="-m mypy --version") == 2, "mypy --version did not re-probe for `typecheck`"
-    # pytest: needed by `all`, `unit`, `contract`, `smoke` = 4 calls, not 1.
-    assert _count(contains="import pytest") == 4, (
-        "the pytest probe did not re-run once each for unit/contract/smoke"
+    # pytest: needed by `all`, `unit`, `contract`, `smoke`, `coverage` = 5, not 1.
+    #
+    # `contains="import pytest"` counts the VERSION PROBE only. It deliberately
+    # does not match `-m pytest ...` runs, nor the pytest-cov/coverage probes,
+    # which go through importlib.metadata precisely so their argv carries no
+    # `import pytest` substring — see tool_version() in ci/checks.sh and the
+    # ordering note in shell_harness.PYTHON_STUB.
+    assert _count(contains="import pytest") == 5, (
+        "the pytest probe did not re-run once each for unit/contract/smoke/coverage"
+    )
+    # pytest-cov and coverage: needed by `all` and `coverage` = 2 calls each.
+    assert _count(contains='m.version("pytest-cov")') == 2, (
+        "the pytest-cov probe did not re-run for `coverage`"
+    )
+    assert _count(contains='m.version("coverage")') == 2, (
+        "the coverage probe did not re-run for `coverage`"
     )
     # pre-commit: needed by `all` and `hooks` = 2 calls, not 1.
     assert _count(exact="-m pre_commit --version") == 2, (
@@ -693,12 +706,12 @@ def test_sequenced_stub_repeats_the_last_value_once_the_queue_is_exhausted(
     """Exercises the previously-dead clamp branch in ``_od_seq_next``.
 
     A two-value PY_MINOR sequence (both the correct pinned minor version)
-    against a full ``all`` run, which probes PY_MINOR seven times (once per
+    against a full ``all`` run, which probes PY_MINOR eight times (once per
     non-empty-pin ``preflight()`` call: all, lint, typecheck, unit, contract,
-    smoke, hooks — the same count
+    smoke, coverage, hooks — the same count
     ``test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it``
     measures for an unsequenced run). Calls 1 and 2 consume the two queued
-    values directly; calls 3-7 each ask for an index past the two-line queue
+    values directly; calls 3-8 each ask for an index past the two-line queue
     and must hit ``_od_seq_next``'s
     ``if [ "${_od_idx}" -gt "${_od_total}" ]; then _od_idx="${_od_total}"; fi``
     clamp, repeating line 2's value, for the run to still see the CORRECT
@@ -714,9 +727,9 @@ def test_sequenced_stub_repeats_the_last_value_once_the_queue_is_exhausted(
     assert recording.returncode == 0, recording.output
 
     minor_probes = [call for call in recording.of("python") if "version_info[:2]" in call.joined]
-    assert len(minor_probes) == 7, (
-        "expected 7 interpreter minor-version probes across a full `all` run "
-        "(2 from the queue, 5 past exhaustion via the clamp branch), found "
+    assert len(minor_probes) == 8, (
+        "expected 8 interpreter minor-version probes across a full `all` run "
+        "(2 from the queue, 6 past exhaustion via the clamp branch), found "
         f"{len(minor_probes)}: {[c.joined for c in recording.of('python')]!r}"
     )
 
@@ -1699,16 +1712,21 @@ def test_the_daemon_probe_reruns_for_every_stage_that_needs_docker(tmp_path: Pat
     earlier in this run" would reintroduce exactly the class of defect rounds
     3-7 spent themselves closing: a stored answer standing in for the current
     one. ``sh ci/checks.sh all`` must probe once per stage that needs Docker —
-    unit, gitleaks, hooks — not once per run.
+    unit, coverage, gitleaks, hooks — not once per run.
+
+    ``coverage`` is in that list for the same reason ``unit`` is, and it is the
+    reason the expected count moved from 3 to 4: it re-runs tests/unit under
+    measurement, so the same container-dependent positive controls are in scope
+    and a skipped control would inflate the number it reports.
     """
     recording = run_checks("all", tmp_path)
     probes = _daemon_probes(recording)
 
     assert recording.returncode == 0, recording.output
-    assert len(probes) == 3, (
-        f"`all` ran {len(probes)} daemon probe(s), expected one each for unit, gitleaks "
-        "and hooks. Fewer means a memo is standing in for the real probe somewhere; "
-        "more means a stage grew a duplicate guard."
+    assert len(probes) == 4, (
+        f"`all` ran {len(probes)} daemon probe(s), expected one each for unit, coverage, "
+        "gitleaks and hooks. Fewer means a memo is standing in for the real probe "
+        "somewhere; more means a stage grew a duplicate guard."
     )
     assert all(call.argv == ("info",) for call in probes), (
         f"the daemon probe is no longer a bare `docker info`: {[call.argv for call in probes]}"
@@ -2047,6 +2065,98 @@ def test_a_python_files_override_outside_pyproject_still_fails_closed(
     assert config in recording.output, (
         f"the failure must name {config!r} as the source of the override; got:\n{recording.output}"
     )
+
+
+# =============================================================================
+# ROUND 11 — the `coverage` stage (FR-011a).
+#
+# Two claims worth testing and one worth testing HARD. The easy two are the
+# guards: this stage measures tests/unit, so without Docker and git it must fail
+# fast rather than report a number computed from a run where eight
+# container-dependent positive controls skipped themselves.
+#
+# The hard one is the threshold. Constitution III bans magic numbers in code, and
+# "the threshold lives in ci/versions.env" is a claim that a literal in the shell
+# script would satisfy the LETTER of while defeating entirely — the stage would
+# still run, still pass, and nothing would notice the pin had stopped being
+# consulted. So the argv assertion below compares against PINS, not against a
+# number written in this file: hardcoding the threshold in ci/checks.sh fails
+# here, and changing it in ci/versions.env alone does not.
+# =============================================================================
+
+
+def test_the_coverage_stage_fails_fast_when_the_docker_daemon_is_unreachable(
+    tmp_path: Path,
+) -> None:
+    """A coverage number measured with the container controls skipped is a lie."""
+    recording = run_checks("coverage", tmp_path, stubs=Stubs(docker_info_rc=1))
+    assert recording.returncode != 0, recording.output
+    assert "daemon is not reachable" in recording.output, recording.output
+    assert not [call for call in recording.of("python") if "-m pytest" in call.joined], (
+        "the coverage stage ran pytest with the daemon down: "
+        f"{[call.argv for call in recording.of('python')]!r}"
+    )
+
+
+def test_the_coverage_stage_message_says_why_coverage_needs_docker(tmp_path: Path) -> None:
+    """Distinct from unit's and hooks's, so the operator knows WHICH stage."""
+    recording = run_checks("coverage", tmp_path, stubs=Stubs(docker_info_rc=1))
+    assert "inflate the measured number" in recording.output, (
+        f"the daemon message does not say why THIS stage needs Docker:\n{recording.output}"
+    )
+
+
+def test_the_coverage_stage_asserts_the_threshold_from_the_pin_file(tmp_path: Path) -> None:
+    """The Principle III enforcement: the argv must carry the PINNED value.
+
+    Compared against ``PINS["COVERAGE_MIN_PERCENT"]`` rather than a literal
+    written here, so this fails if anyone moves the number into ci/checks.sh and
+    keeps passing if the pin is legitimately changed. A test asserting ``85``
+    would have inverted both.
+    """
+    recording = run_checks("coverage", tmp_path)
+    assert recording.returncode == 0, recording.output
+
+    runs = [call for call in recording.of("python") if "-m pytest" in call.joined]
+    assert len(runs) == 1, (
+        f"expected exactly one pytest invocation from the coverage stage, got "
+        f"{[call.argv for call in runs]!r}"
+    )
+    argv = runs[0].argv
+
+    assert f"--cov-fail-under={PINS['COVERAGE_MIN_PERCENT']}" in argv, (
+        "the coverage stage does not pass ci/versions.env's COVERAGE_MIN_PERCENT "
+        f"as its threshold; argv was {argv!r}. A literal in ci/checks.sh is a magic "
+        "number (Constitution III) and silently decouples the gate from its pin."
+    )
+    assert "--cov=src/orbital_drift" in argv, (
+        "the coverage stage does not measure src/orbital_drift by PATH. The package-name "
+        f"form omits never-imported modules from the report entirely; argv was {argv!r}"
+    )
+    assert "--cov-report=term-missing" in argv, (
+        "without term-missing a --cov-fail-under breach prints a percentage and no "
+        f"indication of WHICH lines are uncovered; argv was {argv!r}"
+    )
+
+
+def test_the_coverage_stage_measures_every_suite_not_just_one(tmp_path: Path) -> None:
+    """``tests``, not ``tests/unit``.
+
+    A future "optimisation" narrowing this to the one suite that currently has
+    tests would under-measure the moment contract or smoke exercise ``src/`` —
+    and would do so silently, because the number would still be green.
+    """
+    recording = run_checks("coverage", tmp_path)
+    runs = [call for call in recording.of("python") if "-m pytest" in call.joined]
+    assert runs, recording.output
+    assert "tests" in runs[0].argv, (
+        f"the coverage stage does not run the whole tests/ tree: {runs[0].argv!r}"
+    )
+    for narrower in ("tests/unit", "tests/contract", "tests/smoke"):
+        assert narrower not in runs[0].argv, (
+            f"the coverage stage measures only {narrower}, so coverage from the other "
+            f"suites is invisible: {runs[0].argv!r}"
+        )
 
 
 # =============================================================================

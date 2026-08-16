@@ -89,7 +89,15 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # lint | type-check | unit | contract | smoke   (FR-011, Constitution V)
+  # plus coverage                                 (FR-011a)
   # One matrix entry per stage so a failure names the gate that broke.
+  #
+  # `coverage` re-runs tests/unit under measurement, so this matrix executes that
+  # suite twice. In a matrix the two run in PARALLEL JOBS, so wall-clock is
+  # roughly unchanged and the cost is one extra runner — unlike a local
+  # `sh ci/checks.sh all`, where the same duplication is serial. Deliberate: see
+  # docs/decisions/001-coverage-gate.md D-06 for the cheaper designs and which
+  # gate each of them weakens.
   #
   # Every stage runs ci/checks.sh's preflight for the pins IT executes, which
   # fails closed if the installed versions differ — so the install step below
@@ -102,7 +110,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        stage: [lint, typecheck, unit, contract, smoke]
+        stage: [lint, typecheck, unit, contract, smoke, coverage]
     name: ${{ matrix.stage }}
     steps:
       - name: Checkout
