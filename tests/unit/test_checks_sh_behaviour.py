@@ -2291,7 +2291,7 @@ def test_the_coverage_stage_measures_every_suite_not_just_one(tmp_path: Path) ->
 
 
 # =============================================================================
-# D-11 — the coverage stage's three-way diagnosis (test failure / coverage
+# D-12 — the coverage stage's three-way diagnosis (test failure / coverage
 # breach / collection error), driven through the harness for the first time.
 #
 # A second independent review pass found the original two-way version of this
@@ -2431,6 +2431,78 @@ def test_neither_signal_is_diagnosed_as_a_collection_error(tmp_path: Path) -> No
     assert "COLLECTION error" in recording.output, recording.output
     assert "COVERAGE BREACH" not in recording.output, recording.output
     assert "tests failed UNDER MEASUREMENT" not in recording.output, recording.output
+
+
+@pytest.mark.parametrize(
+    ("failed_path", "stage"),
+    [
+        ("tests/unit/test_repo_structure.py", "unit"),
+        ("tests/contract/test_stac_client.py", "contract"),
+        ("tests/smoke/test_ingest_dag.py", "smoke"),
+    ],
+)
+def test_the_failure_remediation_names_the_suite_that_actually_failed(
+    tmp_path: Path, failed_path: str, stage: str
+) -> None:
+    """The suggested remediation command must match WHICH suite broke.
+
+    ``stage_coverage`` runs ``tests/unit``, ``tests/contract`` and
+    ``tests/smoke`` together in one process (D-06). A fixed, unconditional
+    ``sh ci/checks.sh unit`` suggestion is actively misleading for a failure in
+    either of the other two suites: that command would report GREEN — the
+    broken test simply isn't in it — and the message's own next paragraph
+    ("if they are GREEN and this is RED, ... not a broken test") would then
+    argue the operator away from a perfectly ordinary, real bug. Latent only
+    because tests/contract and tests/smoke are still empty; parametrized over
+    all three so it stays caught the moment either gains its first test.
+    """
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                f"FAILED {failed_path}::test_x - AssertionError: boom\n1 failed, 1 passed in 0.1s\n"
+            ),
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    assert f"sh ci/checks.sh {stage}" in recording.output, (
+        f"a failure in {failed_path} did not suggest checking `{stage}`:\n{recording.output}"
+    )
+    for other in {"unit", "contract", "smoke"} - {stage}:
+        assert f"sh ci/checks.sh {other}" not in recording.output, (
+            f"a failure ONLY in {failed_path} (suite {stage!r}) also suggested checking "
+            f"the unrelated `{other}` stage, which would report a misleading GREEN:\n"
+            f"{recording.output}"
+        )
+
+
+def test_the_failure_remediation_suggests_everything_when_the_suite_is_unrecognised(
+    tmp_path: Path,
+) -> None:
+    """A ``FAILED`` line whose path matches none of the three known suites.
+
+    Fails towards suggesting ALL THREE stages rather than silently naming
+    none — the same "loud, not silent" bias ``pytest_suite``'s own override
+    detection uses for its false positive/negative tradeoff.
+    """
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                "FAILED weird/path/test_x.py::test_y - AssertionError\n1 failed in 0.1s\n"
+            ),
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    for stage in ("unit", "contract", "smoke"):
+        assert f"sh ci/checks.sh {stage}" in recording.output, (
+            f"an unrecognised FAILED path did not fall back to suggesting {stage!r}:\n"
+            f"{recording.output}"
+        )
 
 
 # =============================================================================

@@ -1819,6 +1819,66 @@ def test_no_coverage_config_silently_redefines_what_the_gate_measures() -> None:
         )
 
 
+COVERAGE_GATE_DECISION_DOC: Final = REPO_ROOT / "docs" / "decisions" / "001-coverage-gate.md"
+
+# Every bare `D-NN` citation ci/checks.sh makes, in a form that unambiguously
+# means docs/decisions/001-coverage-gate.md — i.e. NOT prefixed `D-000/`, which
+# is this repo's own disambiguation convention for citing a DIFFERENT decision
+# doc's namespace (see that doc's own header, and docs/decisions/001-coverage-gate.md's
+# follow-up item 1 for why the convention exists at all: this repo has a real,
+# recorded history of D-nn citations pointing at the wrong entry). Scoped to
+# ci/checks.sh specifically because every bare D-nn citation in that file is,
+# as of this test's writing, about the coverage gate — verified by reading all
+# of them, not assumed.
+_CHECKS_SH_DNN_RE: Final = re.compile(r"(?<!D-000/)\bD-(\d+)\b")
+_DECISION_DOC_HEADER_RE: Final = re.compile(r"^## D-(\d+)\b", re.MULTILINE)
+
+
+def _read_decision_doc() -> str:
+    return COVERAGE_GATE_DECISION_DOC.read_text(encoding="utf-8")
+
+
+def test_every_d_nn_citation_in_checks_sh_points_at_a_real_decision() -> None:
+    """A dangling `D-nn` reference — one that names no decision at all — fails here.
+
+    WHAT THIS DOES NOT CATCH, stated plainly rather than left to be discovered
+    the hard way: a citation that names the WRONG *real* decision is invisible
+    to an existence check. This file shipped exactly that bug once — a comment
+    cited ``D-11`` for the diagnosis-logic fix that
+    ``docs/decisions/001-coverage-gate.md`` actually recorded as ``D-12``
+    (``D-11`` is a different, real, earlier fix in the same doc) — and a
+    mutation check proved this test does NOT catch a reversion to it, because
+    ``D-11`` is a genuine heading. Verifying "is this citation the SEMANTICALLY
+    correct one for this comment" would need understanding what the comment
+    claims, not just whether the number exists, which is outside what a
+    regex-based structural test can do. What this test DOES catch — a citation
+    to a number with no heading at all, e.g. after a section is renumbered,
+    split, deleted, or mistyped as a typo rather than a swap — is still a real,
+    narrower gap than existed before it: previously nothing here was checked
+    mechanically at all.
+    """
+    real_ids = {int(m.group(1)) for m in _DECISION_DOC_HEADER_RE.finditer(_read_decision_doc())}
+    assert real_ids, (
+        "found zero '## D-NN' headings in docs/decisions/001-coverage-gate.md — "
+        "fix the heading regex before trusting this test's other assertion"
+    )
+
+    cited_ids = {int(m.group(1)) for m in _CHECKS_SH_DNN_RE.finditer(CHECKS_SRC)}
+    assert cited_ids, (
+        "found zero bare D-NN citations in ci/checks.sh — if the coverage-stage "
+        "comments no longer cite decisions/001-coverage-gate.md at all, this test "
+        "has nothing left to guard and should be reconsidered, not left green by "
+        "accident"
+    )
+
+    dangling = sorted(cited_ids - real_ids)
+    assert not dangling, (
+        f"ci/checks.sh cites D-{dangling} but docs/decisions/001-coverage-gate.md has "
+        f"no such heading (real IDs: D-{sorted(real_ids)}). Update the citation to the "
+        "decision that actually covers this, or the heading if it was renumbered."
+    )
+
+
 # =============================================================================
 # MAJOR 4 — a docker failure is not a version mismatch.
 # =============================================================================

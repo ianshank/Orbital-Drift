@@ -962,7 +962,7 @@ stage_coverage() {
   [ "${cov_rc}" -eq 0 ] && return 0
 
   # THREE structurally distinct causes, not two, and the order they are checked
-  # in is load-bearing (D-11).
+  # in is load-bearing (D-12).
   #
   # A NAMED TEST FAILURE IS CHECKED FIRST, unconditionally — via `^FAILED `,
   # pytest's own per-test marker, always at the start of a line. This is not
@@ -995,8 +995,43 @@ stage_coverage() {
       printf 'FAIL: tests failed UNDER MEASUREMENT — this is not (only) a coverage breach.\n\n'
       printf '        This stage runs all three suites in ONE pytest process, so its\n'
       printf '        process topology differs from the unit/contract/smoke stages.\n\n'
-      printf '        First check whether the ordinary stages agree:\n'
-      printf '            sh ci/checks.sh unit\n\n'
+      printf '        First check whether the ordinary stage(s) for the failing test(s)\n'
+      printf '        agree:\n\n'
+    } >&2
+    # NAME THE STAGE(S) THE FAILURE ACTUALLY IMPLICATES, not a fixed `unit`.
+    # This stage runs tests/unit, tests/contract AND tests/smoke together
+    # (D-06), and until now this message unconditionally suggested only
+    # `sh ci/checks.sh unit` regardless of which suite the failing test lives
+    # in — latent while tests/contract and tests/smoke are still empty, but a
+    # real test failure in either of those two suites would have sent the
+    # operator to check a stage that was GREEN for an unrelated reason (the
+    # broken test simply isn't in it), and the message's own next paragraph
+    # ("if they are GREEN and this is RED, ... not a broken test") would then
+    # have actively argued them away from the real, ordinary bug. Read the
+    # implicated suite(s) from the FAILED lines themselves rather than assume.
+    failed_lines=$(printf '%s' "${cov_output}" | grep '^FAILED ')
+    suite_named=0
+    if printf '%s' "${failed_lines}" | grep -q 'tests/unit/'; then
+      printf '            sh ci/checks.sh unit\n' >&2
+      suite_named=1
+    fi
+    if printf '%s' "${failed_lines}" | grep -q 'tests/contract/'; then
+      printf '            sh ci/checks.sh contract\n' >&2
+      suite_named=1
+    fi
+    if printf '%s' "${failed_lines}" | grep -q 'tests/smoke/'; then
+      printf '            sh ci/checks.sh smoke\n' >&2
+      suite_named=1
+    fi
+    if [ "${suite_named}" = "0" ]; then
+      # A FAILED line whose path matched none of the three prefixes (an
+      # unexpected pytest invocation shape) — fail towards suggesting
+      # everything rather than nothing, the same "loud, not silent" bias
+      # pytest_suite's own override detection uses.
+      printf '            sh ci/checks.sh unit; sh ci/checks.sh contract; sh ci/checks.sh smoke\n' >&2
+    fi
+    {
+      printf '\n'
       printf '        If they are GREEN and this is RED, the failure is an interaction\n'
       printf '        introduced by the single-process run, not a broken test — see\n'
       printf '        docs/decisions/001-coverage-gate.md D-06 for why that run exists.\n\n'
