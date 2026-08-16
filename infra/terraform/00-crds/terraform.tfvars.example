@@ -1,0 +1,11 @@
+# infra/terraform/00-crds/terraform.tfvars.example
+# Component-specific values for the 00-crds stage (D-002/D-04).
+# Copy to terraform.tfvars (gitignored) and fill in.
+#
+#     cd infra/terraform/00-crds
+#     terraform apply -var-file=../common.tfvars -var-file=terraform.tfvars
+
+# Namespace CloudNativePG's operator installs into. D-002/D-06, confirmed
+# against the pinned 0.29.0 chart's own README (see cnpg_operator.tf header,
+# resolves D-002 Follow-up #9).
+cnpg_operator_namespace = "cnpg-system"

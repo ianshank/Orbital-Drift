@@ -1,0 +1,109 @@
+# infra/helm-values/argo-workflows.yaml
+#
+# Static, literal, chart configuration for Argo Workflows (D-002/D-02,
+# D-002/D-07) — no secret names, no namespace names, no host-specific values
+# here; those are injected via infra/terraform/20-platform/argo_workflows.tf's
+# `set` list, sourced from Terraform variables.
+#
+# Chart pin: argo-workflows 1.0.23 / app v4.0.8, repo
+# https://argoproj.github.io/argo-helm (docs/decisions/versions.md,
+# Constitution IV). A MAJOR version bump (2.0.0 / app v4.1.0) exists
+# upstream as of this session's re-verification (2026-08-16) — deliberately
+# NOT adopted here; see docs/decisions/004-t010-argo-workflows.md.
+
+# CRDs as ordinary chart templates (minified schema), NOT the crds.full:
+# true default's pre-install/pre-upgrade hook Job that downloads full-schema
+# CRDs from GitHub at apply time. See argo_workflows.tf's CRD-split decision
+# comment for the full reasoning (D-000/D-06, D-002/D-01 Follow-up #8).
+crds:
+  install: true
+  full: false
+
+# Explicit image-tag pin (Constitution IV) rather than relying on the
+# chart's own tag-defaults-to-appVersion fallback — auditable in a diff
+# without cross-referencing Chart.yaml.
+images:
+  tag: "v4.0.8"
+  pullPolicy: IfNotPresent
+
+controller:
+  name: workflow-controller
+  image:
+    tag: "v4.0.8"
+  serviceAccount:
+    create: true
+  rbac:
+    create: true
+    # Deliberately NOT widened for the cross-namespace secret problem — see
+    # argo_workflows.tf's cross-namespace secret decision. The controller
+    # itself never needs broad secret access; only the copied
+    # per-namespace Secret does.
+    accessAllSecrets: false
+    secretWhitelist: []
+  # Conservative starting point for a single-node home-lab cluster that also
+  # hosts Airflow, MLflow, lakeFS, SeaweedFS, and every GPU workload on the
+  # same node (D-000/D-10). Revisit during the Phase 5 soak (Constitution
+  # VI) once real utilization is observed.
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  # No serviceMonitor here — kube-prometheus-stack's CRDs are not installed
+  # until Phase 5 (T046); enabling one now would reproduce the exact
+  # "no matches for kind ServiceMonitor" hazard D-000/D-06 documents for
+  # kube-prometheus-stack itself. metricsConfig only exposes a scrape
+  # endpoint, no CRD dependency.
+  metricsConfig:
+    enabled: true
+
+server:
+  enabled: true
+  name: server
+  image:
+    tag: "v4.0.8"
+  serviceAccount:
+    create: true
+  rbac:
+    create: true
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
+executor:
+  image:
+    tag: "v4.0.8"
+
+# The ServiceAccount workflow PODS run as, and the Role/RoleBinding pair the
+# chart creates for it in every namespace listed in
+# controller.workflowNamespaces (set via Terraform — see
+# argo_workflows.tf). This is the "service account for training namespace"
+# half of this task's GPU-RBAC deliverable; the namespace itself and its
+# trust-boundary rationale are documented in argo_workflows.tf.
+workflow:
+  serviceAccount:
+    create: true
+  rbac:
+    create: true
+
+# Cluster-wide ClusterRole/ClusterRoleBinding for the controller SA (not
+# namespace-restricted RBAC) — required because this controller manages
+# Workflow CRs in a namespace (orbital-drift-training) different from its
+# own release namespace (orbital-drift). See argo_workflows.tf's residual
+# RBAC gap note: this does not itself restrict WHICH namespaces may
+# reference the nvidia RuntimeClass, only which namespaces this controller
+# instance manages.
+singleNamespace: false
+
+artifactRepository:
+  archiveLogs: false
+  # s3.* fields (bucket, endpoint, insecure, accessKeySecret, secretKeySecret)
+  # are set via infra/terraform/20-platform/argo_workflows.tf's `set` list —
+  # D-002/D-07: secret-name-shaped and host/environment-specific values
+  # never live in this static file.

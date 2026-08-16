@@ -1,0 +1,120 @@
+# infra/terraform/20-platform/terraform.tfvars.example
+#
+# Copy to terraform.tfvars (gitignored) in this same directory and fill in
+# real values. Combine with ../common.tfvars at apply time:
+#
+#     cd infra/terraform/20-platform
+#     terraform apply -var-file=../common.tfvars -var-file=terraform.tfvars
+#
+# (an operator-run [HUMAN] command inside the future T011 bring-up runbook.)
+#
+# This file is the orchestrator's integration-time merge of four
+# independently-authored copies (T007's lakefs.tf, T008's mlflow.tf, T009's
+# airflow.tf, T010's argo_workflows.tf each shipped their own draft of this
+# file, since 20-platform is one shared Terraform root module across all
+# four dispatches and each was authored in an isolated worktree unable to
+# see the others' work). Every value below that appeared in more than one
+# draft was byte-identical across all copies observed — a good sign the
+# merge was mechanical, not a real disagreement — with two exceptions, both
+# resolved and noted inline: the SeaweedFS secret key names (T008 guessed
+# wrong, corrected to match T007's actual output) and the Airflow SeaweedFS
+# credentials (T009's three dedicated operator-supplied variables were
+# eliminated in favor of referencing T007's actual secret directly). See
+# docs/decisions/006-t007-t010-integration.md for the full reconciliation.
+
+# =============================================================================
+# SHARED across every release in this directory (providers.tf) — D-002/D-06,
+# D-002/D-07's shared-variable table.
+# =============================================================================
+
+# Namespace holding CNPG's Cluster CR, SeaweedFS, lakeFS, MLflow, Airflow,
+# Argo controller (D-002/D-06). Must match 10-storage/terraform.tfvars.example.
+orbital_drift_namespace = "orbital-drift"
+
+# Name of the CloudNativePG Cluster CR (10-storage/cnpg_cluster.tf). Must
+# match 10-storage/terraform.tfvars.example exactly, or the lakeFS/MLflow/
+# Airflow data-source lookups against "<this>-app" resolve the wrong (or no)
+# secret.
+cnpg_cluster_name = "orbital-drift-postgres"
+
+# Name of the Secret 10-storage/seaweedfs.tf creates. Must match
+# 10-storage/terraform.tfvars.example exactly.
+seaweedfs_s3_secret_name = "orbital-drift-seaweedfs-s3-credentials"
+
+# S3-compatible endpoint (full URL form) for SeaweedFS's S3 gateway, shared
+# by lakeFS's blockstore, MLflow's artifact store, and Airflow's remote
+# logging. UNCONFIRMED — see lakefs.tf's header comment. Verify with
+# `kubectl get svc -n orbital-drift` after 10-storage applies and correct
+# this value BEFORE applying 20-platform if it does not match.
+seaweedfs_s3_endpoint = "http://seaweedfs-s3.orbital-drift.svc.cluster.local:8333"
+
+# =============================================================================
+# lakeFS (T007)
+# =============================================================================
+
+# Name of the lakeFS-owned Secret this stage creates (D-002/D-11).
+lakefs_secret_name = "orbital-drift-lakefs-secrets"
+
+# =============================================================================
+# MLflow (T008)
+# =============================================================================
+
+# CloudNativePG's own default database name when Cluster.spec.bootstrap.initdb.database
+# is left unset — confirmed to match T007's actual Cluster CR (infra/helm-values/cnpg-cluster.yaml
+# leaves bootstrap.initdb entirely unset).
+cnpg_app_database_name = "app"
+
+# MLflow's own artifact bucket — not shared with any other dispatch.
+mlflow_s3_bucket = "orbital-drift-mlflow-artifacts"
+
+# =============================================================================
+# Airflow (T009)
+# =============================================================================
+
+airflow_fernet_key_secret_name              = "orbital-drift-airflow-fernet-key"
+airflow_webserver_secret_name               = "orbital-drift-airflow-webserver-secret"
+airflow_metadata_connection_secret_name     = "orbital-drift-airflow-metadata-connection"
+airflow_seaweedfs_s3_connection_secret_name = "orbital-drift-airflow-seaweedfs-s3-connection"
+
+# =============================================================================
+# Argo Workflows (T010)
+# =============================================================================
+
+orbital_drift_training_namespace = "orbital-drift-training"
+
+# Key names inside seaweedfs_s3_secret_name's data. CONFIRMED against T007's
+# actual infra/terraform/10-storage/seaweedfs.tf.
+seaweedfs_s3_access_key_id_key     = "access_key_id"
+seaweedfs_s3_secret_access_key_key = "secret_access_key"
+
+# Bare host:port (no scheme) — Argo's artifactRepository.s3 schema, unlike
+# MLflow's/Airflow's full-URL forms. Same underlying service as
+# seaweedfs_s3_endpoint above, stripped of the http:// prefix.
+argo_workflows_s3_endpoint        = "seaweedfs-s3.orbital-drift.svc.cluster.local:8333"
+argo_workflows_s3_artifact_bucket = "orbital-drift-argo-artifacts"
+argo_workflows_s3_insecure        = true
+
+# =============================================================================
+# SECRET *VALUES* — DELIBERATELY ABSENT FROM THIS FILE.
+#
+# lakefs_auth_encrypt_secret_key, airflow_fernet_key, airflow_webserver_secret_key,
+# airflow_api_secret_key, and airflow_admin_password carry NO default
+# anywhere, including here (D-000/D-09, Constitution VII — "no credentials in
+# the repo, ever"). The operator supplies them as environment variables
+# immediately before running `terraform apply`, e.g.:
+#
+#   export TF_VAR_lakefs_auth_encrypt_secret_key="$(openssl rand -base64 32)"
+#   export TF_VAR_airflow_fernet_key="$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+#   export TF_VAR_airflow_webserver_secret_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+#   export TF_VAR_airflow_api_secret_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+#   export TF_VAR_airflow_admin_password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+#   terraform apply -var-file=../common.tfvars -var-file=terraform.tfvars
+#
+# The exact generation commands belong in the T011 bring-up runbook
+# (docs/runbooks/02-platform-bringup.md, not yet authored) as the
+# authoritative operator-facing instruction; the ones above are illustrative
+# only. Airflow's own SeaweedFS S3 credentials are NOT a separate secret
+# value here — they are read directly from T007's seaweedfs_s3_secret_name
+# secret (see airflow.tf), eliminating the double credential entry an
+# earlier draft of this integration required.
+# =============================================================================

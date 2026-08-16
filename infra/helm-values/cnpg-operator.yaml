@@ -1,0 +1,40 @@
+# infra/helm-values/cnpg-operator.yaml
+#
+# CloudNativePG operator chart 0.29.0 (infra/terraform/00-crds/cnpg_operator.tf).
+# Static, literal, fully reviewable (D-002/D-07) — carries no secret-name
+# strings, none needed here (the operator itself has no existingSecret-shaped
+# inputs).
+#
+# Provenance for every non-default value below:
+#   https://raw.githubusercontent.com/cloudnative-pg/charts/cloudnative-pg-v0.29.0/charts/cloudnative-pg/values.yaml
+#   (fetched 2026-08-16)
+
+# Single-node k3s cluster (D-000/D-08) — one operator replica is correct, not
+# a cost-cutting shortcut. A second replica would sit on the same node with
+# no failure-domain benefit and would only contend for the same CPU/memory
+# budget node A also owes the GPU training/serving workloads (charter GPU
+# split note — none of this file's resources touch a GPU, but node A's
+# non-GPU headroom is still finite).
+replicaCount: 1
+
+image:
+  repository: ghcr.io/cloudnative-pg/cloudnative-pg
+  pullPolicy: IfNotPresent
+  # Chart default is "" (resolves to the chart's own appVersion internally).
+  # Pinned explicitly for Constitution IV clarity rather than relying on that
+  # implicit binding.
+  tag: "1.30.0"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Phase 5 concern (kube-prometheus-stack, D-000/D-06), not Phase 0 — no
+# ServiceMonitor CRD exists yet. Leaving this false avoids a
+# "no matches for kind ServiceMonitor" failure at apply time.
+monitoring:
+  podMonitorEnabled: false

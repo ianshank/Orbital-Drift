@@ -1,0 +1,182 @@
+# Pinned Helm values for T009 — Apache Airflow (official chart).
+#
+# Chart: https://airflow.apache.org, chart 1.22.0, app 3.2.2
+# (docs/decisions/versions.md; re-verified against the chart's own
+# values.yaml at tag helm-chart/1.22.0, fetched 2026-08-16).
+#
+# D-02/D-07 (docs/decisions/002-infra-layout.md): this file is flat, kebab-case
+# in path, and stays static/literal/fully reviewable. It NEVER contains a
+# secret NAME or a secret VALUE — every existingSecret-shaped field
+# (fernetKeySecretName, webserverSecretKeySecretName, apiSecretKeySecretName,
+# data.metadataSecretName, createUserJob.defaultUser.password, and the SeaweedFS
+# connection env var) is injected from infra/terraform/20-platform/airflow.tf's
+# `set` / `set_sensitive` / supplemental `values` blocks, sourced from
+# Terraform variables — never typed here.
+#
+# GPU note (infra-scaffolder charter): Airflow's own pods (api-server,
+# scheduler, triggerer, dag-processor, git-sync sidecar, statsd) are ordinary
+# CPU/memory workloads. Nothing in this file requests a GPU or sets
+# runtimeClassName: nvidia. GPU-bound work (training/eval) is launched by Argo
+# Workflows (T010), which Airflow's future retrain DAG (tasks.md T038) submits
+# to — Airflow itself never schedules onto node A's RTX 5060 Ti / RTX 5060.
+
+# --- Version pin (Constitution IV: explicit, not merely inherited from the
+# chart's own matching default) ---
+airflowVersion: "3.2.2"
+defaultAirflowRepository: apache/airflow
+defaultAirflowTag: "3.2.2"
+
+# --- Executor: KubernetesExecutor per this task's explicit brief. No Celery
+# broker is needed, so the bundled Redis subchart is disabled below. ---
+executor: "KubernetesExecutor"
+
+# Airflow launches worker/task pods only in this namespace (single-namespace
+# cluster, D-002/D-06) — ClusterRole/ClusterRoleBinding scope stays minimal.
+multiNamespaceMode: false
+
+# --- Bundled subcharts: both disabled. CNPG (10-storage, D-000/D-04) is the
+# metadata DB — the chart's own bundled Postgres pulls bitnamilegacy/postgresql,
+# the exact image D-000/D-04 rejected project-wide as frozen/unpatched. Redis
+# is a KubernetesExecutor no-op (only CeleryExecutor/CeleryKubernetesExecutor
+# read it) but is disabled explicitly rather than left to the executor-string
+# gate, for the same "explicit over implicit" reason airflowVersion is pinned
+# above even though it matches the chart default. ---
+postgresql:
+  enabled: false
+
+redis:
+  enabled: false
+
+# Celery-only UI; not applicable to KubernetesExecutor. Already the chart
+# default — set explicitly for the same reason.
+flower:
+  enabled: false
+
+# --- D-000/D-06's Airflow-via-Terraform Helm-hooks gotcha: Terraform's
+# helm_release needs to perform updates while preserving Job manifest
+# immutability, which Helm hooks break. Single most common cause of
+# Airflow-on-Terraform failure per D-000/D-06 — do not remove either block. ---
+createUserJob:
+  useHelmHooks: false
+  applyCustomEnv: false
+  # defaultUser.password is intentionally NOT set here — the chart's own
+  # default is the plaintext literal "admin" (verified against the chart's
+  # values.yaml). It is overridden via set_sensitive in airflow.tf from
+  # var.airflow_admin_password, never written to this reviewable file.
+
+migrateDatabaseJob:
+  useHelmHooks: false
+  applyCustomEnv: false
+
+# --- Airflow 3.x: the classic webserver Deployment template is already gated
+# off by the chart itself (`semverCompare "<3.0.0" .Values.airflowVersion`,
+# false once airflowVersion is "3.2.2" as pinned above) in favour of the API
+# server. Set explicitly for the same "explicit over implicit" reason as
+# airflowVersion. ---
+webserver:
+  enabled: false
+
+apiServer:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+scheduler:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+triggerer:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Airflow 3.x standalone DAG processor. The chart already defaults this to
+# `true` when unset and airflowVersion >= 3.0.0 (confirmed against
+# templates/dag-processor/dag-processor-deployment.yaml) — set explicitly for
+# the same reason as the other 3.x-mode toggles above.
+dagProcessor:
+  enabled: true
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# --- D-000/D-08: the RWX trap. The chart's docs say
+# `logs.persistence.enabled: true` provisions ReadWriteMany while the values
+# default is ReadWriteOnce — prose and default disagree, and k3s local-path
+# (RWO-only) cannot serve RWX. Resolution: persistence stays off; S3 remote
+# logging to SeaweedFS is wired below via core config instead (the chart has
+# no first-class S3 remote-logging block, only elasticsearch/opensearch). ---
+logs:
+  persistence:
+    enabled: false
+
+# --- DAG deployment via git-sync (this task's explicit ask). Public repo
+# (D-000/D-10) — no credentialsSecret/sshKeySecret needed. git-sync v4.4.2 is
+# what this chart version bundles (images.gitSync.tag), so `ref` is the field
+# that actually selects the revision to track; `branch`/`rev` are set to the
+# same values defensively, mirroring the chart's own default pattern of
+# setting all three together. dags/ is currently empty in the target repo —
+# that is expected at this stage; git-sync only needs to be wired correctly,
+# not point at content that exists yet. ---
+dags:
+  persistence:
+    enabled: false
+  gitSync:
+    enabled: true
+    repo: https://github.com/ianshank/Orbital-Drift
+    branch: main
+    rev: HEAD
+    ref: main
+    depth: 1
+    subPath: dags
+    maxFailures: 0
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+# --- Core Airflow config overrides (config: is passed through Helm's `tpl`
+# function by the chart itself; every value here is a literal, non-secret
+# string). ---
+config:
+  logging:
+    # D-000/D-08 resolution: S3 remote logging to SeaweedFS instead of RWX
+    # persistence. remote_log_conn_id references the Airflow connection
+    # AIRFLOW_CONN_SEAWEEDFS_S3, injected as an env var from
+    # infra/terraform/20-platform/airflow.tf's supplemental `values` entry
+    # (never a literal here — it carries the S3 endpoint + credentials).
+    #
+    # remote_base_log_folder's bucket name (orbital-drift-airflow-logs) is
+    # this file's own proposal, not yet confirmed against any bucket T007
+    # actually provisions in SeaweedFS — D-002 does not establish a shared
+    # bucket-naming convention for Airflow logs specifically. Flagged in this
+    # dispatch's deliverable notes as a T007/operator coordination item: the
+    # bucket must be created (or its name reconciled with whatever T007 picks)
+    # before remote logging can actually write anywhere.
+    remote_logging: "True"
+    remote_base_log_folder: "s3://orbital-drift-airflow-logs/airflow-logs"
+    remote_log_conn_id: "seaweedfs_s3"
+    delete_local_logs: "True"
+    encrypt_s3_logs: "False"
