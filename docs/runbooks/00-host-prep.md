@@ -32,7 +32,7 @@ The *version numbers* below (driver `610.57.04`, CUDA `13.x`, GPU Operator `v26.
 | GPU Operator chart (installed later at `T006`/`T012`; referenced here only for Step 6's compatibility check) | `v26.3.3` | https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html |
 | k3s (installed later at `T004`/`T005`, out of scope here) | `v1.35.7+k3s1` — **not** `v1.36.3+k3s1`, see D-000/D-07 | `docs/decisions/versions.md` |
 
-Host prep in this runbook is also a prerequisite for `T004`/`T005`'s containerd `RUNTIME_CONFIG_SOURCE=file` setting; that setting itself is configured in `docs/runbooks/01-k3s-install.md` (`T004`), not here.
+Host prep in this runbook is also a prerequisite for the `RUNTIME_CONFIG_SOURCE=file` question, but the resolution is split across three tasks, not configured in any one of them: `docs/runbooks/01-k3s-install.md` (`T004`) Step 6 empirically verifies, on the running k3s host, the environmental fact that motivates the override (containerd is reachable only as a `k3s` subcommand, not a standalone binary — see `docs/decisions/000-phase0-technical-decisions.md`'s "Requires empirical verification" item 3); `T006`'s GPU Operator Helm values are what actually set `toolkit.env`'s `RUNTIME_CONFIG_SOURCE=file`; and `T004`'s Phase B (post-`T006`/`T012`) containerd-handler-wiring checks are the only available proof that the file-mode write itself worked, since the toolkit that performs it does not exist until then.
 
 ---
 
@@ -211,7 +211,7 @@ must print **nothing** (the file stays untracked/ignored).
 ```
 git restore --staged .env
 ```
-If it was already **committed** (not just staged): do not push. This is a Constitution VII incident regardless of whether the UUIDs are individually "secret" (they are hardware identifiers, not access credentials, but D-10's public-repo hygiene rule forbids them in the repo regardless). If the commit is local and unpushed, `git reset --soft HEAD~1` (if it is the most recent commit) removes it while keeping the working tree; if other commits already sit on top of it, or if it has already been pushed, stop and escalate rather than force-pushing over shared history — this needs a deliberate history rewrite, not a one-line fix.
+If it was already **committed** (not just staged): do not push. Constitution VII covers credentials specifically, and these UUIDs are hardware identifiers, not credentials — but treat this as an incident under D-10's public-repo hygiene rule regardless, which forbids them in the repo on its own separate authority. If the commit is local and unpushed, `git reset --soft HEAD~1` (if it is the most recent commit) removes it while keeping the working tree; if other commits already sit on top of it, or if it has already been pushed, stop and escalate rather than force-pushing over shared history — this needs a deliberate history rewrite, not a one-line fix.
 
 ---
 

@@ -14,8 +14,8 @@
 This runbook installs **k3s itself**, applies an informational GPU node label, and documents the containerd/NVIDIA-runtime checkpoint that must be performed once — but **after**, not during, the GPU Operator install (T006, applied at T012). This runbook does **not** install the GPU Operator, the NVIDIA driver, or any Helm chart. It does not touch the live cluster on the agent's behalf — it is executed entirely by the human operator per Constitution I / CLAUDE.md Prime constraint 1.
 
 Two clearly separated phases follow:
-- **Phase A — Initial bring-up** (Steps 1–8): performed during T005, on the day k3s first goes up.
-- **Phase B — Post-T006 containerd checkpoint** (Steps 9–12): performed **after** the GPU Operator Helm release from T006 is actually applied to the cluster (that happens during T012, per the platform bring-up runbook T011 will produce) — **not** part of initial k3s bring-up. Do not skip ahead to Phase B before T006's chart has been applied; there is nothing to verify yet.
+- **Phase A — Initial bring-up** (Steps 1–9): performed during T005, on the day k3s first goes up.
+- **Phase B — Post-T006 containerd checkpoint** (Steps 10–13): performed **after** the GPU Operator Helm release from T006 is actually applied to the cluster (that happens during T012, per the platform bring-up runbook T011 will produce) — **not** part of initial k3s bring-up. Do not skip ahead to Phase B before T006's chart has been applied; there is nothing to verify yet.
 
 ---
 
@@ -32,7 +32,7 @@ Two clearly separated phases follow:
 3. **STOP CONDITION — `infra/k3s/config-v3.toml.tmpl` must exist before you proceed past Step 2.**
    > This runbook references `infra/k3s/config-v3.toml.tmpl` as the versioned, checked-in template for any persistent containerd configuration this project needs on k3s (containerd 2.0+; D-000/D-02b), because k3s regenerates `/var/lib/rancher/k3s/agent/etc/containerd/config.toml` on every start and silently discards hand-edits made directly to that file. Check now, before proceeding past Step 2: does `infra/k3s/config-v3.toml.tmpl` exist in your checkout? **If it does not exist yet, STOP.** Do not hand-write containerd config as a substitute, and do not proceed past Step 2 of this runbook. Instead, request `infra/k3s/config-v3.toml.tmpl` from a follow-up `infra-scaffolder` dispatch (it is that agent's artifact per T004's task text and CLAUDE.md's handoff-note protocol, not this runbook's), and resume this runbook once it lands. If it does exist, read its header comment for scope before continuing — this runbook does not modify it.
 
-   Phase A (Steps 1–8) does not itself require the template to be *applied* anywhere — k3s's automatic runtime-handler wiring (D-000/D-02b) does not depend on it under normal operation. The template only becomes load-bearing as an **escalation path** in Phase B (Step 11) if automatic wiring fails after a restart. The stop condition above exists so that escalation path is never blocked on a missing artifact at the moment you actually need it.
+   Phase A (Steps 1–9) does not itself require the template to be *applied* anywhere — k3s's automatic runtime-handler wiring (D-000/D-02b) does not depend on it under normal operation. The template only becomes load-bearing as an **escalation path** in Phase B (Step 12) if automatic wiring fails after a restart. The stop condition above exists so that escalation path is never blocked on a missing artifact at the moment you actually need it.
 
 4. **You are on node A, not the Windows authoring machine.** Per D-000/D-10, Terraform and this runbook's commands run on node A's own shell (bash), not from a remote box, and node A's own kubeconfig works without `--tls-san`. Confirm you are physically or via SSH on the host identified by `${NODE_A_HOSTNAME}` / `${NODE_A_LAN_IP}` before running any command below.
 
@@ -151,7 +151,28 @@ Go version go<...>
 
 ---
 
-### Step 6 — Locate and record the kubeconfig path
+### Step 6 — Confirm containerd is not directly invokable, and `RUNTIME_CONFIG_SOURCE=file` is therefore required
+
+**Context:** this closes the third empirical-verification item in `docs/decisions/000-phase0-technical-decisions.md`'s "Requires empirical verification on the hardware (T003/T005)" section: *"the default `command,file` runs `containerd config dump`, and k3s ships containerd as a subcommand; unverified whether it fails gracefully. `file` is the safe setting."* T006's reference GPU Operator values (same decision doc, `toolkit.env`) already set `RUNTIME_CONFIG_SOURCE=file` on that basis. This step confirms the environmental fact that motivates the override, on this actual host — it does **not**, and cannot, confirm that the toolkit's file-mode write itself succeeds, since the toolkit is not installed until T006/T012. That second half of the verification is what Steps 11/13 below already check (a correctly-wired `nvidia` containerd handler is only possible if the toolkit's file-mode config write worked — a broken write and a wired handler are mutually exclusive outcomes, so no separate "did file-mode work" check exists beyond that one).
+
+**Command:**
+```
+command -v containerd
+```
+
+**Expected output:** no output; non-zero exit — `containerd` is not present as a standalone binary on PATH, only as a subcommand of `k3s`.
+
+**Verification:** exit code non-zero (`echo $?` after the command, or run `command -v containerd; echo "exit: $?"`). Corroborate with:
+```
+sudo k3s containerd config dump | head -5
+```
+which should succeed via the `k3s` subcommand path — a differently-invoked mechanism than the bare `containerd config dump` the toolkit's default `command`-mode would attempt against a standalone binary that does not exist here.
+
+**Rollback/Abort:** No mutation performed. If `command -v containerd` unexpectedly **succeeds** (a standalone `containerd` binary is present — e.g. from a prior Docker Engine or containerd install on this host), the risk profile `RUNTIME_CONFIG_SOURCE=file` was chosen to avoid may not apply the way D-000 assumed. Record this deviation in the Verification Block below and flag it explicitly in T006's Helm values PR description as a fact to reconsider before assuming `file` mode is still the correct setting — do not silently proceed as if nothing changed.
+
+---
+
+### Step 7 — Locate and record the kubeconfig path
 
 k3s writes its kubeconfig to `/etc/rancher/k3s/k3s.yaml` by default (root-owned, mode `600`). This runbook does not loosen that permission or copy the file anywhere — all `kubectl`-equivalent commands in this runbook use `sudo k3s kubectl ...`, which reads that file automatically with no `KUBECONFIG` export needed (this is also why D-000/D-10 notes no `--tls-san` is required for a single-node, on-node install).
 
@@ -170,7 +191,7 @@ sudo test -f /etc/rancher/k3s/k3s.yaml && echo FOUND
 
 ---
 
-### Step 7 — Apply the GPU node label
+### Step 8 — Apply the GPU node label
 
 Context (one sentence, per D-000/D-03): this label is organizational/informational only, not a scheduling mechanism — GPU-aware placement in this project does not use node labels or `nvidia.com/gpu` resource requests, because both physical cards live on this one node and D-000/D-03 instead pins each workload to a specific GPU by UUID via `NVIDIA_VISIBLE_DEVICES`.
 
@@ -184,7 +205,7 @@ sudo k3s kubectl label node "${NODE_A_HOSTNAME}" node-role.kubernetes.io/gpu=tru
 node/<value of NODE_A_HOSTNAME> labeled
 ```
 
-**Verification:** run Step 8 to confirm.
+**Verification:** run Step 9 to confirm.
 
 **Rollback/Abort:** Labeling a node is non-destructive and instantly reversible. If applied in error, remove it:
 ```
@@ -194,7 +215,7 @@ sudo k3s kubectl label node "${NODE_A_HOSTNAME}" node-role.kubernetes.io/gpu-
 
 ---
 
-### Step 8 — Verify the GPU node label
+### Step 9 — Verify the GPU node label
 
 **Command:**
 ```
@@ -208,7 +229,7 @@ node-role.kubernetes.io/gpu=true
 
 **Verification:** exact string printed; empty output = fail.
 
-**Rollback/Abort:** No mutation performed by this step. If empty, re-run Step 7; if it still fails, run `sudo k3s kubectl get node "${NODE_A_HOSTNAME}" -o yaml | grep -A5 labels:` to inspect the full label set for typos.
+**Rollback/Abort:** No mutation performed by this step. If empty, re-run Step 8; if it still fails, run `sudo k3s kubectl get node "${NODE_A_HOSTNAME}" -o yaml | grep -A5 labels:` to inspect the full label set for typos.
 
 ---
 
@@ -223,7 +244,7 @@ node-role.kubernetes.io/gpu=true
 > ⚠ **NRI plugin warning — read this before touching any GPU Operator / containerd runtime setting.**
 > Do **not** enable the NRI plugin (`cdi.nriPluginEnabled: true`) for this GPU Operator install, even though NVIDIA's own k3s documentation recommends it as a way to avoid touching containerd's `config.toml`. Enabling it **deletes the `nvidia` RuntimeClass** (verified in GPU Operator source: `clearRuntimeClasses()` → `client.Delete`), which D-000/D-03's UUID-pinning GPU split depends on existing — and because k3s re-stages `runtimes.yaml` on every server start, this produces *flapping*, not a one-time failure. `nriPluginEnabled: false` is already the GPU Operator v26.3.3 chart default (see the reference values block in `docs/decisions/000-phase0-technical-decisions.md`) — this is a warning against changing it, not an action to take. Full reasoning: `docs/decisions/000-phase0-technical-decisions.md` D-02.
 
-### Step 9 — Confirm the toolkit DaemonSet has actually landed on this node
+### Step 10 — Confirm the toolkit DaemonSet has actually landed on this node
 
 **Command:**
 ```
@@ -234,9 +255,9 @@ sudo k3s kubectl get pods -A -o wide | grep -i nvidia-container-toolkit
 
 **Verification:** a `Running` row present. If empty, the GPU Operator release has not reached this node yet — stop this phase and confirm T012's status before continuing.
 
-**Rollback/Abort:** No mutation performed. If missing, this is a T006/T012 concern, not a k3s defect — do not proceed to Step 10 until it resolves.
+**Rollback/Abort:** No mutation performed. If missing, this is a T006/T012 concern, not a k3s defect — do not proceed to Step 11 until it resolves.
 
-### Step 10 — Check whether the `nvidia` runtime handler is wired into containerd
+### Step 11 — Check whether the `nvidia` runtime handler is wired into containerd
 
 Per D-000/D-02b: k3s scans its runtime-binary PATH **once per k3s start**. If the toolkit DaemonSet's binaries land at `/usr/local/nvidia/toolkit` *after* k3s is already running, the handler will be missing from the generated config until k3s restarts — this is expected on a first-time install, not a bug.
 
@@ -254,26 +275,26 @@ grep -A3 'runtimes.*nvidia' /var/lib/rancher/k3s/agent/etc/containerd/config.tom
 
 **Verification:** `echo $?` immediately after the `grep` — `0` means the pattern was found (wired); `1` means not found (not wired). Do not rely on eyeballing the terminal alone; check the exit code.
 
-**Rollback/Abort:** No mutation performed by this step (it is read-only). If not wired (exit code `1`), proceed to Step 11 — this is the documented, expected recovery path, not an abort condition.
+**Rollback/Abort:** No mutation performed by this step (it is read-only). If not wired (exit code `1`), proceed to Step 12 — this is the documented, expected recovery path, not an abort condition.
 
-### Step 11 — If not wired: restart k3s and re-verify
+### Step 12 — If not wired: restart k3s and re-verify
 
 **Command:**
 ```
 sudo systemctl restart k3s
 ```
 
-Wait for the service to report active again (reuse Step 5's `sudo systemctl is-active k3s`, expect `active`), then re-run Step 10's exact grep command.
+Wait for the service to report active again (reuse Step 5's `sudo systemctl is-active k3s`, expect `active`), then re-run Step 11's exact grep command.
 
-**Expected output:** Step 10's grep now returns the `runtimes.nvidia` block, exit code `0`.
+**Expected output:** Step 11's grep now returns the `runtimes.nvidia` block, exit code `0`.
 
-**Verification:** same as Step 10 — exit code `0` on re-run.
+**Verification:** same as Step 11 — exit code `0` on re-run.
 
 **Rollback/Abort:**
-- If the handler is wired after restart: proceed to Step 12. Record "k3s restart required after GPU Operator install: yes" in the Verification Block below.
+- If the handler is wired after restart: proceed to Step 13. Record "k3s restart required after GPU Operator install: yes" in the Verification Block below.
 - If the handler is **still** not wired after one restart: **do not hand-edit `config.toml`** — per D-000/D-02b, k3s regenerates that file on every start and silently discards direct edits. Escalate instead: open a follow-up `infra-scaffolder` dispatch to confirm `infra/k3s/config-v3.toml.tmpl` exists, correctly encodes the `nvidia` containerd runtime stanza, and is deployed to `/var/lib/rancher/k3s/agent/etc/containerd/` on this node. **Note:** the exact mechanism for getting the repo's `infra/k3s/config-v3.toml.tmpl` onto the node's filesystem (manual copy, a provisioning step, or something else) is not yet specified anywhere in this repo as of this runbook's authoring — do not invent one, request it explicitly in the escalation. Do not restart k3s a second time until that gap is resolved, since a second restart without a corrected template will not change the outcome.
 
-### Step 12 — Verify the `nvidia` RuntimeClass exists AND cross-check the handler wiring
+### Step 13 — Verify the `nvidia` RuntimeClass exists AND cross-check the handler wiring
 
 Per D-000/D-02b, k3s ships `RuntimeClass/nvidia` as a **static manifest with no conditional logic** — its presence alone is **not** evidence the containerd handler is actually wired. Both must be checked; this step exists specifically to prevent trusting the first alone.
 
@@ -281,7 +302,7 @@ Per D-000/D-02b, k3s ships `RuntimeClass/nvidia` as a **static manifest with no 
 ```
 sudo k3s kubectl get runtimeclass
 ```
-followed by re-running Step 10's grep once more as the second half of this check:
+followed by re-running Step 11's grep once more as the second half of this check:
 ```
 grep -A3 'runtimes.*nvidia' /var/lib/rancher/k3s/agent/etc/containerd/config.toml
 ```
@@ -290,9 +311,9 @@ grep -A3 'runtimes.*nvidia' /var/lib/rancher/k3s/agent/etc/containerd/config.tom
 
 **Verification:** **both** conditions must hold simultaneously:
 1. `nvidia` row present in `kubectl get runtimeclass` output, and
-2. Step 10's grep exit code is `0`.
+2. Step 11's grep exit code is `0`.
 
-A `nvidia` RuntimeClass with a grep exit code of `1` is **not verified** — treat it as "not wired" and return to Step 11, not as a pass.
+A `nvidia` RuntimeClass with a grep exit code of `1` is **not verified** — treat it as "not wired" and return to Step 12, not as a pass.
 
 **Rollback/Abort:** No mutation performed by this step. If the RuntimeClass row is absent entirely (unusual — per D-000/D-02b it ships natively and unconditionally with k3s), this indicates a k3s install problem rather than a GPU Operator problem: fall back to Step 4's full uninstall/reinstall rollback path, then repeat Phase A and Phase B in order.
 
@@ -313,7 +334,7 @@ Complete this during T005 execution (Phase A fields) and again after Phase B is 
 | kubeconfig local file path (path only — NEVER contents, NEVER commit the file itself) | |
 | — Phase B (complete after T006/T012) — | |
 | RuntimeClass `nvidia` present? (`kubectl get runtimeclass`) | yes / no / not yet reached |
-| containerd `nvidia` handler wired? (Step 10/12 grep) | yes / no / not yet reached |
+| containerd `nvidia` handler wired? (Step 12/13 grep) | yes / no / not yet reached |
 | k3s restart required after GPU Operator install? | yes / no / not yet reached |
 | Deviations from this runbook (if any) | |
 
