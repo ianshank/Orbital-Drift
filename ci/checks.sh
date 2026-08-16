@@ -646,17 +646,36 @@ pytest_suite() {
   # FAIL that names a "collection error" for a file pytest never looked at. The
   # corroborating count has to corroborate what pytest actually does, or it
   # argues with the tool it exists to double-check.
-  collectable_count=$(find "${suite_dir}" \
+  # FAIL CLOSED ON A BROKEN WALK. These used to be `$(find ... | wc -l | tr ...)`,
+  # whose exit status is `tr`'s and therefore always 0 — so `set -e` never saw a
+  # find failure and BOTH counts silently degraded to 0. With collect_rc 5 that
+  # routes straight to "DECLARED-EMPTY ... arms automatically when one lands" and
+  # returns 0: a FALSE DECLARED-EMPTY, the dangerous direction this whole ladder
+  # exists to prevent, reachable with no hostile input at all — an unreadable
+  # subdirectory, a full disk mid-walk, or a find that rejects the `-prune`
+  # expression on node A's toolchain would each do it. The find now runs on its
+  # own so its status is visible, and the count is taken from the captured list.
+  collectable_list=$(find "${suite_dir}" \
     \( -name '.*' -o -name '__pycache__' -o -name 'build' -o -name 'dist' \
     -o -name 'node_modules' -o -name 'venv' -o -name '*.egg' \) -prune -o \
-    -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print |
-    wc -l | tr -d '[:space:]')
+    -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print) || {
+    printf 'FAIL: could not walk %s to corroborate the collect probe. Refusing to\n' \
+      "${suite_dir}" >&2
+    printf '      report DECLARED-EMPTY on a count this script could not take.\n' >&2
+    return 1
+  }
+  collectable_count=$(printf '%s\n' "${collectable_list}" | sed '/^$/d' | wc -l |
+    tr -d '[:space:]')
+
   # Any .py that is not package plumbing — the wider "somebody put code here".
-  module_count=$(find "${suite_dir}" \
+  module_list=$(find "${suite_dir}" \
     \( -name '.*' -o -name '__pycache__' -o -name 'build' -o -name 'dist' \
     -o -name 'node_modules' -o -name 'venv' -o -name '*.egg' \) -prune -o \
-    -type f -name '*.py' ! -name '__init__.py' ! -name 'conftest.py' -print |
-    wc -l | tr -d '[:space:]')
+    -type f -name '*.py' ! -name '__init__.py' ! -name 'conftest.py' -print) || {
+    printf 'FAIL: could not walk %s for helper modules (see above).\n' "${suite_dir}" >&2
+    return 1
+  }
+  module_count=$(printf '%s\n' "${module_list}" | sed '/^$/d' | wc -l | tr -d '[:space:]')
 
   # If a `python_files` override is in force, the two counts above no longer
   # bound what pytest collects and this function cannot tell (b) from (c). Say so
@@ -677,11 +696,18 @@ pytest_suite() {
   # the split. Fail towards the loud one.
   python_files_overridden=0
   python_files_source=''
+  # Iterated in pytest's OWN precedence order, and `break` on the first match is
+  # load-bearing: without it the LAST match won the variable, so a repo carrying
+  # `python_files` in both pytest.ini and setup.cfg was told to go edit
+  # setup.cfg — a file pytest ignores outright once a pytest.ini exists. The
+  # operator edits it, re-runs, and gets the same failure naming a different
+  # file. With the break, the file named is the file pytest actually obeys.
   for override_config in pytest.ini pyproject.toml tox.ini setup.cfg; do
     [ -f "${override_config}" ] || continue
     if grep -Eq '^[[:space:]]*python_files[[:space:]]*=' "${override_config}"; then
       python_files_overridden=1
       python_files_source="${override_config}"
+      break
     fi
   done
 
@@ -850,10 +876,75 @@ stage_coverage() {
   docker_or_fail "this stage measures the same tests/unit positive controls under coverage, and a control that skipped instead of running would inflate the measured number"
   git_or_fail "this stage measures tests/unit, 5 of whose positive controls drive git directly to build the synthetic repositories and staged indices they scan"
 
-  "${PYTHON}" -m pytest tests \
-    --cov=src/orbital_drift \
-    --cov-report=term-missing \
-    --cov-fail-under="${COVERAGE_MIN_PERCENT}"
+  # PYTEST_ADDOPTS is pytest's own documented escape hatch and it is NOT
+  # available here, for exactly the reason SKIP is not available to stage_hooks.
+  # pytest builds argv as [ini addopts] + [PYTEST_ADDOPTS] + [command line], so
+  # a `--cov-fail-under=0` injected this way loses to the flag below — but the
+  # BOOLEAN switches do not lose, because they are not overridden by a later
+  # value:
+  #
+  #   PYTEST_ADDOPTS='--no-cov'        pytest-cov's documented "disable coverage
+  #                                    completely" flag. Warns, does not error;
+  #                                    --cov-fail-under is never applied; exit 0.
+  #   PYTEST_ADDOPTS='--collect-only'  never runs a test, never reports, exit 0.
+  #
+  # Either one turns this stage into a green coverage number over a run that
+  # measured nothing, which is precisely the vacuous pass stage_hooks has two
+  # separate branches dedicated to refusing. Unset rather than merely warned
+  # about, and announced when it was set so the operator is not left wondering
+  # why their flag had no effect.
+  if [ -n "${PYTEST_ADDOPTS:-}" ]; then
+    printf 'NOTE: ignoring PYTEST_ADDOPTS=%s — this stage is a gate and has no opt-out.\n' \
+      "${PYTEST_ADDOPTS}"
+  fi
+  unset PYTEST_ADDOPTS
+
+  # Output is captured rather than streamed so the diagnosis below can read it.
+  # A --cov-fail-under breach and a test failure BOTH exit 1 and only the
+  # "Required test coverage" line separates them, so without this branch a red
+  # `coverage` job tells the operator nothing about which of the two happened —
+  # and this stage would be the only gate in the file with no FAIL: block.
+  # Deliberately one long line: test_checks_sh_has_no_gate_disabling_constructs
+  # allows a disarmed-errexit window of ERREXIT_WINDOW lines and requires the
+  # `rc=$?` capture inside it. Wrapping this invocation for readability pushed
+  # the capture out of that window. Widening the guard to suit one call site
+  # would trade a real protection for a cosmetic one.
+  set +e
+  cov_output=$("${PYTHON}" -m pytest tests --cov=src/orbital_drift --cov-report=term-missing --cov-fail-under="${COVERAGE_MIN_PERCENT}" 2>&1)
+  cov_rc=$?
+  set -e
+
+  printf '%s\n' "${cov_output}"
+  [ "${cov_rc}" -eq 0 ] && return 0
+
+  if printf '%s' "${cov_output}" | grep -q 'Required test coverage of .* not reached'; then
+    {
+      printf '\n'
+      printf 'FAIL: COVERAGE BREACH (FR-011a). The tests are not the problem.\n\n'
+      printf '        threshold:  %s%%        <- ci/versions.env COVERAGE_MIN_PERCENT\n' \
+        "${COVERAGE_MIN_PERCENT}"
+      printf '        measured:   see the "Total coverage" line above\n\n'
+      printf '        The term-missing table above lists the uncovered lines per file.\n'
+      printf '        FIX: write tests for them. Lowering COVERAGE_MIN_PERCENT to make\n'
+      printf '        this green is the failure mode docs/decisions/001-coverage-gate.md\n'
+      printf '        D-05 names explicitly; change it only deliberately, with a reason\n'
+      printf '        recorded there.\n\n'
+    } >&2
+    return 1
+  fi
+
+  {
+    printf '\n'
+    printf 'FAIL: tests failed UNDER MEASUREMENT — this is not a coverage breach.\n\n'
+    printf '        This stage runs all three suites in ONE pytest process, so its\n'
+    printf '        process topology differs from the unit/contract/smoke stages.\n\n'
+    printf '        First check whether the ordinary stages agree:\n'
+    printf '            sh ci/checks.sh unit\n\n'
+    printf '        If they are GREEN and this is RED, the failure is an interaction\n'
+    printf '        introduced by the single-process run, not a broken test — see\n'
+    printf '        docs/decisions/001-coverage-gate.md D-06 for why that run exists.\n\n'
+  } >&2
+  return 1
 }
 
 # =============================================================================

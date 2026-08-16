@@ -2139,6 +2139,41 @@ def test_the_coverage_stage_asserts_the_threshold_from_the_pin_file(tmp_path: Pa
     )
 
 
+@pytest.mark.parametrize("hatch", ["--no-cov", "--collect-only", "--no-cov -p no:cacheprovider"])
+def test_pytest_addopts_does_not_survive_into_the_coverage_run(tmp_path: Path, hatch: str) -> None:
+    """The gate has no opt-out, and `PYTEST_ADDOPTS` is the one that nearly worked.
+
+    pytest builds argv as ``[ini addopts] + [PYTEST_ADDOPTS] + [command line]``,
+    so a ``--cov-fail-under=0`` injected through the variable LOSES to the flag
+    the stage passes last. The boolean switches do not lose:
+
+    * ``--no-cov`` is pytest-cov's documented "disable coverage completely"
+      switch. It warns rather than erroring, ``--cov-fail-under`` is never
+      applied, and pytest exits 0.
+    * ``--collect-only`` never runs a test and never reports, so the same.
+
+    Either turns this stage green over a run that measured nothing — the vacuous
+    pass ``stage_hooks`` has two separate branches dedicated to refusing, and
+    which README states flatly cannot happen. Asserted BEHAVIOURALLY, not by
+    grepping for ``unset``, because ``_saved=$PYTEST_ADDOPTS; unset ...;
+    export PYTEST_ADDOPTS=$_saved`` satisfies a grep — the same reasoning
+    ``test_pre_commit_escape_hatches_do_not_survive_into_the_hook_run`` gives.
+    """
+    recording = run_checks("coverage", tmp_path, extra_env={"PYTEST_ADDOPTS": hatch})
+    assert recording.returncode == 0, recording.output
+
+    runs = [call for call in recording.of("python") if "-m pytest" in call.joined]
+    assert runs, recording.output
+    assert runs[0].env["PYTEST_ADDOPTS"] is None, (
+        "PYTEST_ADDOPTS survived into the coverage run, so the gate can be "
+        f"switched off from the environment: {runs[0].env!r}"
+    )
+    assert "ignoring PYTEST_ADDOPTS" in recording.output, (
+        "the stage silently discarded PYTEST_ADDOPTS; it must say so, or an operator "
+        f"is left wondering why their flag did nothing:\n{recording.output}"
+    )
+
+
 def test_the_coverage_stage_measures_every_suite_not_just_one(tmp_path: Path) -> None:
     """``tests``, not ``tests/unit``.
 

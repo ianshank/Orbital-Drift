@@ -177,6 +177,48 @@ def test_zero_measurable_statements_reports_one_hundred_percent(tmp_path: Path) 
     assert "Required test coverage of 85% reached" in result.stdout, result.stdout
 
 
+def test_a_cov_path_that_does_not_exist_fails_closed(tmp_path: Path) -> None:
+    """If someone renames or deletes ``src/orbital_drift``, the gate must redden.
+
+    ``stage_coverage`` hardcodes ``--cov=src/orbital_drift``. Nothing in the
+    repository forces that path to keep existing — no test ties the stage's flag
+    to the package layout — so the question "what does the gate do when it is
+    pointed at nothing?" decides whether a rename produces a loud failure or a
+    silent, permanently green gate measuring an empty set.
+
+    The answer is a behaviour of a third-party library the gate's soundness rests
+    on, which is exactly the kind of thing this repo pins and re-measures rather
+    than assumes. Asserted so a future coverage.py that starts treating "no data"
+    as 100% is caught here rather than by nobody.
+    """
+    root = _workspace(tmp_path, _TEST_TOUCHING_NOTHING)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "t",
+            "-c",
+            "pytest.ini",
+            "-p",
+            "no:cacheprovider",
+            "--cov=no_such_package",
+            "--cov-report=term-missing",
+            "--cov-fail-under=85",
+            "-q",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0, (
+        "measuring a path that does not exist exited 0. A rename of "
+        "src/orbital_drift would silently disarm the FR-011a gate rather than "
+        f"failing it:\n{result.stdout}\n{result.stderr}"
+    )
+
+
 @pytest.mark.parametrize("threshold", ["85", PINS["COVERAGE_MIN_PERCENT"]])
 def test_the_repository_threshold_is_a_value_the_engine_accepts(
     tmp_path: Path, threshold: str

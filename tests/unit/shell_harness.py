@@ -49,7 +49,11 @@ CHECKS_SH: Final = REPO_ROOT / "ci" / "checks.sh"
 # Environment variables the stubs snapshot on every call. `SKIP` and
 # `PRE_COMMIT_ALLOW_NO_CONFIG` are the two pre-commit escape hatches
 # `stage_hooks` claims to neutralise.
-RECORDED_ENV: Final[tuple[str, ...]] = ("SKIP", "PRE_COMMIT_ALLOW_NO_CONFIG")
+# `PYTEST_ADDOPTS` is the third: pytest splices it into argv, so `--no-cov` or
+# `--collect-only` set there would turn `stage_coverage` into a green number over
+# a run that measured nothing. Recorded so a test can assert the stage unset it,
+# the same way the two above are asserted for `stage_hooks`.
+RECORDED_ENV: Final[tuple[str, ...]] = ("SKIP", "PRE_COMMIT_ALLOW_NO_CONFIG", "PYTEST_ADDOPTS")
 
 
 def posix_shell() -> str:

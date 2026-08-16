@@ -76,6 +76,28 @@ So the ~2× on the dominant local term is **accepted and documented** rather tha
 
 The coverage run includes `tests/unit`, whose gitleaks positive controls drive real containers and real git, and whose `_tool()` helper falls back to `pytest.skip()` outside CI. Without both guards the stage would be a **fail-open**: on a Docker-less machine it would report a green coverage number computed from a run in which eight controls silently skipped. Both guards carry reason strings distinct from `stage_unit`'s and `stage_hooks`'s, so a failure names which stage's dependency is unmet and why.
 
+## D-09 — KNOWN GAP, dated: `dags/` is not measured, and three spec edge cases live there
+
+`--cov=src/orbital_drift` measures the package and nothing else. `dags/` is a top-level directory outside the package and outside `[tool.hatch.build.targets.wheel].packages`, and it is where three of `spec.md`'s six edge cases are due to land:
+
+| Task | File | Edge case |
+|---|---|---|
+| T020 | `dags/ingest.py` | bounded backfill / idempotency after power loss |
+| T037 | `dags/drift.py` | **starvation vs distribution shift** — must not retrain on "no clean data" |
+| T038 | `dags/retrain.py` | **promotion race** — queue depth 1, later triggers coalesce |
+
+The failure mode is quiet, and it is worth stating plainly: once T020 lands, `tests/smoke/test_ingest_dag.py` will import and exercise `dags/ingest.py`, that code **will execute under measurement** because `stage_coverage` runs `pytest tests`, and it will then **not be counted**, because it is outside the `--cov` source path. The stage would report a green number about `src/orbital_drift` while the DAG deciding whether to retrain has no enforced coverage at all, and nothing would say so.
+
+This is conformant — FR-011a scopes itself to `src/orbital_drift` — and it is still a gate reporting green over something it should be measuring. Recorded as a **deferral, not an oversight**:
+
+**When T020 lands, widen the stage to `--cov=src/orbital_drift --cov=dags` and raise this with the operator in the same PR.** Until `dags/` contains anything, adding the flag would only assert coverage of an empty directory. Noted 2026-08-15.
+
+## D-10 — Escape hatches the gate closes, and one it inherits
+
+`stage_coverage` unsets `PYTEST_ADDOPTS` and says so, mirroring `stage_hooks`'s treatment of `SKIP`. This is not hypothetical: pytest splices that variable into argv, and while a `--cov-fail-under=0` injected there loses to the flag the stage passes last, the **boolean** switches do not lose. `PYTEST_ADDOPTS='--no-cov'` (pytest-cov's documented "disable coverage completely", which warns rather than erroring) and `PYTEST_ADDOPTS='--collect-only'` each produced a green stage over a run that measured nothing — verified before the fix. `test_pytest_addopts_does_not_survive_into_the_coverage_run` asserts the fix behaviourally rather than by grepping for `unset`, because `_saved=$PYTEST_ADDOPTS; unset …; export PYTEST_ADDOPTS=$_saved` satisfies a grep.
+
+The coverage **config** surface is guarded by test rather than by the script: `test_no_coverage_config_silently_redefines_what_the_gate_measures` fails if a `[tool.coverage]` section, `.coveragerc`, `setup.cfg` or `tox.ini` appears. One line — `exclude_also = ["."]` — matches every line in the tree, drops the statement count to zero, and makes coverage report 100% forever with real untested code present. Rejecting a filename heuristic (D-02) while leaving an easier disarm mechanism unguarded would not have been a design.
+
 ## D-08 — What is deliberately not changed
 
 - **`addopts` stays `-ra --strict-markers --strict-config`.** Putting `--cov` there would attach coverage to `pytest_suite()`'s `--collect-only` probe and would make every stage hard-fail with "unrecognized arguments: --cov" on any machine without `pytest-cov` — including `contract` and `smoke`, whose pin sets do not assert it.

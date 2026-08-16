@@ -322,6 +322,12 @@ DECLARED_ENVIRONMENT_READS: Final[frozenset[str]] = frozenset(
         "PYTHON",
         # Read only to say "ignoring SKIP=..." before unsetting it.
         "SKIP",
+        # Same shape, same reason, for the coverage stage: read only to say
+        # "ignoring PYTEST_ADDOPTS=..." before unsetting it. pytest splices that
+        # variable into argv, so `--no-cov` or `--collect-only` set there would
+        # turn the coverage gate into a green number over a run that measured
+        # nothing — a boolean switch no later flag overrides.
+        "PYTEST_ADDOPTS",
         # Where the docker stderr probe file is created.
         "TMPDIR",
         # Dumps the generated gitleaks overlay to stderr.
@@ -1695,9 +1701,14 @@ def test_pytest_suite_counts_both_default_python_files_patterns() -> None:
     alone left both literals present in the body and the test went on passing.
     """
     body = FUNCTIONS["pytest_suite"]
-    match = re.search(r"collectable_count=\$\((?P<cmd>.*?)\)\n", body, re.DOTALL)
+    # Scoped to the `find` that BUILDS the list, not to the `collectable_count=`
+    # assignment. Those were the same command until the walk was made to fail
+    # closed; the count is now taken from a captured list, so the assignment
+    # itself no longer mentions any glob and asserting against it would check
+    # `printf | sed | wc` for `test_*.py` and always fail.
+    match = re.search(r"collectable_list=\$\((?P<cmd>.*?)\) \|\| \{\n", body, re.DOTALL)
     assert match, (
-        "pytest_suite has no `collectable_count=$(...)` command; the corroborating "
+        "pytest_suite has no `collectable_list=$(find ...)` command; the corroborating "
         "count that distinguishes an unauthored suite from a collection error is gone"
     )
     command = match.group("cmd")
@@ -1763,6 +1774,48 @@ def test_coverage_flags_never_enter_the_global_pytest_addopts() -> None:
         assert flag not in addopts, (
             f"pyproject addopts carries {flag!r}: {addopts!r}. Coverage flags belong to "
             "ci/checks.sh's stage_coverage command line only."
+        )
+
+
+def test_no_coverage_config_silently_redefines_what_the_gate_measures() -> None:
+    """The coverage-config surface gets the same guard `python_files` gets.
+
+    ``pytest_suite`` checks all four files pytest reads ini options from, because
+    an unnoticed ``python_files`` override would unsound its counts. coverage.py
+    has exactly the same exposure and a sharper failure mode. It reads config
+    from ``.coveragerc``, ``setup.cfg [coverage:*]``, ``tox.ini [coverage:*]``
+    and ``pyproject.toml [tool.coverage]``, and this one line in any of them:
+
+        [tool.coverage.report]
+        exclude_also = ["."]
+
+    matches every line in the tree, drops the statement count to zero, and makes
+    coverage report 100% — so ``--cov-fail-under`` passes forever, with real
+    product code present and untested. That is *verbatim* the failure mode
+    ``stage_coverage``'s header claims to have designed out by refusing a
+    filename heuristic: a gate disarmed permanently and silently. Rejecting one
+    mechanism and leaving an easier one unguarded is not a design.
+
+    Fails closed and loudly: if coverage config is ever genuinely wanted, this
+    test is where the reasoning gets written down, exactly as
+    ``test_pyproject_does_not_override_python_files_without_telling_checks_sh``
+    is for the pytest side.
+    """
+    config = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+    assert "coverage" not in config.get("tool", {}), (
+        "pyproject.toml now carries a [tool.coverage] section. Keys like "
+        "`exclude_also`, `omit` and `include` silently change what the FR-011a gate "
+        "measures — `exclude_also = ['.']` makes it report 100% forever. If this is "
+        "deliberate, assert the specific keys here and record why in "
+        "docs/decisions/001-coverage-gate.md."
+    )
+
+    for name in (".coveragerc", "setup.cfg", "tox.ini"):
+        path = REPO_ROOT / name
+        assert not path.exists(), (
+            f"{name} exists and coverage.py reads config from it. Either remove it or "
+            "teach this test which coverage keys it is allowed to set — an unwatched "
+            "coverage config can turn the gate permanently green."
         )
 
 
