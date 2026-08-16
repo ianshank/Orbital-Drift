@@ -58,6 +58,7 @@ As the operator, I want runbooks and incident templates, so six weeks of operati
 - **FR-009** Serving endpoint (FastAPI) loads by registry stage; canary ratio configurable; KServe migration path documented (stretch).
 - **FR-010** Prometheus metrics from every component; Grafana dashboards as code; Alertmanager rules for the three alert classes in US7.
 - **FR-011** CI: lint, type-check, unit, contract, DAG smoke, gitleaks; all green required to merge.
+- **FR-011a** CI enforces a minimum measured statement coverage of `src/orbital_drift`. The threshold is a reviewable pin, never a literal in the gate runner (Constitution III). Added on operator request; not implied by FR-011, which enumerates six gates and does not mention coverage. Rationale and rejected designs: `docs/decisions/001-coverage-gate.md`.
 - **FR-012** All thresholds, cadences, AOI, names: configuration, never constants (Constitution III).
 
 ## Edge Cases

@@ -62,13 +62,37 @@ sh ci/checks.sh typecheck   # mypy strict
 sh ci/checks.sh unit        # pytest tests/unit
 sh ci/checks.sh contract    # pytest tests/contract
 sh ci/checks.sh smoke       # pytest tests/smoke
+sh ci/checks.sh coverage    # pytest tests --cov=src/orbital_drift
 sh ci/checks.sh gitleaks    # secret scan: working tree AND full git history
 sh ci/checks.sh hooks       # pre-commit run --all-files
 ```
 
-The first six are FR-011's gates. `hooks` is not one of them; it exists so the
-pre-commit config is enforced in CI rather than only on machines where somebody
-remembered to install it.
+`lint`, `typecheck`, `unit`, `contract`, `smoke` and `gitleaks` are FR-011's six
+gates. The other two are not, and each has its own requirement:
+
+* `coverage` implements **FR-011a** — a minimum measured statement coverage of
+  `src/orbital_drift`, with the threshold pinned in `ci/versions.env` as
+  `COVERAGE_MIN_PERCENT` rather than written into the script (Constitution III).
+  It needs no special case for "there is no product code yet": coverage reports
+  100% for zero measurable statements, so the gate clears today and arms itself
+  the moment the first executable line lands. It measures **`src/orbital_drift`
+  only** — `dags/` is outside the package and is not counted, so once T020 lands
+  the ingest/drift/retrain DAGs will run under measurement without contributing
+  to the number. That is a dated deferral, not an oversight: see D-09 in
+  `docs/decisions/001-coverage-gate.md`. The stage also unsets `PYTEST_ADDOPTS`
+  (and says so) — `--no-cov` set there would otherwise turn the gate green over a
+  run that measured nothing.
+* `hooks` exists so the pre-commit config is enforced in CI rather than only on
+  machines where somebody remembered to install it.
+
+`coverage` runs all three suites in **one** pytest process, because the CI matrix
+runs each stage as a separate job and per-job coverage cannot be combined without
+putting orchestration into a workflow file whose own header forbids gate logic.
+The consequence is that `sh ci/checks.sh all` runs `tests/unit` twice — once bare
+and once under measurement — which roughly doubles the dominant local term. That
+is accepted rather than optimised away; every cheaper arrangement weakens a gate,
+and D-06 of the decision doc records which one each of them breaks. In CI the two
+runs are parallel matrix jobs, so wall-clock is largely unchanged.
 
 If the `python` on your `PATH` is not 3.12, point the script at the right
 interpreter instead of changing your `PATH`:
@@ -84,6 +108,7 @@ PYTHON=/path/to/python3.12 sh ci/checks.sh all
 | `lint` | Python 3.12 + the pinned `ruff` |
 | `typecheck` | Python 3.12 + the pinned `mypy` |
 | `unit` / `contract` / `smoke` | Python 3.12 + the pinned `pytest` (`unit` additionally drives Docker, git and `pre-commit`: its positive-control tests exercise the pinned gitleaks container over real git repositories it builds itself, plus the merged pre-commit hook set) |
+| `coverage` | Python 3.12 + the pinned `pytest`, `pytest-cov` and `coverage`, **plus Docker and git** — it re-runs `tests/unit`, so it inherits that suite's real dependencies. Both are asserted before pytest starts: a control that skipped instead of running would inflate the number this stage reports, which is a fail-open, not a missing test |
 | `gitleaks` | **Docker and git only** |
 | `hooks` | Python 3.12 + the pinned `pre-commit`, Docker, git |
 

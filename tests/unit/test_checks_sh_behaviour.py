@@ -434,15 +434,15 @@ def test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it(tmp_path: 
     """The direct instrumented proof the round asked for: count how many times
     the real version-check subprocess runs across one full ``all`` invocation.
 
-    Seven of the eight ``preflight()`` calls a full ``all`` run makes carry a
-    non-empty pin set — ``all`` itself (all four tools), then ``lint`` (ruff),
+    Eight of the nine ``preflight()`` calls a full ``all`` run makes carry a
+    non-empty pin set — ``all`` itself (every tool), then ``lint`` (ruff),
     ``typecheck`` (mypy), ``unit``/``contract``/``smoke`` (pytest, three
-    times) and ``hooks`` (pre-commit); ``gitleaks``'s pin set is empty, so it
-    makes no interpreter or tool call at all. If verification were still
-    memoised the pre-round-7 way, every count below would be 1 — the tool's
-    version would be probed once, by whichever stage happened to need it
-    first, and every later stage that also needs it would trust the cached
-    result instead of probing again.
+    times), ``coverage`` (pytest + pytest-cov + coverage) and ``hooks``
+    (pre-commit); ``gitleaks``'s pin set is empty, so it makes no interpreter
+    or tool call at all. If verification were still memoised the pre-round-7
+    way, every count below would be 1 — the tool's version would be probed
+    once, by whichever stage happened to need it first, and every later stage
+    that also needs it would trust the cached result instead of probing again.
     """
     recording = run_checks("all", tmp_path)
     assert recording.returncode == 0, recording.output
@@ -456,22 +456,35 @@ def test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it(tmp_path: 
 
     # The interpreter itself: full + minor version probes, once per
     # preflight() call with a non-empty pin set (all, lint, typecheck, unit,
-    # contract, smoke, hooks = 7).
+    # contract, smoke, coverage, hooks = 8).
     full_probes = _count(contains="version_info[:3]")
     minor_probes = _count(contains="version_info[:2]")
-    assert full_probes == 7, (
-        f"expected 7 python full-version probes (one per non-empty-pin-set "
+    assert full_probes == 8, (
+        f"expected 8 python full-version probes (one per non-empty-pin-set "
         f"preflight() call), found {full_probes}: {[c.joined for c in python_calls]!r}"
     )
-    assert minor_probes == 7, f"expected 7 python minor-version probes, found {minor_probes}"
+    assert minor_probes == 8, f"expected 8 python minor-version probes, found {minor_probes}"
 
     # the ruff pin is needed by `all` and `lint` = 2 calls, not 1.
     assert _count(exact="-m ruff --version") == 2, "ruff --version did not re-probe for `lint`"
     # mypy: needed by `all` and `typecheck` = 2 calls, not 1.
     assert _count(exact="-m mypy --version") == 2, "mypy --version did not re-probe for `typecheck`"
-    # pytest: needed by `all`, `unit`, `contract`, `smoke` = 4 calls, not 1.
-    assert _count(contains="import pytest") == 4, (
-        "the pytest probe did not re-run once each for unit/contract/smoke"
+    # pytest: needed by `all`, `unit`, `contract`, `smoke`, `coverage` = 5, not 1.
+    #
+    # `contains="import pytest"` counts the VERSION PROBE only. It deliberately
+    # does not match `-m pytest ...` runs, nor the pytest-cov/coverage probes,
+    # which go through importlib.metadata precisely so their argv carries no
+    # `import pytest` substring — see tool_version() in ci/checks.sh and the
+    # ordering note in shell_harness.PYTHON_STUB.
+    assert _count(contains="import pytest") == 5, (
+        "the pytest probe did not re-run once each for unit/contract/smoke/coverage"
+    )
+    # pytest-cov and coverage: needed by `all` and `coverage` = 2 calls each.
+    assert _count(contains='m.version("pytest-cov")') == 2, (
+        "the pytest-cov probe did not re-run for `coverage`"
+    )
+    assert _count(contains='m.version("coverage")') == 2, (
+        "the coverage probe did not re-run for `coverage`"
     )
     # pre-commit: needed by `all` and `hooks` = 2 calls, not 1.
     assert _count(exact="-m pre_commit --version") == 2, (
@@ -558,9 +571,9 @@ def test_the_interpreter_check_tracks_the_current_probe_result_not_a_cached_one(
     """PRIMARY. ``require_python_interpreter()`` re-run behaviourally, not
     grepped.
 
-    A full ``all`` run probes the interpreter's minor version 7 times (once per
+    A full ``all`` run probes the interpreter's minor version 8 times (once per
     non-empty-pin preflight() call: all, lint, typecheck, unit, contract,
-    smoke, hooks). Here call 1 (inside ``preflight all``) reports the CORRECT
+    smoke, coverage, hooks). Here call 1 (inside ``preflight all``) reports the CORRECT
     pinned minor version; call 2 (inside ``stage_lint``'s own ``preflight
     lint``, the very next thing ``stage_all`` runs) reports a WRONG one.
 
@@ -693,12 +706,12 @@ def test_sequenced_stub_repeats_the_last_value_once_the_queue_is_exhausted(
     """Exercises the previously-dead clamp branch in ``_od_seq_next``.
 
     A two-value PY_MINOR sequence (both the correct pinned minor version)
-    against a full ``all`` run, which probes PY_MINOR seven times (once per
+    against a full ``all`` run, which probes PY_MINOR eight times (once per
     non-empty-pin ``preflight()`` call: all, lint, typecheck, unit, contract,
-    smoke, hooks — the same count
+    smoke, coverage, hooks — the same count
     ``test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it``
     measures for an unsequenced run). Calls 1 and 2 consume the two queued
-    values directly; calls 3-7 each ask for an index past the two-line queue
+    values directly; calls 3-8 each ask for an index past the two-line queue
     and must hit ``_od_seq_next``'s
     ``if [ "${_od_idx}" -gt "${_od_total}" ]; then _od_idx="${_od_total}"; fi``
     clamp, repeating line 2's value, for the run to still see the CORRECT
@@ -714,9 +727,9 @@ def test_sequenced_stub_repeats_the_last_value_once_the_queue_is_exhausted(
     assert recording.returncode == 0, recording.output
 
     minor_probes = [call for call in recording.of("python") if "version_info[:2]" in call.joined]
-    assert len(minor_probes) == 7, (
-        "expected 7 interpreter minor-version probes across a full `all` run "
-        "(2 from the queue, 5 past exhaustion via the clamp branch), found "
+    assert len(minor_probes) == 8, (
+        "expected 8 interpreter minor-version probes across a full `all` run "
+        "(2 from the queue, 6 past exhaustion via the clamp branch), found "
         f"{len(minor_probes)}: {[c.joined for c in recording.of('python')]!r}"
     )
 
@@ -1699,16 +1712,21 @@ def test_the_daemon_probe_reruns_for_every_stage_that_needs_docker(tmp_path: Pat
     earlier in this run" would reintroduce exactly the class of defect rounds
     3-7 spent themselves closing: a stored answer standing in for the current
     one. ``sh ci/checks.sh all`` must probe once per stage that needs Docker —
-    unit, gitleaks, hooks — not once per run.
+    unit, coverage, gitleaks, hooks — not once per run.
+
+    ``coverage`` is in that list for the same reason ``unit`` is, and it is the
+    reason the expected count moved from 3 to 4: it re-runs tests/unit under
+    measurement, so the same container-dependent positive controls are in scope
+    and a skipped control would inflate the number it reports.
     """
     recording = run_checks("all", tmp_path)
     probes = _daemon_probes(recording)
 
     assert recording.returncode == 0, recording.output
-    assert len(probes) == 3, (
-        f"`all` ran {len(probes)} daemon probe(s), expected one each for unit, gitleaks "
-        "and hooks. Fewer means a memo is standing in for the real probe somewhere; "
-        "more means a stage grew a duplicate guard."
+    assert len(probes) == 4, (
+        f"`all` ran {len(probes)} daemon probe(s), expected one each for unit, coverage, "
+        "gitleaks and hooks. Fewer means a memo is standing in for the real probe "
+        "somewhere; more means a stage grew a duplicate guard."
     )
     assert all(call.argv == ("info",) for call in probes), (
         f"the daemon probe is no longer a bare `docker info`: {[call.argv for call in probes]}"
@@ -1818,6 +1836,673 @@ def test_the_generated_overlay_stays_a_reasonable_size_for_a_typical_checkout(
         "raising the threshold: this was previously unbounded and untested at any "
         "realistic scale."
     )
+
+
+# =============================================================================
+# ROUND 11 — `pytest_suite()`'s exit-5 ladder, driven for the first time.
+#
+# `stage_contract` and `stage_smoke` are two of FR-011's six gates, and both are
+# DECLARED-EMPTY today. The claim that they "arm automatically when a test module
+# lands" is the only thing standing between that and a permanently vacuous pass,
+# and until this section it had NO behavioural coverage at all: its entire test
+# surface was three source-level greps in test_ci_contract.py (which that file's
+# own docstring concedes are secondary), because the harness's python stub had no
+# `-m pytest` arm — every collect probe fell through the `case` and exited 0, so
+# `collect_rc` was ALWAYS 0 and the exit-5 ladder was unreachable by construction.
+#
+# The five branches below are the ones `ci/checks.sh:606-673` discriminates. Each
+# gets a test that drives the real script against a synthetic repository root,
+# with the collect probe's exit status supplied by the stub. Two of them assert
+# a FAILURE, which is the half that matters: a gate that cannot tell "nobody has
+# written this suite yet" from "this suite is broken" is not a gate.
+# =============================================================================
+
+
+def _synthetic_root(tmp_path: Path, *, pyproject: str | None = None) -> Path:
+    """A minimal repo root holding a real ``ci/checks.sh`` and its own suites.
+
+    ``run_checks`` runs the script with ``cwd`` set to the script's grandparent,
+    and ``pytest_suite()`` resolves both the suite directory and its
+    ``python_files``-override grep relative to that cwd. Copying the script into
+    a scratch root therefore lets a test control exactly what the suite directory
+    contains, without touching the real ``tests/contract``.
+
+    The copied ``ci/versions.env`` is the real one on purpose: the preflight this
+    stage runs must still assert the genuine pins, so a test cannot accidentally
+    pass by running against a root where the pin file was weakened.
+    """
+    root = tmp_path / "root"
+    (root / "ci").mkdir(parents=True)
+    (root / "tests" / "contract").mkdir(parents=True)
+    shutil.copy2(CHECKS_SH, root / "ci" / "checks.sh")
+    shutil.copy2(REPO_ROOT / "ci" / "versions.env", root / "ci" / "versions.env")
+    (root / "pyproject.toml").write_text(
+        "[tool.pytest.ini_options]\n" if pyproject is None else pyproject,
+        encoding="utf-8",
+        newline="\n",
+    )
+    return root
+
+
+def test_an_unauthored_suite_is_declared_empty_and_passes(tmp_path: Path) -> None:
+    """Branch (a): nothing in the directory at all -> DECLARED-EMPTY, exit 0."""
+    root = _synthetic_root(tmp_path)
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode == 0, recording.output
+    assert "DECLARED-EMPTY" in recording.output, recording.output
+    assert "arms automatically" in recording.output, recording.output
+
+
+def test_a_suite_holding_only_helper_modules_is_declared_empty_not_an_error(
+    tmp_path: Path,
+) -> None:
+    """Branch (c): ``fixtures.py`` is not a collection failure.
+
+    Reporting this one as a collection error would send the operator hunting an
+    import failure that does not exist — the specific misdiagnosis the third
+    branch was added to prevent.
+    """
+    root = _synthetic_root(tmp_path)
+    (root / "tests" / "contract" / "fixtures.py").write_text("X = 1\n", encoding="utf-8")
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode == 0, recording.output
+    assert "DECLARED-EMPTY" in recording.output, recording.output
+    assert "helper module" in recording.output, recording.output
+
+
+@pytest.mark.parametrize("filename", ["test_stac.py", "stac_boundary_test.py"])
+def test_a_collectable_module_that_collects_nothing_fails_as_a_collection_error(
+    tmp_path: Path, filename: str
+) -> None:
+    """Branch (b), for BOTH of pytest's default ``python_files`` patterns.
+
+    ``stac_boundary_test.py`` is the measured regression named in
+    ``ci/checks.sh``'s own header: when the count was ``find -name 'test_*.py'``
+    only, a ``*_test.py`` file containing no test functions produced exit 5, a
+    find count of 0, and a green DECLARED-EMPTY — contract coverage could drop to
+    zero with the gate still passing. Parametrizing both names is what stops a
+    "simplification" back to one pattern from going unnoticed.
+    """
+    root = _synthetic_root(tmp_path)
+    (root / "tests" / "contract" / filename).write_text("X = 1\n", encoding="utf-8")
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5, pytest_collect_stdout="no tests ran"),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode != 0, recording.output
+    assert "collection error" in recording.output, recording.output
+    assert "DECLARED-EMPTY" not in recording.output, recording.output
+
+
+def test_a_non_five_collect_failure_is_reported_as_a_collection_failure(
+    tmp_path: Path,
+) -> None:
+    """A collect probe that dies for any other reason must not be mistaken for empty."""
+    root = _synthetic_root(tmp_path)
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=2, pytest_collect_stdout="INTERNALERROR"),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode != 0, recording.output
+    assert "failed collection" in recording.output, recording.output
+    assert "DECLARED-EMPTY" not in recording.output, recording.output
+
+
+def test_a_clean_collect_runs_the_suite_and_propagates_its_failure(tmp_path: Path) -> None:
+    """Branch (e): collect succeeds -> the real run happens, and its status is the stage's.
+
+    Asserts the run actually occurred rather than trusting the exit code alone:
+    a stage that returned the collect probe's status would look identical from
+    the outside if the second invocation were dropped.
+    """
+    root = _synthetic_root(tmp_path)
+    (root / "tests" / "contract" / "test_stac.py").write_text("X = 1\n", encoding="utf-8")
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=0, pytest_run_rc=1),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode != 0, recording.output
+
+    real_runs = [
+        call
+        for call in recording.of("python")
+        if "-m" in call.argv and "pytest" in call.argv and "--collect-only" not in call.argv
+    ]
+    assert real_runs, (
+        "a clean collect must be followed by a real pytest run; "
+        f"python was called with {[call.argv for call in recording.of('python')]!r}"
+    )
+
+
+def test_an_override_governs_before_the_default_pattern_count_is_trusted(
+    tmp_path: Path,
+) -> None:
+    """A stray default-pattern file under an ACTIVE override is not a collection error.
+
+    Both corroborating counts are built from pytest's DEFAULT ``python_files``
+    patterns. Once an override governs, a file matching those defaults is not
+    "a module matching pytest python_files" at all — pytest is looking for a
+    different pattern, correctly found nothing, and that is expected, not a
+    collection error. Checking ``collectable_count`` before
+    ``python_files_overridden`` would misreport this correct outcome as a
+    collection error and send the operator hunting an import failure that does
+    not exist, on a suite with nothing wrong with it.
+    """
+    root = _synthetic_root(tmp_path, pyproject="")
+    (root / "tox.ini").write_text(
+        "[pytest]\npython_files = check_*.py\n", encoding="utf-8", newline="\n"
+    )
+    # Matches the DEFAULT pattern (test_*.py), not the ACTIVE override
+    # (check_*.py) — under the override this file is legitimately never
+    # collected, so pytest correctly finds nothing.
+    (root / "tests" / "contract" / "test_stray.py").write_text("X = 1\n", encoding="utf-8")
+
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode != 0, recording.output
+    assert "overrides python_files" in recording.output, (
+        f"expected the override diagnosis, not a collection-error one:\n{recording.output}"
+    )
+    # Not a plain "collection error" substring check: the CORRECT override
+    # message's own prose ends "...cannot tell an unauthored suite from a
+    # collection error", so that substring is present in BOTH the right and the
+    # wrong diagnosis. The wrong one is specifically identifiable by naming a
+    # module count.
+    assert "module(s) matching pytest python_files" not in recording.output, (
+        f"a default-pattern file under an active override was misreported as a "
+        f"collection error instead of the override diagnosis:\n{recording.output}"
+    )
+
+
+def test_the_suite_is_not_declared_empty_merely_because_the_run_was_skipped(
+    tmp_path: Path,
+) -> None:
+    """The default stubs must not make an authored suite look unauthored.
+
+    Guards the round-11 harness change itself: ``pytest_collect_rc`` defaults to
+    ``python_rc`` (0), so an authored suite under default stubs must take the
+    real-run branch, not any DECLARED-EMPTY branch. If a future edit defaulted
+    the knob to 5, every branch above would still pass while this one caught it.
+    """
+    root = _synthetic_root(tmp_path)
+    (root / "tests" / "contract" / "test_stac.py").write_text("X = 1\n", encoding="utf-8")
+    recording = run_checks("contract", tmp_path, checks_sh=root / "ci" / "checks.sh")
+    assert recording.returncode == 0, recording.output
+    assert "DECLARED-EMPTY" not in recording.output, recording.output
+
+
+@pytest.mark.parametrize("pruned", [".venv", "build", "node_modules", "__pycache__"])
+def test_a_stray_test_file_in_a_non_collected_directory_is_not_a_collection_error(
+    tmp_path: Path, pruned: str
+) -> None:
+    """``find`` must prune what pytest's ``norecursedirs`` prunes.
+
+    ``find`` descends unconditionally. Before round 11 a ``test_*.py`` under a
+    nested virtualenv, build tree or ``__pycache__`` inside a suite directory
+    counted towards ``collectable_count`` while pytest collected nothing from
+    it — so the stage FAILED, reporting a "collection error" for a file pytest
+    had never looked at, and the operator got sent hunting an import error that
+    did not exist. The corroborating count has to corroborate what pytest
+    actually does.
+    """
+    root = _synthetic_root(tmp_path)
+    stray = root / "tests" / "contract" / pruned / "lib"
+    stray.mkdir(parents=True)
+    (stray / "test_stray.py").write_text("X = 1\n", encoding="utf-8")
+
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode == 0, recording.output
+    assert "DECLARED-EMPTY" in recording.output, recording.output
+    assert "collection error" not in recording.output, recording.output
+
+
+# (config file, section header, whether pyproject.toml must be emptied to let it
+# govern). Section headers are NOT interchangeable and this is not cosmetic:
+# `[pytest]` in setup.cfg is a HARD pytest error ("no longer supported, change
+# to [tool:pytest] instead" — confirmed by running real pytest against it, not
+# assumed from memory), and tox.ini's section is `[pytest]`, not `[tool:pytest]`.
+# A test using the wrong header for either file would not reproduce what real
+# pytest actually does with that file.
+_OVERRIDE_CONFIG_CASES: Final = (
+    ("pytest.ini", "[pytest]", False),
+    ("tox.ini", "[pytest]", True),
+    ("setup.cfg", "[tool:pytest]", True),
+)
+
+
+@pytest.mark.parametrize(("config", "section", "must_empty_pyproject"), _OVERRIDE_CONFIG_CASES)
+def test_a_python_files_override_outside_pyproject_still_fails_closed(
+    tmp_path: Path, config: str, section: str, must_empty_pyproject: bool
+) -> None:
+    """All four config files pytest reads ini options from, not just pyproject.
+
+    ``pytest.ini`` is the sharp one: it overrides ``pyproject.toml`` ENTIRELY, so
+    checking pyproject alone missed the single file whose override would actually
+    win. With a `python_files` override in force neither count bounds what pytest
+    collects, the (b)/(c) split is unsound, and the stage must say so instead of
+    guessing. The message must name the file that carries it, or the operator has
+    four places to look.
+
+    ``tox.ini`` and ``setup.cfg`` need ``pyproject.toml`` emptied of its
+    ``[tool.pytest.ini_options]`` table first — MEASURED, not assumed: with that
+    table present (even empty, as ``_synthetic_root``'s default is), real pytest
+    lets pyproject.toml govern and never reads tox.ini or setup.cfg at all, so a
+    test that left the table in place would be asserting behaviour real pytest
+    does not produce. ``pytest.ini`` needs no such adjustment — its mere
+    existence governs unconditionally regardless of what pyproject.toml says.
+    """
+    root = _synthetic_root(tmp_path, pyproject="" if must_empty_pyproject else None)
+    (root / config).write_text(
+        f"{section}\npython_files = check_*.py\n", encoding="utf-8", newline="\n"
+    )
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode != 0, recording.output
+    assert "overrides python_files" in recording.output, recording.output
+    assert config in recording.output, (
+        f"the failure must name {config!r} as the source of the override; got:\n{recording.output}"
+    )
+
+
+def test_a_non_governing_files_override_is_correctly_ignored(tmp_path: Path) -> None:
+    """The precedence bug this replaces, pinned directly.
+
+    pyproject.toml carries an EMPTY ``[tool.pytest.ini_options]`` table (no
+    ``python_files`` line) and tox.ini carries a REAL override. MEASURED: real
+    pytest governed by the empty pyproject.toml table and never consulted
+    tox.ini at all — it collected the file matching pytest's DEFAULT patterns,
+    not tox.ini's override pattern. A "check every candidate file independently,
+    first text match wins" implementation would report tox.ini's override as
+    live and fail this stage closed for a file pytest never reads. The correct
+    behaviour is the opposite: no override in force, ordinary DECLARED-EMPTY.
+    """
+    root = _synthetic_root(tmp_path)  # default: pyproject.toml has the EMPTY table
+    (root / "tox.ini").write_text(
+        "[pytest]\npython_files = check_*.py\n", encoding="utf-8", newline="\n"
+    )
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode == 0, recording.output
+    assert "DECLARED-EMPTY" in recording.output, recording.output
+    assert "overrides python_files" not in recording.output, (
+        f"tox.ini's override was reported as live even though pyproject.toml's empty "
+        f"table governs and pytest never reads tox.ini in this state:\n{recording.output}"
+    )
+
+
+# =============================================================================
+# ROUND 11 — the `coverage` stage (FR-011a).
+#
+# Two claims worth testing and one worth testing HARD. The easy two are the
+# guards: this stage measures tests/unit, so without Docker and git it must fail
+# fast rather than report a number computed from a run where eight
+# container-dependent positive controls skipped themselves.
+#
+# The hard one is the threshold. Constitution III bans magic numbers in code, and
+# "the threshold lives in ci/versions.env" is a claim that a literal in the shell
+# script would satisfy the LETTER of while defeating entirely — the stage would
+# still run, still pass, and nothing would notice the pin had stopped being
+# consulted. So the argv assertion below compares against PINS, not against a
+# number written in this file: hardcoding the threshold in ci/checks.sh fails
+# here, and changing it in ci/versions.env alone does not.
+# =============================================================================
+
+
+def test_the_coverage_stage_fails_fast_when_the_docker_daemon_is_unreachable(
+    tmp_path: Path,
+) -> None:
+    """A coverage number measured with the container controls skipped is a lie."""
+    recording = run_checks("coverage", tmp_path, stubs=Stubs(docker_info_rc=1))
+    assert recording.returncode != 0, recording.output
+    assert "daemon is not reachable" in recording.output, recording.output
+    assert not [call for call in recording.of("python") if "-m pytest" in call.joined], (
+        "the coverage stage ran pytest with the daemon down: "
+        f"{[call.argv for call in recording.of('python')]!r}"
+    )
+
+
+def test_the_coverage_stage_message_says_why_coverage_needs_docker(tmp_path: Path) -> None:
+    """Distinct from unit's and hooks's, so the operator knows WHICH stage."""
+    recording = run_checks("coverage", tmp_path, stubs=Stubs(docker_info_rc=1))
+    assert "inflate the measured number" in recording.output, (
+        f"the daemon message does not say why THIS stage needs Docker:\n{recording.output}"
+    )
+
+
+def test_the_coverage_stage_asserts_the_threshold_from_the_pin_file(tmp_path: Path) -> None:
+    """The Principle III enforcement: the argv must carry the PINNED value.
+
+    Compared against ``PINS["COVERAGE_MIN_PERCENT"]`` rather than a literal
+    written here, so this fails if anyone moves the number into ci/checks.sh and
+    keeps passing if the pin is legitimately changed. A test asserting ``85``
+    would have inverted both.
+    """
+    recording = run_checks("coverage", tmp_path)
+    assert recording.returncode == 0, recording.output
+
+    runs = [call for call in recording.of("python") if "-m pytest" in call.joined]
+    assert len(runs) == 1, (
+        f"expected exactly one pytest invocation from the coverage stage, got "
+        f"{[call.argv for call in runs]!r}"
+    )
+    argv = runs[0].argv
+
+    assert f"--cov-fail-under={PINS['COVERAGE_MIN_PERCENT']}" in argv, (
+        "the coverage stage does not pass ci/versions.env's COVERAGE_MIN_PERCENT "
+        f"as its threshold; argv was {argv!r}. A literal in ci/checks.sh is a magic "
+        "number (Constitution III) and silently decouples the gate from its pin."
+    )
+    assert "--cov=src/orbital_drift" in argv, (
+        "the coverage stage does not measure src/orbital_drift by PATH. The package-name "
+        f"form omits never-imported modules from the report entirely; argv was {argv!r}"
+    )
+    assert "--cov-report=term-missing" in argv, (
+        "without term-missing a --cov-fail-under breach prints a percentage and no "
+        f"indication of WHICH lines are uncovered; argv was {argv!r}"
+    )
+
+
+@pytest.mark.parametrize("hatch", ["--no-cov", "--collect-only", "--no-cov -p no:cacheprovider"])
+def test_pytest_addopts_does_not_survive_into_the_coverage_run(tmp_path: Path, hatch: str) -> None:
+    """The gate has no opt-out, and `PYTEST_ADDOPTS` is the one that nearly worked.
+
+    pytest builds argv as ``[ini addopts] + [PYTEST_ADDOPTS] + [command line]``,
+    so a ``--cov-fail-under=0`` injected through the variable LOSES to the flag
+    the stage passes last. The boolean switches do not lose:
+
+    * ``--no-cov`` is pytest-cov's documented "disable coverage completely"
+      switch. It warns rather than erroring, ``--cov-fail-under`` is never
+      applied, and pytest exits 0.
+    * ``--collect-only`` never runs a test and never reports, so the same.
+
+    Either turns this stage green over a run that measured nothing — the vacuous
+    pass ``stage_hooks`` has two separate branches dedicated to refusing, and
+    which README states flatly cannot happen. Asserted BEHAVIOURALLY, not by
+    grepping for ``unset``, because ``_saved=$PYTEST_ADDOPTS; unset ...;
+    export PYTEST_ADDOPTS=$_saved`` satisfies a grep — the same reasoning
+    ``test_pre_commit_escape_hatches_do_not_survive_into_the_hook_run`` gives.
+    """
+    recording = run_checks("coverage", tmp_path, extra_env={"PYTEST_ADDOPTS": hatch})
+    assert recording.returncode == 0, recording.output
+
+    runs = [call for call in recording.of("python") if "-m pytest" in call.joined]
+    assert runs, recording.output
+    assert runs[0].env["PYTEST_ADDOPTS"] is None, (
+        "PYTEST_ADDOPTS survived into the coverage run, so the gate can be "
+        f"switched off from the environment: {runs[0].env!r}"
+    )
+    assert "ignoring PYTEST_ADDOPTS" in recording.output, (
+        "the stage silently discarded PYTEST_ADDOPTS; it must say so, or an operator "
+        f"is left wondering why their flag did nothing:\n{recording.output}"
+    )
+
+
+def test_the_coverage_stage_measures_every_suite_not_just_one(tmp_path: Path) -> None:
+    """``tests``, not ``tests/unit``.
+
+    A future "optimisation" narrowing this to the one suite that currently has
+    tests would under-measure the moment contract or smoke exercise ``src/`` —
+    and would do so silently, because the number would still be green.
+    """
+    recording = run_checks("coverage", tmp_path)
+    runs = [call for call in recording.of("python") if "-m pytest" in call.joined]
+    assert runs, recording.output
+    assert "tests" in runs[0].argv, (
+        f"the coverage stage does not run the whole tests/ tree: {runs[0].argv!r}"
+    )
+    for narrower in ("tests/unit", "tests/contract", "tests/smoke"):
+        assert narrower not in runs[0].argv, (
+            f"the coverage stage measures only {narrower}, so coverage from the other "
+            f"suites is invisible: {narrower}: {runs[0].argv!r}"
+        )
+
+
+# =============================================================================
+# D-12 — the coverage stage's three-way diagnosis (test failure / coverage
+# breach / collection error), driven through the harness for the first time.
+#
+# A second independent review pass found the original two-way version of this
+# logic (a bare, unanchored grep for the coverage-breach PROSE) was not sound:
+# pytest-cov's own `_should_report()` only suppresses its "Required test
+# coverage" line on a test failure when `--no-cov-on-fail` is passed, which
+# this stage does not — so a run with BOTH a real test failure and a coverage
+# breach prints both lines, and the old grep would report "the tests are not
+# the problem" while a test genuinely was. Worse, it was self-referential:
+# tests/unit/test_coverage_positive_control.py asserts on the literal
+# "Required test coverage of 85% not reached" string, so a FAILURE of that very
+# assertion reprints the string in its own traceback, which the old unanchored
+# grep would then match — misdiagnosing its own broken positive control as "not
+# a test problem". Fixed by checking pytest's own `^FAILED ` marker FIRST,
+# unconditionally, and anchoring the coverage-breach check to pytest-cov's
+# exact line shape (`^FAIL Required test coverage...`) rather than a prose
+# fragment that can appear inside unrelated text.
+# =============================================================================
+
+
+def test_a_pure_coverage_breach_is_diagnosed_as_such(tmp_path: Path) -> None:
+    """No test failed; only the threshold was missed."""
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                "TOTAL 4 4 0%\n"
+                "FAIL Required test coverage of 85% not reached. Total coverage: 0.00%\n"
+                "49 passed in 0.15s\n"
+            ),
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    assert "COVERAGE BREACH" in recording.output, recording.output
+    assert "tests failed UNDER MEASUREMENT" not in recording.output, recording.output
+
+
+def test_a_real_test_failure_is_diagnosed_as_such_not_as_a_coverage_breach(
+    tmp_path: Path,
+) -> None:
+    """A genuinely failing test, with NO coverage breach in the same run."""
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                "FAILED tests/unit/test_repo_structure.py::test_x - AssertionError: boom\n"
+                "1 failed, 48 passed in 0.15s\n"
+            ),
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    assert "tests failed UNDER MEASUREMENT" in recording.output, recording.output
+    assert "COVERAGE BREACH" not in recording.output, recording.output
+
+
+def test_a_mixed_run_is_diagnosed_as_a_test_failure_first(tmp_path: Path) -> None:
+    """Both a real test failure AND a coverage breach in the same run.
+
+    This is the critical case: pytest-cov prints its coverage-breach line
+    regardless of whether a test also failed (verified against the vendored
+    plugin — `--no-cov-on-fail` is what would suppress it, and this stage never
+    passes that flag). The diagnosis must lead with the test failure, not the
+    coverage framing, because "the tests are not the problem" is false here.
+    """
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                "FAILED tests/unit/test_repo_structure.py::test_x - AssertionError: boom\n"
+                "FAIL Required test coverage of 85% not reached. Total coverage: 40.00%\n"
+                "1 failed, 48 passed in 0.15s\n"
+            ),
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    assert "tests failed UNDER MEASUREMENT" in recording.output, recording.output
+    assert "ALSO breached the threshold" in recording.output, (
+        f"a mixed run should still mention the coverage breach as secondary "
+        f"context, not omit it entirely:\n{recording.output}"
+    )
+    # The primary diagnosis line must not claim "the tests are not the
+    # problem" -- that specific framing belongs only to the pure-breach case.
+    assert "The tests are not the problem" not in recording.output, recording.output
+
+
+def test_a_self_referential_traceback_does_not_masquerade_as_a_coverage_breach(
+    tmp_path: Path,
+) -> None:
+    """The exact regression this round closes, reproduced directly.
+
+    Simulates the shape of a FAILING assertion whose own text happens to
+    contain the coverage-breach prose — e.g. test_coverage_positive_control.py's
+    own positive control failing. pytest prefixes assertion-introspection lines
+    with `>` or `E`, never a bare `FAILED ` at column 0 for that text alone; the
+    REAL `^FAILED <nodeid>` summary line pytest also emits for the failing test
+    is what must drive the diagnosis, not the prose inside the traceback.
+    """
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                '>       assert "Required test coverage of 85% not reached" in result.stdout\n'
+                "E       assert 'Required test coverage of 85% not reached' in 'unrelated'\n"
+                "FAILED tests/unit/test_coverage_positive_control.py::"
+                "test_the_threshold_actually_fails_a_run_whose_tests_all_pass - AssertionError\n"
+                "1 failed, 267 passed in 2.1s\n"
+            ),
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    assert "tests failed UNDER MEASUREMENT" in recording.output, (
+        f"a failing assertion whose traceback happens to quote the coverage-breach "
+        f"prose was misdiagnosed as a pure coverage breach:\n{recording.output}"
+    )
+    assert "The tests are not the problem" not in recording.output, recording.output
+
+
+def test_neither_signal_is_diagnosed_as_a_collection_error(tmp_path: Path) -> None:
+    """Non-zero exit, no `^FAILED ` line, no coverage-breach line — a third cause."""
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=2,
+            pytest_run_stdout="INTERNALERROR> some pytest-internal failure\n",
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    assert "COLLECTION error" in recording.output, recording.output
+    assert "COVERAGE BREACH" not in recording.output, recording.output
+    assert "tests failed UNDER MEASUREMENT" not in recording.output, recording.output
+
+
+@pytest.mark.parametrize(
+    ("failed_path", "stage"),
+    [
+        ("tests/unit/test_repo_structure.py", "unit"),
+        ("tests/contract/test_stac_client.py", "contract"),
+        ("tests/smoke/test_ingest_dag.py", "smoke"),
+    ],
+)
+def test_the_failure_remediation_names_the_suite_that_actually_failed(
+    tmp_path: Path, failed_path: str, stage: str
+) -> None:
+    """The suggested remediation command must match WHICH suite broke.
+
+    ``stage_coverage`` runs ``tests/unit``, ``tests/contract`` and
+    ``tests/smoke`` together in one process (D-06). A fixed, unconditional
+    ``sh ci/checks.sh unit`` suggestion is actively misleading for a failure in
+    either of the other two suites: that command would report GREEN — the
+    broken test simply isn't in it — and the message's own next paragraph
+    ("if they are GREEN and this is RED, ... not a broken test") would then
+    argue the operator away from a perfectly ordinary, real bug. Latent only
+    because tests/contract and tests/smoke are still empty; parametrized over
+    all three so it stays caught the moment either gains its first test.
+    """
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                f"FAILED {failed_path}::test_x - AssertionError: boom\n1 failed, 1 passed in 0.1s\n"
+            ),
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    assert f"sh ci/checks.sh {stage}" in recording.output, (
+        f"a failure in {failed_path} did not suggest checking `{stage}`:\n{recording.output}"
+    )
+    for other in {"unit", "contract", "smoke"} - {stage}:
+        assert f"sh ci/checks.sh {other}" not in recording.output, (
+            f"a failure ONLY in {failed_path} (suite {stage!r}) also suggested checking "
+            f"the unrelated `{other}` stage, which would report a misleading GREEN:\n"
+            f"{recording.output}"
+        )
+
+
+def test_the_failure_remediation_suggests_everything_when_the_suite_is_unrecognised(
+    tmp_path: Path,
+) -> None:
+    """A ``FAILED`` line whose path matches none of the three known suites.
+
+    Fails towards suggesting ALL THREE stages rather than silently naming
+    none — the same "loud, not silent" bias ``pytest_suite``'s own override
+    detection uses for its false positive/negative tradeoff.
+    """
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                "FAILED weird/path/test_x.py::test_y - AssertionError\n1 failed in 0.1s\n"
+            ),
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    for stage in ("unit", "contract", "smoke"):
+        assert f"sh ci/checks.sh {stage}" in recording.output, (
+            f"an unrecognised FAILED path did not fall back to suggesting {stage!r}:\n"
+            f"{recording.output}"
+        )
 
 
 # =============================================================================

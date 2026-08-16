@@ -37,6 +37,8 @@ dev = [
   "ruff==0.16.2",
   "mypy==2.3.0",
   "pytest==9.1.1",
+  "pytest-cov==7.1.0",
+  "coverage==7.15.4",
   "pre-commit==4.6.1",
 ]
 

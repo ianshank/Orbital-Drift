@@ -53,7 +53,7 @@
 # mixed-line-ending). A failing `all` can therefore leave the tree modified and
 # pass on a second run. See README.md, "Running the gates".
 #
-# Usage:  sh ci/checks.sh <lint|typecheck|unit|contract|smoke|gitleaks|hooks|all>
+# Usage:  sh ci/checks.sh <lint|typecheck|unit|contract|smoke|coverage|gitleaks|hooks|all>
 #         PYTHON=/path/to/python3.12 sh ci/checks.sh all
 #         DEBUG=1 sh ci/checks.sh gitleaks      # dump the generated overlay
 # =============================================================================
@@ -157,7 +157,7 @@ PYTHON="${PYTHON:-python}"
 # the pin-coverage self-check below can iterate them without re-parsing the
 # case, and so tests/unit/test_ci_contract.py can assert this list, the dispatch
 # and .github/workflows/ci.yml all describe the same set of stages.
-STAGE_LABELS='lint typecheck unit contract smoke gitleaks hooks all'
+STAGE_LABELS='lint typecheck unit contract smoke coverage gitleaks hooks all'
 
 log() { printf '\n\033[1m>>> %s\033[0m\n' "$*"; }
 
@@ -292,14 +292,26 @@ PREFLIGHT_EXEMPT_PINS='python hatchling pip gitleaks shellcheck'
 # `gitleaks` is deliberately empty. It runs a container and git, both of which it
 # asserts itself (require_gitleaks_image, git_or_fail,
 # require_git_history_is_scannable). It runs no Python.
+# THREE THINGS IN THIS FILE ARE NOW CALLED "coverage" AND THEY ARE UNRELATED:
+#   require_pin_coverage()  — "is every pin claimed by some stage?"
+#   the `coverage` STAGE    — the FR-011a test-coverage gate
+#   the `coverage` TOOL     — the pinned distribution that computes the number
+# The arm below claims the tool for the stage. Mechanically unambiguous; named
+# here because a reader meeting the third one cold will otherwise assume a typo.
 stage_python_pins() {
   case "$1" in
     lint)                printf 'ruff\n' ;;
     typecheck)           printf 'mypy\n' ;;
     unit|contract|smoke) printf 'pytest\n' ;;
+    coverage)            printf 'pytest\npytest-cov\ncoverage\n' ;;
     hooks)               printf 'pre-commit\n' ;;
     gitleaks)            ;;
-    all)                 printf 'ruff\nmypy\npytest\npre-commit\n' ;;
+    # `all` must list the UNION of every arm above. Not cosmetic: preflight()
+    # prints its banner when a stage needs a tool not yet logged, so omitting
+    # the two coverage pins here makes `all` print a second banner when
+    # stage_coverage's preflight meets them for the first time — which
+    # test_all_run_prints_the_preflight_banner_once_not_once_per_stage catches.
+    all)                 printf 'ruff\nmypy\npytest\npytest-cov\ncoverage\npre-commit\n' ;;
     *)
       printf 'internal error: no pin set declared for stage %s\n' "$1" >&2
       return 1
@@ -371,6 +383,16 @@ tool_version() {
     ruff)       "${PYTHON}" -m ruff --version 2>/dev/null | awk 'NR==1{print $2}' | tr -d '\r' ;;
     mypy)       "${PYTHON}" -m mypy --version 2>/dev/null | awk 'NR==1{print $2}' | tr -d '\r' ;;
     pytest)     "${PYTHON}" -c 'import pytest;print(pytest.__version__)' 2>/dev/null | tr -d '\r' ;;
+    # pytest-cov and coverage are probed through importlib.metadata rather than a
+    # module attribute, for two reasons. It is the canonical way to ask what
+    # DISTRIBUTION is installed (a plugin need not expose __version__ at all),
+    # and — load-bearing for the test harness — the resulting argv contains no
+    # `import pytest` substring, which tests/unit/shell_harness.py's stub matches
+    # as a glob. A probe written `import pytest_cov` would be answered with
+    # pytest's version by that stub, and the pin mismatch would name a tool that
+    # is perfectly fine.
+    pytest-cov) "${PYTHON}" -c 'import importlib.metadata as m;print(m.version("pytest-cov"))' 2>/dev/null | tr -d '\r' ;;
+    coverage)   "${PYTHON}" -c 'import importlib.metadata as m;print(m.version("coverage"))' 2>/dev/null | tr -d '\r' ;;
     pre-commit) "${PYTHON}" -m pre_commit --version 2>/dev/null | awk 'NR==1{print $NF}' | tr -d '\r' ;;
     *)
       printf 'internal error: no version probe defined for %s\n' "$1" >&2
@@ -603,6 +625,35 @@ stage_typecheck() {
 # counts only corroborate. This is deliberately not `|| true`: the stage arms
 # itself the moment the first test lands, with no edit to this script.
 # -----------------------------------------------------------------------------
+# Shared walk for pytest_suite()'s two corroborating counts, so a future change
+# to what gets pruned has ONE call site instead of two that can silently drift
+# apart (measured risk, not hypothetical: this is exactly the shape of bug the
+# rest of this file exists to catch). Deliberately a FUNCTION, not a string
+# variable holding the prune clause: POSIX sh has no arrays, and interpolating
+# an unquoted variable containing `-name '*.egg'` would let word-splitting
+# glob-expand `*.egg` against the CWD before find ever saw it. Passing the
+# post-prune test as literal call-site arguments through "$@" keeps each token
+# exactly as quoted at the call site — no re-parsing, no glob risk.
+#
+# The prune list covers the entries of pytest's `norecursedirs` default that can
+# plausibly occur inside a suite directory here, plus `__pycache__`. It is NOT the
+# whole default — `_darcs`, `CVS` and `{arch}` are omitted as implausible in this
+# repo, and saying "mirrors norecursedirs" would overclaim. `find` does not honour
+# that setting at all, so without this a stray `test_*.py` under a nested virtualenv,
+# build tree or egg inside a suite directory counted towards a corroborating count
+# while pytest collected nothing from it — producing a FAIL that names a
+# "collection error" for a file pytest never looked at. The corroborating count
+# has to corroborate what pytest actually does, or it argues with the tool it
+# exists to double-check.
+_pytest_suite_walk() {
+  psw_dir="$1"
+  shift
+  find "${psw_dir}" \
+    \( -name '.*' -o -name '__pycache__' -o -name 'build' -o -name 'dist' \
+    -o -name 'node_modules' -o -name 'venv' -o -name '*.egg' \) -prune -o \
+    -type f "$@" -print
+}
+
 pytest_suite() {
   suite_dir="$1"
   label="$2"
@@ -612,19 +663,80 @@ pytest_suite() {
     return 1
   fi
 
+  # FAIL CLOSED ON A BROKEN WALK. These used to be `$(find ... | wc -l | tr ...)`,
+  # whose exit status is `tr`'s and therefore always 0 — so `set -e` never saw a
+  # find failure and BOTH counts silently degraded to 0. With collect_rc 5 that
+  # routes straight to "DECLARED-EMPTY ... arms automatically when one lands" and
+  # returns 0: a FALSE DECLARED-EMPTY, the dangerous direction this whole ladder
+  # exists to prevent, reachable with no hostile input at all — an unreadable
+  # subdirectory, a full disk mid-walk, or a find that rejects the `-prune`
+  # expression on node A's toolchain would each do it. The find now runs on its
+  # own so its status is visible, and the count is taken from the captured list.
+  #
   # Files pytest's default `python_files` would collect from.
-  collectable_count=$(find "${suite_dir}" -type f \( -name 'test_*.py' -o -name '*_test.py' \) |
-    wc -l | tr -d '[:space:]')
-  # Any .py that is not package plumbing — the wider "somebody put code here".
-  module_count=$(find "${suite_dir}" -type f -name '*.py' \
-    ! -name '__init__.py' ! -name 'conftest.py' | wc -l | tr -d '[:space:]')
+  collectable_list=$(_pytest_suite_walk "${suite_dir}" \
+    \( -name 'test_*.py' -o -name '*_test.py' \)) || {
+    printf 'FAIL: could not walk %s to corroborate the collect probe. Refusing to\n' \
+      "${suite_dir}" >&2
+    printf '      report DECLARED-EMPTY on a count this script could not take.\n' >&2
+    return 1
+  }
+  collectable_count=$(printf '%s\n' "${collectable_list}" | sed '/^$/d' | wc -l |
+    tr -d '[:space:]')
 
-  # If pyproject overrides `python_files`, the two counts above no longer bound
-  # what pytest collects and this function cannot tell (b) from (c). Say so
+  # Any .py that is not package plumbing — the wider "somebody put code here".
+  module_list=$(_pytest_suite_walk "${suite_dir}" \
+    -name '*.py' ! -name '__init__.py' ! -name 'conftest.py') || {
+    printf 'FAIL: could not walk %s for helper modules (see above).\n' "${suite_dir}" >&2
+    return 1
+  }
+  module_count=$(printf '%s\n' "${module_list}" | sed '/^$/d' | wc -l | tr -d '[:space:]')
+
+  # If a `python_files` override is in force, the two counts above no longer
+  # bound what pytest collects and this function cannot tell (b) from (c). Say so
   # rather than guessing.
+  #
+  # THE GOVERNING FILE, not "every file that mentions python_files". pytest picks
+  # exactly ONE ini source and ignores the rest entirely — this is not "check
+  # each candidate file, first match wins", it is "find the file pytest would
+  # actually read, then check ONLY that one". The two are different, and MEASURED
+  # different: an empty `[tool.pytest.ini_options]` table in pyproject.toml (no
+  # python_files line at all) makes pytest use ITS defaults and completely
+  # ignore a real `python_files` override sitting in tox.ini or setup.cfg —
+  # confirmed with a real pytest run, collecting the default-pattern file and
+  # never touching the override-pattern one. A "first file with the text, in
+  # precedence order" loop would have reported that non-live tox.ini override as
+  # in force and failed the stage closed for no reason. Precedence, in the order
+  # pytest itself applies it:
+  #   pytest.ini    governs unconditionally if the file exists at all.
+  #   pyproject.toml  governs if pytest.ini is absent and it carries a
+  #                   `[tool.pytest.ini_options]` table — EMPTY counts.
+  #   tox.ini       governs if neither above applies and it carries `[pytest]`.
+  #   setup.cfg     governs if none above applies and it carries `[tool:pytest]`
+  #                 — NOT `[pytest]`: that spelling is a hard pytest error in
+  #                 setup.cfg ("no longer supported"), confirmed by running it.
   python_files_overridden=0
-  if grep -Eq '^[[:space:]]*python_files[[:space:]]*=' pyproject.toml; then
+  python_files_source=''
+  python_files_governing=''
+  if [ -f pytest.ini ]; then
+    python_files_governing='pytest.ini'
+  elif [ -f pyproject.toml ] && grep -Eq '^[[:space:]]*\[tool\.pytest\.ini_options\]' pyproject.toml; then
+    python_files_governing='pyproject.toml'
+  elif [ -f tox.ini ] && grep -Eq '^[[:space:]]*\[pytest\]' tox.ini; then
+    python_files_governing='tox.ini'
+  elif [ -f setup.cfg ] && grep -Eq '^[[:space:]]*\[tool:pytest\]' setup.cfg; then
+    python_files_governing='setup.cfg'
+  fi
+  # A bare grep for the KEY within the governing file can still false-positive on
+  # a `python_files` line that isn't actually under the pytest section (e.g. a
+  # coincidentally-named key elsewhere in a multi-tool setup.cfg). That direction
+  # is deliberate: a false positive fails this stage closed with a message
+  # telling the operator to teach pytest_suite about the override, whereas a
+  # false negative silently unsounds the split. Fail towards the loud one.
+  if [ -n "${python_files_governing}" ] &&
+    grep -Eq '^[[:space:]]*python_files[[:space:]]*=' "${python_files_governing}"; then
     python_files_overridden=1
+    python_files_source="${python_files_governing}"
   fi
 
   set +e
@@ -633,6 +745,23 @@ pytest_suite() {
   set -e
 
   if [ "${collect_rc}" -eq 5 ]; then
+    # CHECKED BEFORE collectable_count. Both counts are built from pytest's
+    # DEFAULT python_files patterns, so once an override governs, a file that
+    # matches the DEFAULT patterns is not "a module matching pytest python_files"
+    # at all — pytest is looking for a different pattern entirely, correctly
+    # found nothing, and that is not a collection error. Checking
+    # `collectable_count` first would misreport that correct, expected outcome
+    # as "FAIL: collection error", sending the operator hunting for an import
+    # failure that does not exist — on a suite with nothing wrong with it.
+    if [ "${python_files_overridden}" = "1" ]; then
+      {
+        printf 'FAIL: %s collected nothing and %s overrides python_files, so\n' \
+          "${label}" "${python_files_source}"
+        printf '      this script cannot tell an unauthored suite from a collection error.\n'
+        printf '      Teach pytest_suite in ci/checks.sh about the override, or remove it.\n'
+      } >&2
+      return 1
+    fi
     if [ "${collectable_count}" -gt 0 ]; then
       {
         printf 'FAIL: %s contains %s module(s) matching pytest python_files but pytest\n' \
@@ -640,14 +769,6 @@ pytest_suite() {
         printf '      collected nothing (exit 5). That is a collection error, not an empty\n'
         printf '      suite. pytest said:\n'
         printf '%s\n' "${collect_output}"
-      } >&2
-      return 1
-    fi
-    if [ "${python_files_overridden}" = "1" ]; then
-      {
-        printf 'FAIL: %s collected nothing and pyproject.toml overrides python_files, so\n' "${label}"
-        printf '      this script cannot tell an unauthored suite from a collection error.\n'
-        printf '      Teach pytest_suite in ci/checks.sh about the override, or remove it.\n'
       } >&2
       return 1
     fi
@@ -738,6 +859,231 @@ stage_smoke() {
   pytest_suite tests/smoke "DAG smoke suite"
 }
 
+# -----------------------------------------------------------------------------
+# Stage: coverage  (FR-011a — minimum measured statement coverage of src/)
+#
+# NOT one of FR-011's six gates. It exists because FR-011a asks for it, which is
+# the only thing that makes it conformant: the `hooks` stage is NOT a precedent
+# here, because Constitution VII already required gitleaks as both a hook and a
+# CI gate, so `hooks` enforced an existing requirement. Nothing required coverage
+# until FR-011a. See docs/decisions/001-coverage-gate.md D-01.
+#
+# ONE PROCESS OVER ALL SUITES, deliberately. .github/workflows/ci.yml runs each
+# stage as a separate matrix JOB, so per-stage coverage could only be combined
+# via artifact upload plus a combine step — orchestration logic in a file whose
+# own header forbids gate logic. The cost is that `all` runs tests/unit twice;
+# that is accepted and recorded (D-06), not optimised away, because every cheaper
+# option weakens a gate. In particular this stage must NOT replace unit/contract/
+# smoke: a single `pytest tests/` always collects (tests/unit is never empty), so
+# pytest_suite's exit-5 discrimination — the mechanism that stops an empty or
+# broken contract suite passing vacuously — would never run again.
+#
+# THRESHOLD COMES FROM ci/versions.env, never a literal here (Constitution III).
+#
+# NO SPECIAL CASE FOR "no product code yet", because none is needed: coverage
+# reports 100% for zero measurable statements, so the docstring-only __init__.py
+# tree clears the threshold today and the gate arms itself the instant the first
+# executable line lands. An earlier draft keyed that on "the package holds no
+# module other than __init__.py" — a filename heuristic, i.e. the exact class of
+# condition pytest_suite's own header records as already measured broken here,
+# and one that would disarm the gate permanently and silently the day somebody
+# writes real code in an __init__.py. Measured instead; see D-02.
+#
+# `--cov=src/orbital_drift` is the PATH form, not `--cov=orbital_drift`. The path
+# form has no import-resolution ordering dependency under the src layout, and it
+# is what makes a module no test imports report as 0% instead of vanishing from
+# the report entirely. Verified: planting one uncovered module drops TOTAL to 0%.
+#
+# A --cov-fail-under breach exits 1, exactly as a test failure does; only the
+# "Required test coverage" line distinguishes them, so --cov-report=term-missing
+# is not decoration. Nothing here branches on the exit code.
+# -----------------------------------------------------------------------------
+stage_coverage() {
+  preflight coverage
+  log "coverage — pytest-cov ${PYTEST_COV_VERSION} / coverage ${COVERAGE_VERSION} (FR-011a, min ${COVERAGE_MIN_PERCENT}%)"
+
+  # This stage runs tests/unit, whose gitleaks positive controls drive real
+  # containers and real git, and whose own _tool() helper falls back to
+  # pytest.skip() outside CI. Without these two guards the stage is a FAIL-OPEN:
+  # on a Docker-less box it would report a green coverage number computed from a
+  # run in which eight of those controls silently skipped. Reasons are distinct
+  # from stage_unit's and stage_hooks's so the message names which stage's
+  # dependency is unmet, not merely that one is.
+  docker_or_fail "this stage measures the same tests/unit positive controls under coverage, and a control that skipped instead of running would inflate the measured number"
+  git_or_fail "this stage measures tests/unit, 5 of whose positive controls drive git directly to build the synthetic repositories and staged indices they scan"
+
+  # PYTEST_ADDOPTS is pytest's own documented escape hatch and it is NOT
+  # available here, for exactly the reason SKIP is not available to stage_hooks.
+  # pytest builds argv as [ini addopts] + [PYTEST_ADDOPTS] + [command line], so
+  # a `--cov-fail-under=0` injected this way loses to the flag below — but the
+  # BOOLEAN switches do not lose, because they are not overridden by a later
+  # value:
+  #
+  #   PYTEST_ADDOPTS='--no-cov'        pytest-cov's documented "disable coverage
+  #                                    completely" flag. Warns, does not error;
+  #                                    --cov-fail-under is never applied; exit 0.
+  #   PYTEST_ADDOPTS='--collect-only'  never runs a test, never reports, exit 0.
+  #
+  # Either one turns this stage into a green coverage number over a run that
+  # measured nothing, which is precisely the vacuous pass stage_hooks has two
+  # separate branches dedicated to refusing. Unset rather than merely warned
+  # about, and announced when it was set so the operator is not left wondering
+  # why their flag had no effect.
+  if [ -n "${PYTEST_ADDOPTS:-}" ]; then
+    printf 'NOTE: ignoring PYTEST_ADDOPTS=%s — this stage is a gate and has no opt-out.\n' \
+      "${PYTEST_ADDOPTS}"
+  fi
+  # No `local` in POSIX sh: this removes PYTEST_ADDOPTS from the CALLING shell's
+  # environment for the remainder of the process, exactly like `unset SKIP` in
+  # stage_hooks. Harmless today — no stage after this one in stage_all reads
+  # PYTEST_ADDOPTS — but stage_hooks gets away with the same unset because it
+  # runs LAST; this stage does not. If a future stage lands after `coverage` in
+  # stage_all and wants its own PYTEST_ADDOPTS semantics, it inherits "already
+  # unset" silently. Flagged here so that future stage's author finds this note
+  # instead of a puzzling always-empty variable.
+  unset PYTEST_ADDOPTS
+
+  # Output is captured rather than streamed so the diagnosis below can read it.
+  # A --cov-fail-under breach and a test failure BOTH exit 1 and only the
+  # "Required test coverage" line separates them, so without this branch a red
+  # `coverage` job tells the operator nothing about which of the two happened —
+  # and this stage would be the only gate in the file with no FAIL: block.
+  # Deliberately one long line: test_checks_sh_has_no_gate_disabling_constructs
+  # allows a disarmed-errexit window of ERREXIT_WINDOW lines and requires the
+  # `rc=$?` capture inside it. Wrapping this invocation for readability pushed
+  # the capture out of that window. Widening the guard to suit one call site
+  # would trade a real protection for a cosmetic one.
+  set +e
+  cov_output=$("${PYTHON}" -m pytest tests --cov=src/orbital_drift --cov-report=term-missing --cov-fail-under="${COVERAGE_MIN_PERCENT}" 2>&1)
+  cov_rc=$?
+  set -e
+
+  printf '%s\n' "${cov_output}"
+  [ "${cov_rc}" -eq 0 ] && return 0
+
+  # THREE structurally distinct causes, not two, and the order they are checked
+  # in is load-bearing (D-12).
+  #
+  # A NAMED TEST FAILURE IS CHECKED FIRST, unconditionally — via `^FAILED `,
+  # pytest's own per-test marker, always at the start of a line. This is not
+  # equivalent to grepping for the coverage-breach text and falling through:
+  # pytest-cov's `_should_report()` only suppresses its "Required test coverage"
+  # line on a test failure when --no-cov-on-fail is passed, which this stage
+  # does not, so BOTH lines can appear in the SAME run — a real test failure
+  # plus a real coverage breach, together. Checking the coverage line first
+  # would report "the tests are not the problem" while a test is, in fact, the
+  # problem. Checking `^FAILED ` first means a mixed run is correctly reported
+  # as a test failure, coverage breach or not.
+  #
+  # This ALSO closes a self-referential trap the first version of this stage
+  # shipped with: tests/unit/test_coverage_positive_control.py asserts on the
+  # literal string "Required test coverage of 85% not reached". If that
+  # assertion itself ever fails — a future pytest-cov wording change, anything —
+  # pytest's rewritten-assertion traceback reprints the literal string being
+  # checked for, and an UNANCHORED grep for that text over the whole run's
+  # combined output would match the TRACEBACK, not a real coverage report, and
+  # report "COVERAGE BREACH. The tests are not the problem" for a run in which
+  # a test — the one designed to catch exactly this class of regression —
+  # genuinely failed. Verified by reproducing the traceback shape directly:
+  # pytest prefixes assertion-introspection lines with `>` or `E`, never with a
+  # bare `FAILED ` at column 0, so `^FAILED ` cannot be satisfied by that
+  # traceback text — only by pytest's own summary line for a test that actually
+  # failed, including this one.
+  if printf '%s' "${cov_output}" | grep -q '^FAILED \|^ERROR '; then
+    {
+      printf '\n'
+      printf 'FAIL: tests failed UNDER MEASUREMENT — this is not (only) a coverage breach.\n\n'
+      printf '        This stage runs all three suites in ONE pytest process, so its\n'
+      printf '        process topology differs from the unit/contract/smoke stages.\n\n'
+      printf '        First check whether the ordinary stage(s) for the failing test(s)\n'
+      printf '        agree:\n\n'
+    } >&2
+    # NAME THE STAGE(S) THE FAILURE ACTUALLY IMPLICATES, not a fixed `unit`.
+    # This stage runs tests/unit, tests/contract AND tests/smoke together
+    # (D-06), and until now this message unconditionally suggested only
+    # `sh ci/checks.sh unit` regardless of which suite the failing test lives
+    # in — latent while tests/contract and tests/smoke are still empty, but a
+    # real test failure in either of those two suites would have sent the
+    # operator to check a stage that was GREEN for an unrelated reason (the
+    # broken test simply isn't in it), and the message's own next paragraph
+    # ("if they are GREEN and this is RED, ... not a broken test") would then
+    # have actively argued them away from the real, ordinary bug. Read the
+    # implicated suite(s) from the FAILED/ERROR lines themselves rather than assume.
+    failed_lines=$(printf '%s' "${cov_output}" | grep '^FAILED \|^ERROR ')
+    suite_named=0
+    if printf '%s' "${failed_lines}" | grep -q 'tests/unit/'; then
+      printf '            sh ci/checks.sh unit\n' >&2
+      suite_named=1
+    fi
+    if printf '%s' "${failed_lines}" | grep -q 'tests/contract/'; then
+      printf '            sh ci/checks.sh contract\n' >&2
+      suite_named=1
+    fi
+    if printf '%s' "${failed_lines}" | grep -q 'tests/smoke/'; then
+      printf '            sh ci/checks.sh smoke\n' >&2
+      suite_named=1
+    fi
+    if [ "${suite_named}" = "0" ]; then
+      # A FAILED line whose path matched none of the three prefixes (an
+      # unexpected pytest invocation shape) — fail towards suggesting
+      # everything rather than nothing, the same "loud, not silent" bias
+      # pytest_suite's own override detection uses.
+      printf '            sh ci/checks.sh unit; sh ci/checks.sh contract; sh ci/checks.sh smoke\n' >&2
+    fi
+    {
+      printf '\n'
+      printf '        If they are GREEN and this is RED, the failure is an interaction\n'
+      printf '        introduced by the single-process run, not a broken test — see\n'
+      printf '        docs/decisions/001-coverage-gate.md D-06 for why that run exists.\n\n'
+    } >&2
+    if printf '%s' "${cov_output}" | grep -q '^FAIL Required test coverage of .* not reached'; then
+      printf '        Coverage ALSO breached the threshold in this same run (see the\n' >&2
+      printf '        "Required test coverage" line above) — fix the failing test(s)\n' >&2
+      printf '        first; the coverage number is not trustworthy until they pass.\n\n' >&2
+    fi
+    return 1
+  fi
+
+  # ANCHORED to line start and to pytest-cov's exact literal prefix ("FAIL ",
+  # not merely the prose fragment "Required test coverage"), for the same
+  # self-reference reason above: this is pytest-cov's own terminal-summary line
+  # (verified against the real plugin output, not assumed), and nothing else
+  # this repo's test suite prints reproduces that exact line shape at column 0.
+  if printf '%s' "${cov_output}" | grep -q '^FAIL Required test coverage of .* not reached'; then
+    {
+      printf '\n'
+      printf 'FAIL: COVERAGE BREACH (FR-011a). No test failed; this is a coverage-only\n'
+      printf '      breach.\n\n'
+      printf '        threshold:  %s%%        <- ci/versions.env COVERAGE_MIN_PERCENT\n' \
+        "${COVERAGE_MIN_PERCENT}"
+      printf '        measured:   see the "Total coverage" line above\n\n'
+      printf '        The term-missing table above lists the uncovered lines per file.\n'
+      printf '        FIX: write tests for them. Lowering COVERAGE_MIN_PERCENT to make\n'
+      printf '        this green is the failure mode docs/decisions/001-coverage-gate.md\n'
+      printf '        D-05 names explicitly; change it only deliberately, with a reason\n'
+      printf '        recorded there.\n\n'
+    } >&2
+    return 1
+  fi
+
+  # NEITHER signal fired: no named test failure, no coverage-threshold breach,
+  # yet pytest exited non-zero. A COLLECTION error — an import failure, a
+  # fixture error, or (foreseeable given this stage's own design, D-06)
+  # pytest's well-known "import file mismatch" when two suites it runs
+  # TOGETHER as one session (tests/unit, tests/contract, tests/smoke) contain
+  # same-named modules with no __init__.py to disambiguate them.
+  {
+    printf '\n'
+    printf 'FAIL: pytest exited non-zero with neither a named test failure nor a\n'
+    printf '      coverage-threshold breach in its output — a COLLECTION error (import\n'
+    printf '      failure, fixture error, or a basename collision between tests/unit,\n'
+    printf '      tests/contract and tests/smoke, which this stage runs together as one\n'
+    printf '      pytest session — see docs/decisions/001-coverage-gate.md D-06). Full\n'
+    printf '      pytest output is above.\n\n'
+  } >&2
+  return 1
+}
+
 # =============================================================================
 # Pinned-container plumbing (gitleaks, shellcheck)
 #
@@ -820,7 +1166,7 @@ docker_run() {
 # the message still names WHICH stage's Docker dependency is unmet and why.
 #
 # COST ON THE HAPPY PATH: one `docker info` round trip per docker_or_fail call
-# — three per `sh ci/checks.sh all` (unit, gitleaks, hooks), one per
+# — four per `sh ci/checks.sh all` (unit, coverage, gitleaks, hooks), one per
 # single-stage run — against stages that then run containers and full test
 # suites anyway.
 #
@@ -831,7 +1177,7 @@ docker_run() {
 # per-run or per-stage, for the same structural reason there is no
 # "pins already checked" flag left anywhere above; the probe re-runs, in full,
 # on every call. tests/unit/test_checks_sh_behaviour.py asserts the count
-# behaviourally (three probes in one `all` run, not one).
+# behaviourally (four probes in one `all` run, not one).
 # ---------------------------------------------------------------------------
 docker_or_fail() {
   df_reason="$1"
@@ -898,8 +1244,8 @@ docker_daemon_report() {
   return 1
 }
 
-# git is a hard prerequisite of three stages now — gitleaks, hooks, and (round
-# 6 / MAJOR 2) unit — each for a DIFFERENT reason. Without a named reason, a
+# git is a hard prerequisite of four stages now — gitleaks, hooks, (round
+# 6 / MAJOR 2) unit and (FR-011a) coverage — each for a DIFFERENT reason. Without a named reason, a
 # missing git surfaced generically as "not a git repository" from
 # require_git_history_is_scannable — a true statement about the wrong problem
 # for stage_gitleaks, and no diagnostic at all for the other two before this
@@ -1679,6 +2025,11 @@ stage_all() {
   stage_unit
   stage_contract
   stage_smoke
+  # ...then FR-011a's coverage gate. After the per-suite stages because it must
+  # not replace them (see stage_coverage's header), and before gitleaks/hooks so
+  # the pytest stages stay contiguous. This is the step that makes `all` run
+  # tests/unit a second time — accepted, docs/decisions/001-coverage-gate.md D-06.
+  stage_coverage
   stage_gitleaks
   # ...then the hook enforcement stage. Last, because pre-commit hooks may
   # rewrite files (end-of-file-fixer, trailing-whitespace, ruff --fix) and must
@@ -1699,12 +2050,13 @@ case "${1:-all}" in
   unit)      stage_unit ;;
   contract)  stage_contract ;;
   smoke)     stage_smoke ;;
+  coverage)  stage_coverage ;;
   gitleaks)  stage_gitleaks ;;
   hooks)     stage_hooks ;;
   all)       stage_all ;;
   *)
     printf 'unknown stage: %s\n' "$1" >&2
-    printf 'usage: sh ci/checks.sh <lint|typecheck|unit|contract|smoke|gitleaks|hooks|all>\n' >&2
+    printf 'usage: sh ci/checks.sh <lint|typecheck|unit|contract|smoke|coverage|gitleaks|hooks|all>\n' >&2
     exit 2
     ;;
 esac
