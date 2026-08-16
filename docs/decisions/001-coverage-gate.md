@@ -153,3 +153,34 @@ Recorded so they are not rediscovered, per CLAUDE.md's "surface unknowns to the 
 ## Verified correct — no action
 
 The gitleaks pre-commit hook carries `stages: [pre-commit]` and is therefore dropped by `stage_hooks`'s `--hook-stage manual`, so it runs in no CI job. This looks like a Principle VII hole and is not one: the hook runs `gitleaks --staged`, which scans the git *index*, and in CI nothing is staged — running it there would produce exactly the vacuous pass `stage_hooks` has two other branches dedicated to refusing. The real scanning is `stage_gitleaks` (working tree **and** full history), and the hook entry itself is covered by two positive controls that drive the pinned image directly.
+
+## Provenance note: the review passes and skills in D-11/D-12
+
+`spec-guardian`'s review of D-11/D-12 correctly flagged that no decision-doc
+entry independently recorded the authority for this file's later work, and
+that an agent's relayed claim of operator intent is not itself
+authorization — recorded here per that finding, and per
+`new-decision-doc/SKILL.md`'s own rule that non-obvious process decisions
+get recorded rather than living only in session context.
+
+Sequence of events, 2026-08-16: after the FR-011a coverage gate (D-01–D-10)
+was drafted, the operator asked, in their own words, for a senior-level
+gap analysis and objective peer review of the branch — code hygiene, tech
+debt, coverage-gate enforcement, missed edge cases, lint/type/test fixes,
+backwards-compatible and reusable code, no hardcoded values, best testing
+practices with a full test suite, logging/debugging where relevant, and
+explicitly to "identify areas for implementing skills/agents from reusable
+actions" and "ensure everything is wired/configured". That request is the
+authority for: running the `/code-review` skill and a second independent
+`peer-reviewer` pass against the merged coverage-gate work (which surfaced
+the D-11/D-12 bugs), and for authoring `.claude/skills/pin-a-tool/SKILL.md`,
+`.claude/skills/new-decision-doc/SKILL.md`, `.claude/skills/run-review/SKILL.md`,
+and the positive-control-discipline additions to `spec-guardian.md` and
+`peer-reviewer.md` — built rather than only recommended, per the explicit
+"wired/configured" instruction. No new FR was needed for this work: it is
+process/tooling on the agent-orchestration layer, not a new CI gate or
+product requirement, and `tasks.md` does not reference `.claude/agents/` or
+`.claude/skills/` at all — that layer has always sat outside the T001–T052
+task-ID scheme, so this is consistent with existing precedent, not a
+departure from it (confirmed by `spec-guardian`'s own review, which checked
+this specifically).
