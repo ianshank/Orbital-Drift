@@ -159,8 +159,13 @@ infra/
 │   ├── 00-crds/
 │   │   ├── versions.tf                # D-03 — identical across all 4 stage dirs
 │   │   ├── terraform.tfvars.example
-│   │   ├── cnpg_operator.tf            # T007
-│   │   └── argo_workflows_crds.tf      # T010
+│   │   └── cnpg_operator.tf            # T007
+│   │   # NO argo_workflows_crds.tf: T010 diverged from this doc's stated
+│   │   # default (Follow-up #8) — a single helm_release in 20-platform/
+│   │   # installs Argo's CRDs as ordinary chart templates via crds.full:
+│   │   # false, confirmed sound by spec-guardian; see
+│   │   # docs/decisions/005-t010-argo-workflows.md D-005/01 and
+│   │   # docs/decisions/006-t007-t010-integration.md.
 │   ├── 10-storage/
 │   │   ├── versions.tf
 │   │   ├── terraform.tfvars.example
@@ -182,8 +187,7 @@ infra/
     ├── lakefs.yaml
     ├── mlflow.yaml
     ├── airflow.yaml
-    ├── argo-workflows-crds.yaml
-    └── argo-workflows.yaml
+    └── argo-workflows.yaml   # no separate -crds.yaml — see the 00-crds note above
 ```
 
 | Shared variable | Proposed default | Declared in | Consumed by |

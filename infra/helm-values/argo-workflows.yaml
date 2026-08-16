@@ -9,7 +9,8 @@
 # https://argoproj.github.io/argo-helm (docs/decisions/versions.md,
 # Constitution IV). A MAJOR version bump (2.0.0 / app v4.1.0) exists
 # upstream as of this session's re-verification (2026-08-16) — deliberately
-# NOT adopted here; see docs/decisions/004-t010-argo-workflows.md.
+# NOT adopted here; see docs/decisions/005-t010-argo-workflows.md (renumbered
+# from 004 during orchestrator integration — docs/decisions/006-t007-t010-integration.md).
 
 # CRDs as ordinary chart templates (minified schema), NOT the crds.full:
 # true default's pre-install/pre-upgrade hook Job that downloads full-schema

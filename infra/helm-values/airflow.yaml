@@ -168,15 +168,20 @@ config:
     # infra/terraform/20-platform/airflow.tf's supplemental `values` entry
     # (never a literal here — it carries the S3 endpoint + credentials).
     #
-    # remote_base_log_folder's bucket name (orbital-drift-airflow-logs) is
-    # this file's own proposal, not yet confirmed against any bucket T007
-    # actually provisions in SeaweedFS — D-002 does not establish a shared
-    # bucket-naming convention for Airflow logs specifically. Flagged in this
-    # dispatch's deliverable notes as a T007/operator coordination item: the
-    # bucket must be created (or its name reconciled with whatever T007 picks)
-    # before remote logging can actually write anywhere.
+    # remote_base_log_folder's bucket name is a Constitution III literal
+    # (bucket names are explicitly enumerated as values that must not be
+    # hardcoded) — NOT set here. It is injected from
+    # infra/terraform/20-platform/airflow.tf via var.airflow_s3_log_bucket
+    # (no in-code default; proposed default "orbital-drift-airflow-logs" in
+    # terraform.tfvars.example), same treatment T008's mlflow_s3_bucket and
+    # T010's argo_workflows_s3_artifact_bucket already get for the identical
+    # value shape (orchestrator integration fix, spec-guardian finding 1,
+    # docs/decisions/006-t007-t010-integration.md). Not yet confirmed against
+    # any bucket T007 actually provisions in SeaweedFS — D-002 does not
+    # establish a shared bucket-naming convention for Airflow logs
+    # specifically; the bucket must be created (or its name reconciled with
+    # whatever T007 picks) before remote logging can actually write anywhere.
     remote_logging: "True"
-    remote_base_log_folder: "s3://orbital-drift-airflow-logs/airflow-logs"
     remote_log_conn_id: "seaweedfs_s3"
     delete_local_logs: "True"
     encrypt_s3_logs: "False"

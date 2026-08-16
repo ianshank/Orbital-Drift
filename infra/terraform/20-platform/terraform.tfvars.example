@@ -76,6 +76,12 @@ airflow_webserver_secret_name               = "orbital-drift-airflow-webserver-s
 airflow_metadata_connection_secret_name     = "orbital-drift-airflow-metadata-connection"
 airflow_seaweedfs_s3_connection_secret_name = "orbital-drift-airflow-seaweedfs-s3-connection"
 
+# Airflow's own remote-logging bucket — a Constitution III-relevant literal,
+# not written into infra/helm-values/airflow.yaml (spec-guardian finding,
+# docs/decisions/006-t007-t010-integration.md). Distinct from mlflow_s3_bucket
+# and argo_workflows_s3_artifact_bucket above.
+airflow_s3_log_bucket = "orbital-drift-airflow-logs"
+
 # =============================================================================
 # Argo Workflows (T010)
 # =============================================================================

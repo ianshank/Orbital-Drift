@@ -68,6 +68,11 @@ variable "airflow_seaweedfs_s3_connection_secret_name" {
   type        = string
 }
 
+variable "airflow_s3_log_bucket" {
+  description = "SeaweedFS bucket for Airflow's remote logs (config.logging.remote_base_log_folder, an 's3://<bucket>/airflow-logs' URI). A bucket name is explicitly enumerated in Constitution III's no-hardcoded-values list — it was originally a literal in infra/helm-values/airflow.yaml, moved here as a spec-guardian finding on the integrated artifact set (docs/decisions/006-t007-t010-integration.md), matching the treatment T008's mlflow_s3_bucket and T010's argo_workflows_s3_artifact_bucket already get for the identical value shape. Distinct from both — Airflow's own logs bucket, not shared. No in-code default; proposed default \"orbital-drift-airflow-logs\" lives only in terraform.tfvars.example. Whether SeaweedFS auto-creates the bucket on first write or needs explicit pre-creation is on-cluster-only to verify, same open question T008/T010 already raised for their own buckets."
+  type        = string
+}
+
 # =============================================================================
 # AIRFLOW-SPECIFIC SECRET *VALUE* VARIABLES — real credential material.
 # NO DEFAULT ANYWHERE, INCLUDING terraform.tfvars.example (dispatch brief,
@@ -296,6 +301,14 @@ resource "helm_release" "airflow" {
     {
       name  = "data.metadataSecretName"
       value = kubernetes_secret_v1.airflow_metadata_connection.metadata[0].name
+    },
+    # config.logging.remote_base_log_folder — a bucket name is Constitution
+    # III-relevant (D-002/D-07), so it is injected from var.airflow_s3_log_bucket
+    # here rather than written as a literal in infra/helm-values/airflow.yaml
+    # (spec-guardian finding, docs/decisions/006-t007-t010-integration.md).
+    {
+      name  = "config.logging.remote_base_log_folder"
+      value = "s3://${var.airflow_s3_log_bucket}/airflow-logs"
     },
   ]
 
