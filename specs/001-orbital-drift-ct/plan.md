@@ -41,9 +41,9 @@ orbital-drift/
 ├── infra/
 │   ├── terraform/             # helm releases: airflow, argo, mlflow, lakefs, seaweedfs, cnpg, kube-prometheus
 │   ├── helm-values/           # pinned values per chart
-│   └── k3s/                   # install + GPU operator runbooks/config
+│   └── k3s/                   # k3s config artifacts (config-v3.toml.tmpl per D-000/D-02b) — T004
 ├── dags/                      # Airflow: ingest, drift, retrain-trigger
-├── workflows/                 # Argo: train, shadow-eval, promote
+├── workflows/                 # Argo: train, shadow-eval  (promotion is a dags/retrain.py step, not a workflow — T038)
 ├── src/orbital_drift/
 │   ├── config.py              # pydantic-settings (Constitution III) — T015
 │   ├── ingest/                # STAC client, tile store, cloud mask, catalog
@@ -72,7 +72,7 @@ orbital-drift/
 - **R-02** Drift flapping / trigger storms → hysteresis + cooldown in FR-007; tested with synthetic sequences.
 - **R-03** STAC/AWS rate limits or schema drift → pinned client, retry budget, contract tests against recorded fixtures.
 - **R-04** Home-lab availability (power/ISP) → idempotent DAGs, bounded backfill, UPS optional.
-- **R-05** Blackwell driver / GPU-operator mismatch on 50-series → validate host CUDA stack before k3s (T004); pin operator version known-good; P40 (older arch) isolated to Phase 5 on purpose.
+- **R-05** Blackwell driver / GPU-operator mismatch on 50-series → validate host CUDA stack before k3s (**T002** authors the host-prep runbook, **T003** executes it; an earlier revision cited T004, which is the k3s install runbook and runs *after* the CUDA stack is proven); pin operator version known-good; P40 (older arch) isolated to Phase 5 on purpose.
 - **R-06** Scope creep toward operator's prior harness work → Constitution II + spec-guardian; any "improve the drift math" impulse becomes a docs/ideas note, not code.
 
 ## Decision Log
