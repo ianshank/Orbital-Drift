@@ -163,3 +163,8 @@ desktop.ini
 scratch/
 tmp/
 .local/
+
+# Claude Code agent worktrees. The harness checks out one working tree per
+# concurrent subagent dispatch under here (isolation: "worktree"); each is a
+# full nested git checkout, not repository content, and must never be staged.
+.claude/worktrees/
