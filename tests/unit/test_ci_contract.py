@@ -2126,14 +2126,16 @@ def test_the_or_fail_stage_list_matches_the_script() -> None:
     Docker or git dependency fails here until it is listed — at which point the
     distinctness tests below start covering it automatically.
     """
-    for call, expected in (("docker_or_fail", set(_OR_FAIL_STAGES)), ("git_or_fail", None)):
+    expected = set(_OR_FAIL_STAGES)
+    assert expected, "_OR_FAIL_STAGES is empty, so every assertion below is vacuous"
+
+    for call in ("docker_or_fail", "git_or_fail"):
         actual = {
             name for name, body in FUNCTIONS.items() if name.startswith("stage_") and call in body
         }
-        target = expected if expected is not None else set(_OR_FAIL_STAGES)
-        assert actual == target, (
+        assert actual == expected, (
             f"stages calling {call} are {sorted(actual)}, but _OR_FAIL_STAGES says "
-            f"{sorted(target)}. Update the list so the distinctness tests cover the "
+            f"{sorted(expected)}. Update the list so the distinctness tests cover the "
             "new stage, or remove the guard that should not be there."
         )
 
