@@ -1990,6 +1990,50 @@ def test_a_clean_collect_runs_the_suite_and_propagates_its_failure(tmp_path: Pat
     )
 
 
+def test_an_override_governs_before_the_default_pattern_count_is_trusted(
+    tmp_path: Path,
+) -> None:
+    """A stray default-pattern file under an ACTIVE override is not a collection error.
+
+    Both corroborating counts are built from pytest's DEFAULT ``python_files``
+    patterns. Once an override governs, a file matching those defaults is not
+    "a module matching pytest python_files" at all — pytest is looking for a
+    different pattern, correctly found nothing, and that is expected, not a
+    collection error. Checking ``collectable_count`` before
+    ``python_files_overridden`` would misreport this correct outcome as a
+    collection error and send the operator hunting an import failure that does
+    not exist, on a suite with nothing wrong with it.
+    """
+    root = _synthetic_root(tmp_path, pyproject="")
+    (root / "tox.ini").write_text(
+        "[pytest]\npython_files = check_*.py\n", encoding="utf-8", newline="\n"
+    )
+    # Matches the DEFAULT pattern (test_*.py), not the ACTIVE override
+    # (check_*.py) — under the override this file is legitimately never
+    # collected, so pytest correctly finds nothing.
+    (root / "tests" / "contract" / "test_stray.py").write_text("X = 1\n", encoding="utf-8")
+
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode != 0, recording.output
+    assert "overrides python_files" in recording.output, (
+        f"expected the override diagnosis, not a collection-error one:\n{recording.output}"
+    )
+    # Not a plain "collection error" substring check: the CORRECT override
+    # message's own prose ends "...cannot tell an unauthored suite from a
+    # collection error", so that substring is present in BOTH the right and the
+    # wrong diagnosis. The wrong one is specifically identifiable by naming a
+    # module count.
+    assert "module(s) matching pytest python_files" not in recording.output, (
+        f"a default-pattern file under an active override was misreported as a "
+        f"collection error instead of the override diagnosis:\n{recording.output}"
+    )
+
+
 def test_the_suite_is_not_declared_empty_merely_because_the_run_was_skipped(
     tmp_path: Path,
 ) -> None:
@@ -2037,9 +2081,23 @@ def test_a_stray_test_file_in_a_non_collected_directory_is_not_a_collection_erro
     assert "collection error" not in recording.output, recording.output
 
 
-@pytest.mark.parametrize("config", ["pytest.ini", "tox.ini", "setup.cfg"])
+# (config file, section header, whether pyproject.toml must be emptied to let it
+# govern). Section headers are NOT interchangeable and this is not cosmetic:
+# `[pytest]` in setup.cfg is a HARD pytest error ("no longer supported, change
+# to [tool:pytest] instead" — confirmed by running real pytest against it, not
+# assumed from memory), and tox.ini's section is `[pytest]`, not `[tool:pytest]`.
+# A test using the wrong header for either file would not reproduce what real
+# pytest actually does with that file.
+_OVERRIDE_CONFIG_CASES: Final = (
+    ("pytest.ini", "[pytest]", False),
+    ("tox.ini", "[pytest]", True),
+    ("setup.cfg", "[tool:pytest]", True),
+)
+
+
+@pytest.mark.parametrize(("config", "section", "must_empty_pyproject"), _OVERRIDE_CONFIG_CASES)
 def test_a_python_files_override_outside_pyproject_still_fails_closed(
-    tmp_path: Path, config: str
+    tmp_path: Path, config: str, section: str, must_empty_pyproject: bool
 ) -> None:
     """All four config files pytest reads ini options from, not just pyproject.
 
@@ -2049,10 +2107,18 @@ def test_a_python_files_override_outside_pyproject_still_fails_closed(
     collects, the (b)/(c) split is unsound, and the stage must say so instead of
     guessing. The message must name the file that carries it, or the operator has
     four places to look.
+
+    ``tox.ini`` and ``setup.cfg`` need ``pyproject.toml`` emptied of its
+    ``[tool.pytest.ini_options]`` table first — MEASURED, not assumed: with that
+    table present (even empty, as ``_synthetic_root``'s default is), real pytest
+    lets pyproject.toml govern and never reads tox.ini or setup.cfg at all, so a
+    test that left the table in place would be asserting behaviour real pytest
+    does not produce. ``pytest.ini`` needs no such adjustment — its mere
+    existence governs unconditionally regardless of what pyproject.toml says.
     """
-    root = _synthetic_root(tmp_path)
+    root = _synthetic_root(tmp_path, pyproject="" if must_empty_pyproject else None)
     (root / config).write_text(
-        "[pytest]\npython_files = check_*.py\n", encoding="utf-8", newline="\n"
+        f"{section}\npython_files = check_*.py\n", encoding="utf-8", newline="\n"
     )
     recording = run_checks(
         "contract",
@@ -2064,6 +2130,36 @@ def test_a_python_files_override_outside_pyproject_still_fails_closed(
     assert "overrides python_files" in recording.output, recording.output
     assert config in recording.output, (
         f"the failure must name {config!r} as the source of the override; got:\n{recording.output}"
+    )
+
+
+def test_a_non_governing_files_override_is_correctly_ignored(tmp_path: Path) -> None:
+    """The precedence bug this replaces, pinned directly.
+
+    pyproject.toml carries an EMPTY ``[tool.pytest.ini_options]`` table (no
+    ``python_files`` line) and tox.ini carries a REAL override. MEASURED: real
+    pytest governed by the empty pyproject.toml table and never consulted
+    tox.ini at all — it collected the file matching pytest's DEFAULT patterns,
+    not tox.ini's override pattern. A "check every candidate file independently,
+    first text match wins" implementation would report tox.ini's override as
+    live and fail this stage closed for a file pytest never reads. The correct
+    behaviour is the opposite: no override in force, ordinary DECLARED-EMPTY.
+    """
+    root = _synthetic_root(tmp_path)  # default: pyproject.toml has the EMPTY table
+    (root / "tox.ini").write_text(
+        "[pytest]\npython_files = check_*.py\n", encoding="utf-8", newline="\n"
+    )
+    recording = run_checks(
+        "contract",
+        tmp_path,
+        stubs=Stubs(pytest_collect_rc=5),
+        checks_sh=root / "ci" / "checks.sh",
+    )
+    assert recording.returncode == 0, recording.output
+    assert "DECLARED-EMPTY" in recording.output, recording.output
+    assert "overrides python_files" not in recording.output, (
+        f"tox.ini's override was reported as live even though pyproject.toml's empty "
+        f"table governs and pytest never reads tox.ini in this state:\n{recording.output}"
     )
 
 
@@ -2190,8 +2286,151 @@ def test_the_coverage_stage_measures_every_suite_not_just_one(tmp_path: Path) ->
     for narrower in ("tests/unit", "tests/contract", "tests/smoke"):
         assert narrower not in runs[0].argv, (
             f"the coverage stage measures only {narrower}, so coverage from the other "
-            f"suites is invisible: {runs[0].argv!r}"
+            f"suites is invisible: {narrower}: {runs[0].argv!r}"
         )
+
+
+# =============================================================================
+# D-11 — the coverage stage's three-way diagnosis (test failure / coverage
+# breach / collection error), driven through the harness for the first time.
+#
+# A second independent review pass found the original two-way version of this
+# logic (a bare, unanchored grep for the coverage-breach PROSE) was not sound:
+# pytest-cov's own `_should_report()` only suppresses its "Required test
+# coverage" line on a test failure when `--no-cov-on-fail` is passed, which
+# this stage does not — so a run with BOTH a real test failure and a coverage
+# breach prints both lines, and the old grep would report "the tests are not
+# the problem" while a test genuinely was. Worse, it was self-referential:
+# tests/unit/test_coverage_positive_control.py asserts on the literal
+# "Required test coverage of 85% not reached" string, so a FAILURE of that very
+# assertion reprints the string in its own traceback, which the old unanchored
+# grep would then match — misdiagnosing its own broken positive control as "not
+# a test problem". Fixed by checking pytest's own `^FAILED ` marker FIRST,
+# unconditionally, and anchoring the coverage-breach check to pytest-cov's
+# exact line shape (`^FAIL Required test coverage...`) rather than a prose
+# fragment that can appear inside unrelated text.
+# =============================================================================
+
+
+def test_a_pure_coverage_breach_is_diagnosed_as_such(tmp_path: Path) -> None:
+    """No test failed; only the threshold was missed."""
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                "TOTAL 4 4 0%\n"
+                "FAIL Required test coverage of 85% not reached. Total coverage: 0.00%\n"
+                "49 passed in 0.15s\n"
+            ),
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    assert "COVERAGE BREACH" in recording.output, recording.output
+    assert "tests failed UNDER MEASUREMENT" not in recording.output, recording.output
+
+
+def test_a_real_test_failure_is_diagnosed_as_such_not_as_a_coverage_breach(
+    tmp_path: Path,
+) -> None:
+    """A genuinely failing test, with NO coverage breach in the same run."""
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                "FAILED tests/unit/test_repo_structure.py::test_x - AssertionError: boom\n"
+                "1 failed, 48 passed in 0.15s\n"
+            ),
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    assert "tests failed UNDER MEASUREMENT" in recording.output, recording.output
+    assert "COVERAGE BREACH" not in recording.output, recording.output
+
+
+def test_a_mixed_run_is_diagnosed_as_a_test_failure_first(tmp_path: Path) -> None:
+    """Both a real test failure AND a coverage breach in the same run.
+
+    This is the critical case: pytest-cov prints its coverage-breach line
+    regardless of whether a test also failed (verified against the vendored
+    plugin — `--no-cov-on-fail` is what would suppress it, and this stage never
+    passes that flag). The diagnosis must lead with the test failure, not the
+    coverage framing, because "the tests are not the problem" is false here.
+    """
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                "FAILED tests/unit/test_repo_structure.py::test_x - AssertionError: boom\n"
+                "FAIL Required test coverage of 85% not reached. Total coverage: 40.00%\n"
+                "1 failed, 48 passed in 0.15s\n"
+            ),
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    assert "tests failed UNDER MEASUREMENT" in recording.output, recording.output
+    assert "ALSO breached the threshold" in recording.output, (
+        f"a mixed run should still mention the coverage breach as secondary "
+        f"context, not omit it entirely:\n{recording.output}"
+    )
+    # The primary diagnosis line must not claim "the tests are not the
+    # problem" -- that specific framing belongs only to the pure-breach case.
+    assert "The tests are not the problem" not in recording.output, recording.output
+
+
+def test_a_self_referential_traceback_does_not_masquerade_as_a_coverage_breach(
+    tmp_path: Path,
+) -> None:
+    """The exact regression this round closes, reproduced directly.
+
+    Simulates the shape of a FAILING assertion whose own text happens to
+    contain the coverage-breach prose — e.g. test_coverage_positive_control.py's
+    own positive control failing. pytest prefixes assertion-introspection lines
+    with `>` or `E`, never a bare `FAILED ` at column 0 for that text alone; the
+    REAL `^FAILED <nodeid>` summary line pytest also emits for the failing test
+    is what must drive the diagnosis, not the prose inside the traceback.
+    """
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                '>       assert "Required test coverage of 85% not reached" in result.stdout\n'
+                "E       assert 'Required test coverage of 85% not reached' in 'unrelated'\n"
+                "FAILED tests/unit/test_coverage_positive_control.py::"
+                "test_the_threshold_actually_fails_a_run_whose_tests_all_pass - AssertionError\n"
+                "1 failed, 267 passed in 2.1s\n"
+            ),
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    assert "tests failed UNDER MEASUREMENT" in recording.output, (
+        f"a failing assertion whose traceback happens to quote the coverage-breach "
+        f"prose was misdiagnosed as a pure coverage breach:\n{recording.output}"
+    )
+    assert "The tests are not the problem" not in recording.output, recording.output
+
+
+def test_neither_signal_is_diagnosed_as_a_collection_error(tmp_path: Path) -> None:
+    """Non-zero exit, no `^FAILED ` line, no coverage-breach line — a third cause."""
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=2,
+            pytest_run_stdout="INTERNALERROR> some pytest-internal failure\n",
+        ),
+    )
+    assert recording.returncode != 0, recording.output
+    assert "COLLECTION error" in recording.output, recording.output
+    assert "COVERAGE BREACH" not in recording.output, recording.output
+    assert "tests failed UNDER MEASUREMENT" not in recording.output, recording.output
 
 
 # =============================================================================

@@ -303,6 +303,16 @@ case "$*" in
     fi
     exit "$(_od_seq_next PYTEST_COLLECT_RC '@PYTEST_COLLECT_RC@')" ;;
   "-m pytest "*)
+    # File-based, unlike PYTEST_COLLECT_STDOUT above: stage_coverage's real
+    # invocation is a multi-line combined-suite report (a `^FAILED ...` line, a
+    # `^FAIL Required test coverage...` line, or both), and newlines are in
+    # _UNSAFE_IN_STUB_STRING — they cannot be interpolated into a double-quoted
+    # printf argument the way a single-line collect message can. `cat`ing a file
+    # written outside the generated script sidesteps quoting entirely, mirroring
+    # how GIT_STUB's ignored/untracked/tracked content is supplied.
+    if [ -s "@PYTEST_RUN_STDOUT_FILE@" ]; then
+      cat "@PYTEST_RUN_STDOUT_FILE@"
+    fi
     exit "$(_od_seq_next PYTEST_RUN_RC '@PYTEST_RUN_RC@')" ;;
 esac
 exit @PYTHON_RC@
@@ -372,6 +382,10 @@ class Stubs:
     pytest_collect_rc: int | None = None
     pytest_run_rc: int | None = None
     pytest_collect_stdout: str = ""
+    # File-based (see PYTHON_STUB), so this one MAY contain newlines — a real
+    # combined-suite pytest report is multi-line, and stage_coverage's diagnosis
+    # logic distinguishes cases by which lines are present.
+    pytest_run_stdout: str = ""
     gitleaks_reports: str | None = None
     shellcheck_reports: str | None = None
     py_full: str | None = None
@@ -423,6 +437,7 @@ class _ResolvedStubs:
     pytest_collect_rc: int
     pytest_run_rc: int
     pytest_collect_stdout: str
+    pytest_run_stdout: str
     gitleaks_reports: str
     shellcheck_reports: str
     py_full: str
@@ -463,6 +478,7 @@ def _defaults(stubs: Stubs) -> _ResolvedStubs:
         ),
         pytest_run_rc=(stubs.python_rc if stubs.pytest_run_rc is None else stubs.pytest_run_rc),
         pytest_collect_stdout=stubs.pytest_collect_stdout,
+        pytest_run_stdout=stubs.pytest_run_stdout,
         gitleaks_reports=(
             PINS["GITLEAKS_VERSION"] if stubs.gitleaks_reports is None else stubs.gitleaks_reports
         ),
@@ -543,9 +559,11 @@ def run_checks(
     ignored_file = data_dir / "ignored"
     untracked_file = data_dir / "untracked"
     tracked_file = data_dir / "tracked"
+    pytest_run_stdout_file = data_dir / "pytest_run_stdout"
     ignored_file.write_bytes(resolved.ignored)
     untracked_file.write_bytes(resolved.untracked)
     tracked_file.write_bytes(resolved.tracked)
+    pytest_run_stdout_file.write_text(resolved.pytest_run_stdout, encoding="utf-8", newline="\n")
 
     _write_executable(
         bin_dir / "git",
@@ -622,6 +640,7 @@ def run_checks(
                 "@PYTEST_COLLECT_RC@": str(resolved.pytest_collect_rc),
                 "@PYTEST_RUN_RC@": str(resolved.pytest_run_rc),
                 "@PYTEST_COLLECT_STDOUT@": resolved.pytest_collect_stdout,
+                "@PYTEST_RUN_STDOUT_FILE@": pytest_run_stdout_file.as_posix(),
             },
         ),
     )

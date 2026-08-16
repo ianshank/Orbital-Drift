@@ -212,10 +212,25 @@ def test_a_cov_path_that_does_not_exist_fails_closed(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
+    combined = result.stdout + result.stderr
     assert result.returncode != 0, (
         "measuring a path that does not exist exited 0. A rename of "
-        "src/orbital_drift would silently disarm the FR-011a gate rather than "
-        f"failing it:\n{result.stdout}\n{result.stderr}"
+        f"src/orbital_drift would silently disarm the FR-011a gate rather than "
+        f"failing it:\n{combined}"
+    )
+    # Not just ANY non-zero exit: confirmed to fail for the RIGHT reason — no
+    # data was collected because the path does not exist — rather than some
+    # unrelated crash (a typo in the argv above, a broken pytest invocation)
+    # that would also produce a non-zero exit and let this test pass for the
+    # wrong reason. "No data to report" is coverage.py's own diagnosis,
+    # verified against the real tool's output before asserting on it.
+    assert "No data to report" in combined or "was never imported" in combined, (
+        f"failed, but not for the expected 'no data collected' reason — this test "
+        f"cannot tell a genuine fail-closed from an unrelated crash:\n{combined}"
+    )
+    assert "Total coverage: 0.00%" in combined or "Coverage failure" in combined, (
+        f"expected coverage.py to report zero measured coverage for the missing "
+        f"path, not some other failure shape:\n{combined}"
     )
 
 
