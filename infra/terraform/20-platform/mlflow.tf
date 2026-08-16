@@ -84,6 +84,19 @@ resource "helm_release" "mlflow" {
     # backendStore.postgres.host/.database are `required`, always-plain chart
     # fields — never secret-sourced, confirmed against the chart's own
     # configmap template, not just its values.yaml comments.
+    #
+    # "${var.cnpg_cluster_name}-rw" naming: D-003/02 flagged this as needing
+    # confirmation once T007's Cluster CR landed, since it depends on the
+    # Cluster's real metadata.name equaling var.cnpg_cluster_name exactly.
+    # That equality was NOT guaranteed by the chart's own default naming
+    # (a peer-reviewer finding on the integrated set — the chart's
+    # "cluster.fullname" helper does not return the bare release name unless
+    # the release name happens to contain the chart's own name, "cluster",
+    # which "orbital-drift-postgres" does not). Fixed at the source:
+    # 10-storage/cnpg_cluster.tf now sets `fullnameOverride` explicitly, so
+    # the Cluster's metadata.name — and every CNPG-operator-derived object
+    # name built from it, including this "-rw" read/write Service — is
+    # guaranteed to equal var.cnpg_cluster_name. This reference is correct.
     {
       name  = "backendStore.postgres.host"
       value = "${var.cnpg_cluster_name}-rw.${var.orbital_drift_namespace}.svc.cluster.local"
