@@ -75,6 +75,24 @@ variable "seaweedfs_s3_admin_secret_access_key" {
   sensitive   = true
 }
 
+variable "seaweedfs_s3_admin_identity_name" {
+  description = <<-EOT
+    Name of the admin identity inside the seaweedfs_s3_config JSON blob
+    (SeaweedFS's own s3.existingConfigSecret shape — an identity NAME, not a
+    credential VALUE, so unlike the two variables above this one is not
+    secret and does get a proposed default). Not schema-constrained to any
+    particular string by SeaweedFS's chart — a discretionary, project-chosen
+    identifier, the same class of value cnpg_cluster_name/lakefs_secret_name/
+    mlflow_s3_bucket/argo_workflows_s3_artifact_bucket/airflow_s3_log_bucket
+    are already treated as elsewhere in this artifact set (spec-guardian
+    finding on the integrated T007-T010 set,
+    docs/decisions/006-t007-t010-integration.md). No in-code default —
+    proposed default "orbital-drift-admin" lives only in
+    terraform.tfvars.example.
+  EOT
+  type        = string
+}
+
 resource "kubernetes_secret_v1" "seaweedfs_s3" {
   metadata {
     name      = var.seaweedfs_s3_secret_name
@@ -88,7 +106,7 @@ resource "kubernetes_secret_v1" "seaweedfs_s3" {
     seaweedfs_s3_config = jsonencode({
       identities = [
         {
-          name = "orbital-drift-admin"
+          name = var.seaweedfs_s3_admin_identity_name
           credentials = [
             {
               accessKey = var.seaweedfs_s3_admin_access_key_id
