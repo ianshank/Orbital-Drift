@@ -131,6 +131,22 @@ variable "orbital_drift_serve_gpu_uuid" {
   type        = string
 }
 
+variable "gpu_uuids_configmap_name" {
+  description = <<-EOT
+    Name of the ConfigMap this file creates holding both GPU UUIDs
+    (train-gpu-uuid/serve-gpu-uuid keys) for future workflow-side consumers.
+    Not constrained by any chart schema — a discretionary, project-chosen
+    identifier, same class of value as orbital_drift_training_namespace and
+    every other name variable in this file (spec-guardian finding on the
+    integrated T007-T010 set, same treatment
+    seaweedfs_s3_admin_identity_name just got in 10-storage/seaweedfs.tf —
+    docs/decisions/006-t007-t010-integration.md). No in-code default;
+    proposed default "orbital-drift-gpu-uuids" lives only in
+    terraform.tfvars.example.
+  EOT
+  type        = string
+}
+
 variable "seaweedfs_s3_access_key_id_key" {
   description = <<-EOT
     Key, within seaweedfs_s3_secret_name's data, holding the S3 access key
@@ -230,7 +246,7 @@ resource "kubernetes_namespace_v1" "orbital_drift_training" {
 # controller/RBAC file.
 resource "kubernetes_config_map_v1" "gpu_uuids" {
   metadata {
-    name      = "orbital-drift-gpu-uuids"
+    name      = var.gpu_uuids_configmap_name
     namespace = kubernetes_namespace_v1.orbital_drift_training.metadata[0].name
   }
 

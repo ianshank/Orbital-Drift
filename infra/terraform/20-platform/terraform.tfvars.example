@@ -88,6 +88,12 @@ airflow_s3_log_bucket = "orbital-drift-airflow-logs"
 
 orbital_drift_training_namespace = "orbital-drift-training"
 
+# Name of the ConfigMap holding both GPU UUIDs for future workflow-side
+# consumers. Discretionary, not chart-schema-constrained (spec-guardian
+# finding, same treatment as seaweedfs_s3_admin_identity_name in
+# 10-storage/terraform.tfvars.example).
+gpu_uuids_configmap_name = "orbital-drift-gpu-uuids"
+
 # Key names inside seaweedfs_s3_secret_name's data. CONFIRMED against T007's
 # actual infra/terraform/10-storage/seaweedfs.tf.
 seaweedfs_s3_access_key_id_key     = "access_key_id"
