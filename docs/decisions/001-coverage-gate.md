@@ -56,7 +56,9 @@ Pinned as `coverage==7.15.4`, **without** the `[toml]` extras bracket: that extr
 
 It is deliberately **not** set to a number chosen to match whatever the first real module happens to score. When Phase 1 lands and the number becomes load-bearing, it should be revisited against measured reality and raised — a floor that never moves is a floor nobody is using.
 
-**Open for operator confirmation.** Lowering it to make a red build green is the failure mode to watch; the correct response to a breach is tests, or an explicit, reviewed change to this pin with the reason recorded here.
+**Status of this number.** The gate is live at 85 and enforcing, and today that costs nothing: with zero measurable statements the threshold is cleared by any value, so the pin does not begin to bite until Phase 1 lands executable code. It is therefore safe to run enforcing while still awaiting the operator's word on the value itself — which is why `T001a` stays unchecked in `tasks.md` and its pull request stays a draft until the operator confirms both the coverage request and this number. Nothing about the gate needs to change if they pick differently; only this line does.
+
+Lowering it to make a red build green is the failure mode to watch. The correct response to a breach is tests, or an explicit, reviewed change to this pin with the reason recorded here.
 
 ## D-06 — Accepted cost: `stage_all` runs `tests/unit` twice
 
@@ -84,7 +86,7 @@ The coverage run includes `tests/unit`, whose gitleaks positive controls drive r
 
 ## Follow-ups found during this review, NOT fixed here
 
-Recorded so they are not rediscovered. Each is a small, separable PR; none blocks FR-011a.
+Recorded so they are not rediscovered, per CLAUDE.md's "surface unknowns to the operator". **Each is unscheduled and needs operator triage before it becomes a task** — none corresponds to any of T001–T052, and items 7–10 in particular are new-scope proposals rather than defects in T001's artifacts. Listing them here is not agreement to do them. None blocks FR-011a.
 
 | # | Finding |
 |---|---|

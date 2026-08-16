@@ -2149,13 +2149,13 @@ def test_every_docker_or_fail_reason_is_a_literal_string(stage_function: str) ->
     )
 
 
-def test_the_three_docker_or_fail_reasons_are_all_distinct() -> None:
+def test_the_docker_or_fail_reasons_are_all_distinct() -> None:
     """Every guarding stage must explain ITS OWN need, not a copy of another's.
 
     Asserting the string ``docker_or_fail`` is present (as the sibling tests
     above and below do) is satisfied by a copy-pasted reason that names the
-    wrong stage's dependency. This is the stronger claim: no two of the three
-    reasons collide.
+    wrong stage's dependency. This is the stronger claim: no two of the reasons
+    collide, however many stages _OR_FAIL_STAGES grows to.
     """
     reasons = {
         stage: _DOCKER_OR_FAIL_REASON_RE.search(FUNCTIONS[stage]).group(1)  # type: ignore[union-attr]
@@ -2175,7 +2175,7 @@ def test_every_git_or_fail_reason_is_a_literal_string(stage_function: str) -> No
     )
 
 
-def test_the_three_git_or_fail_reasons_are_all_distinct() -> None:
+def test_the_git_or_fail_reasons_are_all_distinct() -> None:
     """ROUND 6 / MAJOR 2: the git analogue of the docker distinctness test above.
 
     ``git_or_fail`` used to take no reason at all (a single generic message

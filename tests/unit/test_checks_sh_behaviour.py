@@ -571,9 +571,9 @@ def test_the_interpreter_check_tracks_the_current_probe_result_not_a_cached_one(
     """PRIMARY. ``require_python_interpreter()`` re-run behaviourally, not
     grepped.
 
-    A full ``all`` run probes the interpreter's minor version 7 times (once per
+    A full ``all`` run probes the interpreter's minor version 8 times (once per
     non-empty-pin preflight() call: all, lint, typecheck, unit, contract,
-    smoke, hooks). Here call 1 (inside ``preflight all``) reports the CORRECT
+    smoke, coverage, hooks). Here call 1 (inside ``preflight all``) reports the CORRECT
     pinned minor version; call 2 (inside ``stage_lint``'s own ``preflight
     lint``, the very next thing ``stage_all`` runs) reports a WRONG one.
 

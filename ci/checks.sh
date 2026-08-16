@@ -53,7 +53,7 @@
 # mixed-line-ending). A failing `all` can therefore leave the tree modified and
 # pass on a second run. See README.md, "Running the gates".
 #
-# Usage:  sh ci/checks.sh <lint|typecheck|unit|contract|smoke|gitleaks|hooks|all>
+# Usage:  sh ci/checks.sh <lint|typecheck|unit|contract|smoke|coverage|gitleaks|hooks|all>
 #         PYTHON=/path/to/python3.12 sh ci/checks.sh all
 #         DEBUG=1 sh ci/checks.sh gitleaks      # dump the generated overlay
 # =============================================================================
@@ -636,8 +636,11 @@ pytest_suite() {
 
   # Files pytest's default `python_files` would collect from.
   #
-  # The prune list mirrors pytest's own `norecursedirs` default. `find` does not
-  # honour it, so without this a stray `test_*.py` under a nested virtualenv,
+  # The prune list covers the entries of pytest's `norecursedirs` default that can
+  # plausibly occur inside a suite directory here, plus `__pycache__`. It is NOT the
+  # whole default — `_darcs`, `CVS` and `{arch}` are omitted as implausible in this
+  # repo, and saying "mirrors norecursedirs" would overclaim. `find` does not honour
+  # that setting at all, so without this a stray `test_*.py` under a nested virtualenv,
   # build tree or egg inside a suite directory counted towards
   # `collectable_count` while pytest collected nothing from it — producing a
   # FAIL that names a "collection error" for a file pytest never looked at. The
@@ -935,7 +938,7 @@ docker_run() {
 # the message still names WHICH stage's Docker dependency is unmet and why.
 #
 # COST ON THE HAPPY PATH: one `docker info` round trip per docker_or_fail call
-# — three per `sh ci/checks.sh all` (unit, gitleaks, hooks), one per
+# — four per `sh ci/checks.sh all` (unit, coverage, gitleaks, hooks), one per
 # single-stage run — against stages that then run containers and full test
 # suites anyway.
 #
@@ -946,7 +949,7 @@ docker_run() {
 # per-run or per-stage, for the same structural reason there is no
 # "pins already checked" flag left anywhere above; the probe re-runs, in full,
 # on every call. tests/unit/test_checks_sh_behaviour.py asserts the count
-# behaviourally (three probes in one `all` run, not one).
+# behaviourally (four probes in one `all` run, not one).
 # ---------------------------------------------------------------------------
 docker_or_fail() {
   df_reason="$1"
@@ -1013,8 +1016,8 @@ docker_daemon_report() {
   return 1
 }
 
-# git is a hard prerequisite of three stages now — gitleaks, hooks, and (round
-# 6 / MAJOR 2) unit — each for a DIFFERENT reason. Without a named reason, a
+# git is a hard prerequisite of four stages now — gitleaks, hooks, (round
+# 6 / MAJOR 2) unit and (FR-011a) coverage — each for a DIFFERENT reason. Without a named reason, a
 # missing git surfaced generically as "not a git repository" from
 # require_git_history_is_scannable — a true statement about the wrong problem
 # for stage_gitleaks, and no diagnostic at all for the other two before this
