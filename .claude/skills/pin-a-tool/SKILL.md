@@ -86,11 +86,37 @@ Same `ci/versions.env` provenance discipline, but pin by **digest**, not tag
 — a tag is mutable; `ghcr.io/<image>:<tag>@sha256:<digest>` is not. Add
 `<NAME>_VERSION`, `<NAME>_DIGEST`, and `<NAME>_IMAGE` (the combined form),
 following `GITLEAKS_VERSION`/`GITLEAKS_DIGEST`/`GITLEAKS_IMAGE` exactly. Add
-the tool name to `PREFLIGHT_EXEMPT_PINS` in `ci/checks.sh` with a one-line
-reason (it runs as a container, not a Python distribution — `tool_version()`
-has no probe for it) and add a `require_pinned_image`-style assertion in
-whichever stage invokes it, following `require_gitleaks_image`/
-`require_shellcheck_image`.
+a `require_pinned_image`-style assertion in whichever stage invokes it,
+following `require_gitleaks_image`/`require_shellcheck_image`.
+
+### The exempt-pin lockstep list — every file that must agree
+
+A container image is pinned but is NOT a Python distribution, so nothing can
+probe it with `importlib.metadata`. Every mechanism that walks the
+`<NAME>_VERSION` keys therefore needs to be told to skip it, and these copies
+are hand-kept. **Update all of them in the same commit:**
+
+1. `ci/checks.sh` — `PREFLIGHT_EXEMPT_PINS`, with a one-line reason in the
+   comment block above it (`tool_version()` has no probe for it).
+2. `scripts/session_start_check.sh` — the inline Python's `EXEMPT` set. Miss
+   this one and the SessionStart hook prints a false
+   `<tool>: not installed (pinned <v>)` on **every session start**, whose
+   suggested `pip install -e ".[dev]"` remedy can never fix it. This is not
+   hypothetical: it is exactly what `terraform` did until RB-008.
+3. `tests/unit/test_version_pins.py` — `NOT_A_DEV_EXTRA`, with its reason
+   comment. This one fails loudly if you miss it (the pin gets required in
+   pyproject `[dev]`, where it cannot be installed from), so it is
+   self-enforcing — listed for completeness, not because it can rot.
+
+Items 1 and 2 are cross-checked by
+`test_the_scripts_exempt_set_matches_checks_sh_preflight_exempt_pins` in
+`tests/governance/test_session_start_check.py`, which reads both literals out
+of their files rather than restating them — so a miss is a red test, not a
+false warning nobody reads. **Do not restate either list in a test**; derive
+it, the same way `ci/checks.sh`'s `versions_env_tools()` and
+`test_version_pins.py`'s `_dev_extra_pins()` do. A parametrize that hardcodes
+the exempt names agrees with the bug: that is precisely why the `terraform`
+drift survived having a dedicated test.
 
 ## New CI stage (optional second half)
 

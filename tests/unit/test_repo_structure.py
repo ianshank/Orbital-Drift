@@ -21,6 +21,8 @@ When that block changes, change this file in the same PR.
 from __future__ import annotations
 
 import importlib
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -216,4 +218,96 @@ def test_terraform_lock_file_is_not_ignored() -> None:
     forbidden = {".terraform.lock.hcl", "*.lock.hcl", "**/.terraform.lock.hcl"}
     assert not (entries & forbidden), (
         ".terraform.lock.hcl must NOT be gitignored — it is a Constitution IV pin artifact"
+    )
+
+
+# --- .gitignore behaviour, asked of git itself -------------------------------
+# The virtualenv patterns are the one place where reading the file tells you
+# almost nothing: `.venv/` and `.venv` look interchangeable and are not. A
+# trailing slash restricts a pattern to DIRECTORIES, so `.venv/` silently fails
+# to match a `.venv` SYMLINK — which is how a `.venv` symlink got committed in
+# d664d88 and removed in 6bfb44f. Only `git check-ignore` settles it, so these
+# ask git, in a throwaway repo carrying this repo's real .gitignore.
+
+
+def _check_ignore(repo: Path, candidates: tuple[str, ...]) -> set[str]:
+    """The subset of ``candidates`` git reports as ignored, asked of git itself."""
+    git = shutil.which("git")
+    assert git, "git is required to evaluate .gitignore semantics"
+    proc = subprocess.run(
+        [git, "-C", str(repo), "check-ignore", "--no-index", *candidates],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    # 0 = at least one ignored, 1 = none ignored; anything else is a real error.
+    assert proc.returncode in (0, 1), f"git check-ignore failed: {proc.stderr}"
+    return {line.strip().replace("\\", "/") for line in proc.stdout.splitlines() if line.strip()}
+
+
+@pytest.fixture
+def gitignore_repo(tmp_path: Path) -> Path:
+    """A fresh repo carrying THIS repo's .gitignore and nothing else.
+
+    Hermetic on purpose: run against the real working tree, an answer could come
+    from ``.git/info/exclude`` or a developer's global excludes file rather than
+    from the committed .gitignore these tests are about.
+    """
+    git = shutil.which("git")
+    assert git, "git is required to build the fixture repository"
+    subprocess.run([git, "init", "-q", str(tmp_path)], check=True, timeout=60, capture_output=True)
+    (tmp_path / ".gitignore").write_text(
+        (REPO_ROOT / ".gitignore").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    return tmp_path
+
+
+def test_virtualenv_patterns_ignore_directories_and_symlinks_alike(gitignore_repo: Path) -> None:
+    """Every virtualenv spelling, in both the directory and the symlink form.
+
+    ``--no-index`` makes this a pure pattern question, so nothing has to exist on
+    disk and the directory-vs-symlink distinction cannot leak in through the
+    filesystem: what is asserted is that the PATTERN is not directory-restricted.
+    """
+    must_ignore = (
+        ".venv",
+        "venv",
+        "ENV",
+        "env",
+        ".venv/lib/python3.12/site-packages/x.py",
+        "src/.venv",
+    )
+    ignored = _check_ignore(gitignore_repo, must_ignore)
+    missing = sorted(set(must_ignore) - ignored)
+    assert missing == [], (
+        f"{missing} are NOT ignored. A trailing slash on a virtualenv pattern makes it "
+        "directory-only, so a symlinked venv slips through and gets committed by a wide "
+        "`git add` (measured: d664d88)."
+    )
+
+
+def test_virtualenv_patterns_do_not_swallow_real_source(gitignore_repo: Path) -> None:
+    """The other half: slashless must not become a prefix match.
+
+    A slashless, separator-free pattern matches the whole basename, so `venv`
+    must not eat `venv.py`, `venvs` or `myvenv`, and `env` must not eat
+    `.env.example` — the one documented description of the host-specific values
+    this repo deliberately does not carry. Without this, "just drop the slash"
+    could silently untrack real source: a worse failure than the one it fixes.
+    """
+    must_not_ignore = (
+        "venv.py",
+        "src/venv.py",
+        "venvs",
+        "myvenv",
+        "myvenv/lib/x.py",
+        "realvenv",
+        "environment.yml",
+        ".env.example",
+    )
+    ignored = _check_ignore(gitignore_repo, must_not_ignore)
+    assert ignored == set(), (
+        f"{sorted(ignored)} are ignored but must not be — a virtualenv pattern is "
+        "matching more than a whole basename"
     )

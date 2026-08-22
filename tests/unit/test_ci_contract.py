@@ -60,12 +60,15 @@ from typing import Final
 
 import pytest
 
+import shell_harness
+from shell_harness import read_versions_env
+
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 
 CHECKS_SH: Final = REPO_ROOT / "ci" / "checks.sh"
 WORKFLOW: Final = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+DEPENDABOT: Final = REPO_ROOT / ".github" / "dependabot.yml"
 PRE_COMMIT_CONFIG: Final = REPO_ROOT / ".pre-commit-config.yaml"
-VERSIONS_ENV: Final = REPO_ROOT / "ci" / "versions.env"
 GITIGNORE: Final = REPO_ROOT / ".gitignore"
 PYPROJECT: Final = REPO_ROOT / "pyproject.toml"
 
@@ -125,18 +128,7 @@ STAGE_FUNCTIONS: Final[tuple[str, ...]] = tuple(
 )
 
 
-def _read_versions_env() -> dict[str, str]:
-    pins: dict[str, str] = {}
-    for raw_line in VERSIONS_ENV.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        pins[key.strip()] = value.strip()
-    return pins
-
-
-VERSIONS: Final[dict[str, str]] = _read_versions_env()
+VERSIONS: Final[dict[str, str]] = read_versions_env()
 
 
 # =============================================================================
@@ -2485,6 +2477,235 @@ _REAL_TOOL_MARKER_RES: Final[dict[str, re.Pattern[str]]] = {
 _OR_FAIL_CALLS: Final[dict[str, str]] = {"docker": "docker_or_fail", "git": "git_or_fail"}
 
 
+# Lines that turn errexit ON (`set -e`, `set -eu`, `set -euo pipefail`) and OFF
+# (`set +e`). Anchored at line start so the prose in ci/checks.sh — which quotes
+# `set +e` / `set -e` while arguing against them — is not mistaken for code.
+_ERREXIT_ON: Final = re.compile(r"^[ \t]*set[ \t]+-[a-zA-Z]*e")
+_ERREXIT_OFF: Final = re.compile(r"^[ \t]*set[ \t]+\+[a-zA-Z]*e")
+# `scripts/*.sh` ONLY. Excluding `ci/*.sh` is deliberate, not an oversight:
+# ci/checks.sh's three errexit windows are the subject of the GATE INTEGRITY PR
+# under RB-008(1), which is editing this same test file. Two PRs asserting
+# different things about the same three windows is a merge conflict dressed as
+# a gate. Nothing is lost by deferring: ci/checks.sh passes this sweep today
+# anyway (it opens with `set -eu`, so its windows really are windows), so the
+# PR that owns those lines can widen the glob when it lands (RB-008a).
+_SHELL_SCRIPT_GLOBS: Final[tuple[str, ...]] = ("scripts/*.sh",)
+
+
+def test_no_script_restores_an_errexit_it_never_enabled() -> None:
+    """`set +e` ... `set -e` around a command whose status you want is a trap.
+
+    The idiom is only a RESTORE if errexit was on to begin with. In a script
+    whose prologue is ``set -u`` alone, the trailing ``set -e`` restores
+    nothing — it ENABLES errexit for everything after it, the opposite of the
+    author's intent, turning the next failing command into a silent early exit.
+    ``scripts/guard_probe.sh`` did exactly this, around the guard invocation
+    whose exit code is the entire point of the script.
+
+    ``ci/checks.sh`` is the correct precedent, though it is out of this sweep's
+    scope (see ``_SHELL_SCRIPT_GLOBS``): its own comment above
+    ``docker_daemon_or_fail`` argues for the strictly narrower ``|| rc=$?``
+    form — "a command on the LEFT of ``||`` is already exempt from errexit, so
+    the status is captured without ever disarming errexit" — which is what a
+    script that never armed errexit should use.
+    """
+    offenders: list[str] = []
+    scanned: list[str] = []
+    for pattern in _SHELL_SCRIPT_GLOBS:
+        for path in sorted(REPO_ROOT.glob(pattern)):
+            rel = str(path.relative_to(REPO_ROOT)).replace("\\", "/")
+            scanned.append(rel)
+            enabled = False
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                if _ERREXIT_ON.match(line):
+                    enabled = True
+                elif _ERREXIT_OFF.match(line):
+                    if not enabled:
+                        offenders.append(
+                            f"{rel}:{number} disarms errexit that was never armed, so the "
+                            "matching `set -e` ENABLES it instead of restoring it"
+                        )
+                    enabled = False
+
+    # Non-vacuity: a glob that matches nothing reports no offenders either.
+    assert "scripts/guard_probe.sh" in scanned, (
+        f"the sweep scanned {scanned}, which does not include the script this check "
+        "was written for — the glob no longer matches what it is supposed to check"
+    )
+    assert offenders == [], (
+        f"{offenders}\nUse `cmd || rc=$?` instead — it captures the status without ever "
+        "touching errexit state (ci/checks.sh's docker_daemon_or_fail comment)."
+    )
+
+
+def test_the_errexit_sweep_can_actually_fail() -> None:
+    """Negative control: the matchers must recognise both directions.
+
+    An anchored regex that stopped matching would leave the sweep above green
+    over every script it scans, having found nothing to check at all.
+    """
+    assert _ERREXIT_ON.match("set -e")
+    assert _ERREXIT_ON.match("  set -euo pipefail")
+    assert _ERREXIT_OFF.match("set +e")
+    assert not _ERREXIT_ON.match("set -u"), "`set -u` alone does not enable errexit"
+    assert not _ERREXIT_ON.match("# set -e"), "prose quoting the idiom is not code"
+
+
+# `ci/versions.env` is `KEY=value` lines with `#` comments — four lines of
+# parsing, which is exactly why it got copy-pasted into five modules instead of
+# shared. Five copies is not four lines of duplication, it is five places a
+# parsing decision can diverge (does a `#` mid-line comment count? is an empty
+# value legal? is whitespace stripped?) with nothing making them agree, in the
+# support code for the gate whose entire subject is pins not diverging.
+#
+# The repo's own rule of three is stated at
+# tests/unit/test_terraform_fmt_positive_control.py's `_folded_entry`: "a shared
+# module is worth it starting at the third". This is the third, fourth and
+# fifth. `shell_harness` is the home because it is already the established
+# non-test sibling module in tests/unit (test_coverage_positive_control.py
+# already does `from shell_harness import PINS`) and pyproject's `[tool.ruff]`
+# `src` lists "tests/unit" — with a comment saying it is there so isort
+# classifies `shell_harness` as first-party — for exactly that reason.
+# (`known-first-party` itself is `["orbital_drift"]` only; the `src` entry is
+# what does the work here.)
+_VERSIONS_ENV_PARSER_MARKERS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r'\.partition\("="\)'),
+    re.compile(r'\.split\("=",\s*1\)'),
+)
+_PARSER_HOME: Final = "shell_harness.py"
+
+
+def test_only_one_module_parses_ci_versions_env() -> None:
+    """A sixth copy must be a red test, not a code-review catch.
+
+    RECURSIVE over the whole of ``tests/``, not just the two directories that
+    happen to hold copies today — otherwise the claim "fails on a sixth copy"
+    would be true only where the sweep happened to look, and a copy landing in
+    ``tests/contract`` or ``tests/smoke`` (both placeholder-only now, both
+    certain to grow) would be exactly the miss this test exists to prevent.
+
+    Scoped to ``tests/`` deliberately: ``src/`` never reads ``ci/versions.env``
+    at all (the shell does, in ci/checks.sh), so a match there would be
+    something else entirely.
+
+    Only ``shell_harness.py`` — the shared home — may contain the idiom;
+    everyone else imports ``read_versions_env`` / ``PINS`` from there.
+    """
+    offenders: list[str] = []
+    scanned = 0
+    for path in sorted((REPO_ROOT / "tests").rglob("*.py")):
+        if path.name == _PARSER_HOME:
+            continue
+        scanned += 1
+        text = path.read_text(encoding="utf-8")
+        if "versions.env" not in text and "VERSIONS_ENV" not in text:
+            continue
+        if any(marker.search(text) for marker in _VERSIONS_ENV_PARSER_MARKERS):
+            offenders.append(str(path.relative_to(REPO_ROOT)).replace("\\", "/"))
+
+    # Non-vacuity: a glob that stopped matching reports no offenders either.
+    assert scanned > 10, f"the sweep only looked at {scanned} test modules — it is not sweeping"
+    assert offenders == [], (
+        f"{offenders} carry their own ci/versions.env parser. There is one home for it: "
+        f"tests/unit/{_PARSER_HOME} (`read_versions_env()` / `PINS`). Import it."
+    )
+
+
+def test_the_parser_home_actually_contains_the_parser() -> None:
+    """Guard the guard: the sweep above passes vacuously if the home moves.
+
+    Without this, deleting ``read_versions_env`` from ``shell_harness`` and
+    reintroducing a copy under a spelling the markers do not match would leave
+    the sweep green with zero parsers found and zero offenders.
+    """
+    home = (REPO_ROOT / "tests" / "unit" / _PARSER_HOME).read_text(encoding="utf-8")
+    assert any(marker.search(home) for marker in _VERSIONS_ENV_PARSER_MARKERS), (
+        f"tests/unit/{_PARSER_HOME} no longer contains the versions.env parsing idiom the "
+        "sweep above looks for, so that sweep can no longer find a copy anywhere"
+    )
+    assert "def read_versions_env(" in home, (
+        f"tests/unit/{_PARSER_HOME} must expose read_versions_env() as the shared entry point"
+    )
+
+
+def test_read_versions_env_parses_the_file_the_way_sh_would(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DIRECT behaviour test for the now-shared parser.
+
+    The two tests above are source greps: they prove there is exactly one
+    parser and where it lives, not that it parses anything correctly.
+    Consolidating five copies into one raises the stakes on that — every pin
+    assertion in this suite now depends on these six lines — so the behaviour
+    gets pinned rather than inherited on trust.
+
+    Each line below is a real shape from ``ci/versions.env``: a provenance
+    comment (which contains ``=`` inside a URL), a blank separator, an indented
+    comment, a bare word with no ``=``, a pin written with padding, a
+    digest-pinned image reference, an EMPTY value, and a value that itself
+    contains ``=``.
+
+    That last one is what forces splitting on the FIRST ``=`` only, and it has
+    to be in the fixture rather than merely described: no value in today's
+    ``ci/versions.env`` contains a second ``=``, so with the digest line alone
+    swapping ``.partition`` for ``.rpartition`` left this test GREEN while
+    silently moving the key/value boundary.
+    """
+    versions = tmp_path / "versions.env"
+    versions.write_text(
+        "# provenance: https://pypi.org/project/ruff/0.16.2?a=b\n"
+        "\n"
+        "   \n"
+        "   # an indented comment\n"
+        "NOT_A_PIN_LINE\n"
+        "RUFF_VERSION=0.16.2\n"
+        "  PADDED_VERSION  =  1.2.3  \n"
+        "GITLEAKS_IMAGE=ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:abc123\n"
+        "EXTRA_PYTEST_ARGS=-p no:cacheprovider --maxfail=1 --color=no\n"
+        "EMPTY_VALUE=\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(shell_harness, "VERSIONS_ENV", versions)
+
+    assert shell_harness.read_versions_env() == {
+        "RUFF_VERSION": "0.16.2",
+        "PADDED_VERSION": "1.2.3",
+        "GITLEAKS_IMAGE": "ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:abc123",
+        # sh sets this to everything after the FIRST `=`, embedded `=` included.
+        "EXTRA_PYTEST_ARGS": "-p no:cacheprovider --maxfail=1 --color=no",
+        "EMPTY_VALUE": "",
+    }
+
+
+def test_read_versions_env_returns_an_independent_dict_each_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Its docstring promises a FRESH dict; four modules rely on that.
+
+    If it returned a cached object, one module's monkeypatched pin would be
+    every module's.
+    """
+    versions = tmp_path / "versions.env"
+    versions.write_text("RUFF_VERSION=0.16.2\n", encoding="utf-8")
+    monkeypatch.setattr(shell_harness, "VERSIONS_ENV", versions)
+
+    first = shell_harness.read_versions_env()
+    first["RUFF_VERSION"] = "tampered"
+    assert shell_harness.read_versions_env()["RUFF_VERSION"] == "0.16.2"
+
+
+def test_the_shared_pins_snapshot_cannot_be_mutated_by_one_importer() -> None:
+    """``PINS`` is one object imported by four modules — so it must be read-only.
+
+    Its docstring called it a "read-only snapshot" while it was a plain dict,
+    which is a claim the type did not back. A single stray assignment in any
+    importer would have silently changed what every other module believed the
+    pins were.
+    """
+    with pytest.raises(TypeError):
+        shell_harness.PINS["RUFF_VERSION"] = "tampered"  # type: ignore[index]
+
+
 def test_no_stage_silently_needs_docker_or_git_without_asserting_it() -> None:
     """The systematic sweep MAJOR 3 asked for, generalised to git in round 6.
 
@@ -2840,6 +3061,160 @@ def test_every_workflow_action_is_pinned_to_a_commit_sha() -> None:
         "re-pointed at different code, which would then run with this workflow's "
         "repository access."
     )
+
+
+_ECOSYSTEM_ENTRY: Final = re.compile(
+    r"^[ \t]*-[ \t]*package-ecosystem:[ \t]*\"?(?P<ecosystem>[\w-]+)\"?", re.MULTILINE
+)
+
+
+def _dependabot_entries(directives: str) -> dict[str, str]:
+    """``{ecosystem: that entry's OWN text}``, sliced at each entry marker.
+
+    SLICED, not matched with a trailing "indented lines" group. The first
+    version bounded each entry with ``(?:\\n[ \\t]+.*)+``, and a YAML sequence
+    item — ``  - package-ecosystem: "pip"`` — is also an indented line, so the
+    body ran on and swallowed every following entry. A github-actions entry
+    with no ``directory``/``schedule`` of its own then passed on a SIBLING
+    entry's fields (measured: that variant was the one hole in an 8-variant
+    sweep). Since Dependabot requires ``schedule`` on every update entry, that
+    config is rejected outright and nothing is updated at all — precisely the
+    dead mechanism this check exists to detect, and it was invisible.
+
+    Slicing from one marker to the next cannot run on, and it keeps nested
+    sequences (``allow:``/``ignore:`` blocks) inside the entry that owns them,
+    because those lines do not match ``package-ecosystem:``.
+    """
+    starts = list(_ECOSYSTEM_ENTRY.finditer(directives))
+    entries: dict[str, str] = {}
+    for index, match in enumerate(starts):
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(directives)
+        entries[match.group("ecosystem")] = directives[match.start() : end]
+    return entries
+
+
+def _dependabot_problems(text: str) -> list[str]:
+    """Every reason this config would fail to keep the action pins fresh.
+
+    ONE implementation, driven by both the real check and its negative control
+    below — so the control exercises the parser rather than a copy of it.
+    """
+    problems: list[str] = []
+    directives = _strip_comments(text)
+
+    if not re.search(r"^version:\s*2\s*$", directives, re.MULTILINE):
+        problems.append("no `version: 2`; GitHub ignores the file entirely without it")
+
+    body = _dependabot_entries(directives).get("github-actions")
+    if body is None:
+        problems.append(
+            "no `github-actions` update entry, so the workflow's SHA pins have "
+            "nothing proposing bumps"
+        )
+        return problems
+
+    if not re.search(r'^[ \t]*directory:[ \t]*"?/"?[ \t]*$', body, re.MULTILINE):
+        problems.append(
+            "the github-actions entry does not scan directory `/` — that is where "
+            ".github/workflows lives; any other directory silently matches nothing"
+        )
+    if not re.search(r'^[ \t]*interval:[ \t]*"?weekly"?[ \t]*$', body, re.MULTILINE):
+        problems.append("the github-actions entry has no weekly `schedule.interval`")
+    return problems
+
+
+def test_dependabot_keeps_the_action_pins_fresh() -> None:
+    """ci.yml's header claims a freshness mechanism exists. Bind it.
+
+    Immutability and freshness pull in opposite directions: the SHA pin above
+    is exactly what stops a pin noticing it has been superseded (``actions/cache``
+    sat a full major behind on a deprecated Node runtime, and nothing in the
+    repo could say so). The header now asserts Dependabot closes that gap —
+    which was an unbacked claim about the tree until this test, and an
+    ``.github/dependabot.yml`` that were deleted, renamed, or silently narrowed
+    to a different ecosystem would have left the claim standing.
+
+    Regex, not a YAML parser: PyYAML is not a dependency of this project and
+    adding one so a meta-test can read three strings is the scope creep
+    pyproject's header warns about — the same reasoning
+    ``tests/unit/test_version_pins.py`` gives for parsing the hook config.
+    Comments are stripped first because this file's own header discusses
+    "github-actions" in prose.
+
+    NOT asserted here: any ``schedule:``/``cron`` trigger in ci.yml. The weekly
+    pip-audit trigger interacts with ``concurrency`` on refs/heads/main and
+    lands with the change that owns that block (RB-008a); asserting it here
+    would redden this suite until then.
+    """
+    assert DEPENDABOT.is_file(), (
+        f"{DEPENDABOT.name} is missing, but .github/workflows/ci.yml's header claims "
+        "action pins have a freshness mechanism"
+    )
+    problems = _dependabot_problems(DEPENDABOT.read_text(encoding="utf-8"))
+    assert problems == [], f".github/dependabot.yml: {problems}"
+
+
+def test_the_dependabot_check_rejects_every_way_the_mechanism_can_be_dead() -> None:
+    """Negative control, through the SAME parser the real check uses.
+
+    The last case is the one that mattered: it is valid-LOOKING YAML whose
+    github-actions entry carries no fields of its own, with a sibling ``pip``
+    entry supplying ``directory`` and ``interval``. The original body regex ran
+    past the entry boundary and accepted it. It must not: Dependabot requires
+    ``schedule`` on every update entry, so GitHub rejects that file wholesale
+    and NO ecosystem gets updated, while ci.yml's header still promises a
+    freshness mechanism.
+    """
+    good = (
+        "version: 2\n"
+        "updates:\n"
+        '  - package-ecosystem: "github-actions"\n'
+        '    directory: "/"\n'
+        "    schedule:\n"
+        '      interval: "weekly"\n'
+    )
+    assert _dependabot_problems(good) == [], "the control's own good config must pass"
+
+    broken = {
+        "wrong ecosystem": good.replace('"github-actions"', '"pip"'),
+        "wrong directory": good.replace('directory: "/"', 'directory: "/subdir"'),
+        "not weekly": good.replace('interval: "weekly"', 'interval: "daily"'),
+        "no directory": good.replace('    directory: "/"\n', ""),
+        "no schedule": good.replace('    schedule:\n      interval: "weekly"\n', ""),
+        "wrong version": good.replace("version: 2", "version: 3"),
+        "sibling entry supplies the fields": (
+            "version: 2\n"
+            "updates:\n"
+            '  - package-ecosystem: "github-actions"\n'
+            '  - package-ecosystem: "pip"\n'
+            '    directory: "/"\n'
+            "    schedule:\n"
+            '      interval: "weekly"\n'
+        ),
+    }
+    for label, config in broken.items():
+        assert _dependabot_problems(config) != [], (
+            f"a config broken by {label!r} was accepted, so the freshness mechanism "
+            "can be dead while this gate stays green"
+        )
+
+
+def test_dependabot_entries_do_not_run_past_their_own_boundary() -> None:
+    """Directly pin the slicing property the control above depends on."""
+    two = (
+        "version: 2\n"
+        "updates:\n"
+        '  - package-ecosystem: "github-actions"\n'
+        '  - package-ecosystem: "pip"\n'
+        '    directory: "/"\n'
+    )
+    entries = _dependabot_entries(two)
+    assert set(entries) == {"github-actions", "pip"}
+    assert "directory" not in entries["github-actions"], (
+        "the github-actions entry absorbed the pip entry's fields; entry bodies "
+        "must stop at the next `- package-ecosystem:` marker"
+    )
+    assert "directory" in entries["pip"]
 
 
 def test_the_pre_commit_cache_is_keyed_on_the_hook_config() -> None:

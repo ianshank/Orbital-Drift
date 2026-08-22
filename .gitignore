@@ -107,10 +107,31 @@ share/python-wheels/
 MANIFEST
 
 # Virtualenvs
-.venv/
-venv/
-ENV/
-env/
+#
+# NO TRAILING SLASH on the two common names, deliberately. A pattern ending in
+# `/` matches a DIRECTORY only, and a virtualenv is very often a symlink: a
+# worktree or a second checkout typically points `.venv` at one real venv
+# rather than building a duplicate. `.venv/` does not match that symlink, so
+# git offers it as an untracked path and it gets committed by a wide `git add`
+# — which is exactly what happened in this repo: a `.venv` symlink was
+# committed in d664d88 and removed in 6bfb44f (both reached main via PR #6).
+# Slashless, all four match both the directory and the symlink. They still
+# cannot match `venv.py`, `venvs` or `myvenv`: a slashless, separator-free
+# pattern matches the WHOLE basename, not a prefix of it.
+#
+# ENV and env carry no trailing slash for the same reason — `python -m venv ENV`
+# produces exactly the same symlink-able directory, so leaving those two
+# directory-only would have kept the identical latent bug alive under a
+# different name. Verified against `git ls-files`: no tracked path in this repo
+# has a component named env, ENV, venv or .venv, so widening these matches
+# nothing that was previously tracked.
+#
+# tests/unit/test_repo_structure.py drives `git check-ignore` over all of this,
+# both directions, so the paragraph above is checked rather than asserted.
+.venv
+venv
+ENV
+env
 .python-version
 
 # Tooling caches

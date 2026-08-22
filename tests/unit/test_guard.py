@@ -366,9 +366,71 @@ def test_segment_queue_has_a_work_ceiling(allowlist: Path) -> None:
     10**9, and they held while this very input was being ALLOWED. The payload
     is deliberately BENIGN — refusing to analyse *is* the verdict, so the
     accepted false positive is pinned here rather than met in an incident.
+
+    A THIRD unfalsifiable assertion lived here until now, and it is the reason
+    the two below are EXACT-STATE rather than a bound. MEASURED 2026-08-22 at
+    11af312, in a scratch COPY of this tree: ``len(split_segments(payload)) <=
+    _MAX_SEGMENTS`` evaluates True with the ceiling deleted outright (1
+    segment), with the split hard-wired to return nothing (0), and with a junk
+    segment appended on every drain (256). It compares the wrong two
+    quantities: ``_MAX_SEGMENTS`` bounds queue ITERATIONS, not segments, and
+    for a nested payload the segment count never comes near it. The comparison
+    is not even conservatively true: the ``;``-chain test below returns
+    ``_MAX_SEGMENTS + 1`` segments from a command the guard read in FULL. So it
+    is a bound that neither holds in general nor can fail on this payload.
+
+    EXACT STATE EITHER SIDE OF THE BOUNDARY is what carries the property, and
+    both depths are derived from ``_MAX_SEGMENTS`` rather than chosen, so the
+    pair keeps straddling the boundary if the ceiling moves. Same three
+    mutations, same scratch copy: deleting the ceiling makes the truncating
+    depth split to ``["echo hi"]`` (the second assertion reddens); discarding
+    the segments empties the readable depth (the first reddens); appending junk
+    reddens both. NEITHER is redundant with the verdict assertion that follows
+    — under the discard and junk mutations the split is still reported
+    truncated, so the C-1 BLOCK below still arrives and this test would stay
+    green on the strength of a segmenter returning pure garbage.
+
+    THE VACUITY GUARD IS AT ``> 0``, NOT ``> 1``, because that is where the
+    degeneracy actually starts. ``_LAST_ANALYZABLE_DEPTH = (_MAX_SEGMENTS - 1)
+    // 2`` reaches 0 at ``_MAX_SEGMENTS <= 2``, and at depth 0 ``_nested``
+    returns the bare command: the first assertion becomes
+    ``split_segments("echo hi") == ["echo hi"]``, trivially true, with no
+    nesting for the segmenter to unwrap. MEASURED 2026-08-22 at 09a16b5 in a
+    scratch COPY: with the ceiling rewritten to 2 this test PASSED before the
+    guard was added and FAILS on the guard after it; at ceiling 3 the readable
+    depth is 1, ``readable`` is ``$(echo hi)``, and the assertion is live
+    again. The shipped ceiling of 512 puts the depth at 255, nowhere near the
+    boundary — the guard exists so that a future ceiling change cannot silence
+    this assertion without saying so, the same role ``len(bullets) > 5`` plays
+    in ``tests/governance/test_governance_meta.py``.
+
+    The PUBLIC ``split_segments`` is used deliberately, not the checked
+    ``_split_segments`` that
+    ``test_split_segments_reports_truncation_to_policy_callers`` drives: this
+    is the return shape whose invisible truncation caused RB-009, so what it
+    returns at each side of the ceiling is worth pinning in its own right.
     """
+    assert _LAST_ANALYZABLE_DEPTH > 0, (
+        f"_MAX_SEGMENTS={guard._MAX_SEGMENTS} puts the readable depth at "
+        f"{_LAST_ANALYZABLE_DEPTH}, so `readable` carries no nesting at all and the "
+        "first assertion below is vacuous"
+    )
+
+    readable = _nested("echo hi", _LAST_ANALYZABLE_DEPTH)
     pathological = _nested("echo hi", _TRUNCATING_DEPTH)
-    assert len(guard.split_segments(pathological)) <= guard._MAX_SEGMENTS
+
+    assert guard.split_segments(readable) == ["echo hi"], (
+        f"at depth {_LAST_ANALYZABLE_DEPTH} the split is complete and must unwrap to "
+        "exactly the innermost command; anything else means the segmenter is losing or "
+        "inventing segments below the ceiling"
+    )
+    assert guard.split_segments(pathological) == [], (
+        f"at depth {_TRUNCATING_DEPTH} the ceiling stops the queue before the innermost "
+        "body is ever popped, so nothing should have drained; a non-empty result here "
+        "means this payload is no longer truncating and the test has stopped testing "
+        "the ceiling"
+    )
+
     verdict = guard.analyze(pathological, allowlist=allowlist)
     assert verdict.blocked and verdict.constraint == "C-1", verdict
 
@@ -454,6 +516,54 @@ def test_split_segments_reports_truncation_to_policy_callers() -> None:
     drained, truncated = guard._split_segments("echo " + "$(echo x) " * _LAST_COMPLETE_SIBLINGS)
     assert truncated is False, "a complete split that used the last iteration was called truncated"
     assert drained == ["echo"] + ["echo x"] * _LAST_COMPLETE_SIBLINGS
+
+
+def test_the_ceiling_is_read_from_the_constant_not_a_literal(
+    monkeypatch: pytest.MonkeyPatch,
+    allowlist: Path,
+) -> None:
+    """The bound is ``_MAX_SEGMENTS`` itself, not a same-valued literal.
+
+    Every other test above derives its depths FROM ``guard._MAX_SEGMENTS``, so
+    all of them describe the ceiling's current value and none of them describe
+    where the loop gets it. MEASURED 2026-08-22 at 9de5a0e, in a scratch COPY of
+    the tree rather than in the tree under review: rewriting the loop condition
+    to ``guard_rail < 512`` — the identical value, hand-copied — leaves this
+    whole file green (76 passed), because nothing changes at the shipped
+    ceiling. That is the single-home defect RB-008 exists to catch, and it is
+    the mutation this test adds: lower the constant and the same payload must
+    change verdict.
+
+    ``_LAST_ANALYZABLE_DEPTH`` is chosen deliberately —
+    ``test_below_the_ceiling_the_command_is_still_read`` already pins that this
+    exact depth is read IN FULL at the shipped ceiling, so a truncated result
+    here can only be the lowered constant taking effect.
+
+    The unpatched ALLOW is asserted FIRST, and it is not decoration. Nothing
+    else in this suite pins that a benign, deeply-nested, BELOW-ceiling command
+    is allowed: the substitution cases in ``test_permitted_commands_allow`` and
+    the wrapper's ``ALLOWED`` corpus are depth 1, and
+    ``test_a_benign_command_with_many_segments_is_still_allowed`` is a
+    ``;``-chain with no nesting at all. Every other deep payload here carries a
+    DENIED verb or sits above the ceiling, so all of them turn on a BLOCK.
+    Without the assertion below, a regression that refused readable deep
+    payloads for some reason OTHER than truncation would pass this whole file —
+    and refusing legitimate work is the failure mode this guard is least able to
+    notice about itself.
+    """
+    payload = _nested("echo hi", _LAST_ANALYZABLE_DEPTH)
+    assert guard.analyze(payload, allowlist=allowlist) == guard.Verdict(
+        blocked=False, constraint="", reason="", segment=""
+    ), "a readable deep payload must be judged on its contents, not refused"
+
+    monkeypatch.setattr(guard, "_MAX_SEGMENTS", 8)
+
+    segments, truncated = guard._split_segments(payload)
+    assert truncated is True, (
+        "with the ceiling lowered to 8 this payload must come back truncated; "
+        "it did not, so the loop is not bounded by _MAX_SEGMENTS at all"
+    )
+    assert segments == [], f"the queue was cut short, so nothing should have drained: {segments}"
 
 
 def test_excerpt_is_lossless_below_the_bound_and_says_so_above_it() -> None:

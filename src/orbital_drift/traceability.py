@@ -20,6 +20,7 @@ never drift with the environment.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import re
 import subprocess
@@ -49,7 +50,10 @@ _ROW = re.compile(r"^\|\s*(?P<cells>[^|].*)\|\s*$")
 #: test would have failed the gate on a correct matrix.
 _NODE_ID = re.compile(r"tests/[\w./-]+\.py(?:::[\w.\-\[\]=: ]+)+")
 #: A cell whose first column looks like a requirement id must be a full
-#: 7-column row; anything else is a malformed row, not a non-row.
+#: :data:`CELLS_PER_ROW`-column row; anything else is a malformed row, not a
+#: non-row. (Stated as the constant, not as "7": the arity is derived from
+#: :class:`Row`, so a literal here would be the fourth copy of the number this
+#: module just finished removing three of.)
 _REQUIREMENT_ID = re.compile(r"^(?:FR|NFR|SC|C|R|DEC)-\d+", re.IGNORECASE)
 
 
@@ -74,6 +78,20 @@ class Row:
     line: int
 
 
+#: Cells a data row must have — DERIVED from :class:`Row`, never typed again.
+#:
+#: ``Row`` already declares the matrix's columns; the arity was additionally
+#: written as a literal ``7`` in three places below (the skip check, the
+#: malformed-row check, and the operator-facing message) plus once more in this
+#: module's test. Adding an eighth matrix column meant finding all four, and
+#: missing the message alone produced a linter that rejects every correct row
+#: while insisting it "expected 7" about an eight-column table.
+#:
+#: ``- 1`` drops ``line``, which is the file position ``_parse_rows`` supplies
+#: from ``enumerate`` — the one field that is not a cell read out of the table.
+CELLS_PER_ROW: Final = len(dataclasses.fields(Row)) - 1
+
+
 def _parse_rows(text: str) -> tuple[list[Row], list[str]]:
     """Parse data rows, and report rows that LOOK like data but are malformed.
 
@@ -91,10 +109,12 @@ def _parse_rows(text: str) -> tuple[list[Row], list[str]]:
         if match is None:
             continue
         cells = [cell.strip() for cell in match.group("cells").split("|")]
-        if len(cells) != 7 or cells[0] in {"Req", ""} or set(cells[0]) <= {"-", " ", ":"}:
-            if _REQUIREMENT_ID.match(cells[0]) and len(cells) != 7:
+        wrong_arity = len(cells) != CELLS_PER_ROW
+        if wrong_arity or cells[0] in {"Req", ""} or set(cells[0]) <= {"-", " ", ":"}:
+            if _REQUIREMENT_ID.match(cells[0]) and wrong_arity:
                 problems.append(
-                    f"line {line_number}: row {cells[0]!r} has {len(cells)} cells, expected 7 "
+                    f"line {line_number}: row {cells[0]!r} has {len(cells)} cells, "
+                    f"expected {CELLS_PER_ROW} "
                     "(a literal '|' inside a cell must be escaped as '\\|')"
                 )
             continue
