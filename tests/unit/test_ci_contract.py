@@ -56,7 +56,7 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
-from typing import Final
+from typing import Final, NamedTuple
 
 import pytest
 
@@ -2899,15 +2899,31 @@ def test_workflow_has_no_gate_disabling_constructs() -> None:
         )
 
 
-def _workflow_top_level_block(key: str) -> str:
+def _workflow_top_level_block(key: str, text: str | None = None) -> str:
     """The indented body under a top-level workflow key, comments stripped.
 
     One parser for ``on:`` and ``concurrency:`` rather than one per test: the
     three assertions below all read the same two blocks, and two regexes that
     disagree about where a block ends is exactly the drift this file exists to
     catch elsewhere.
+
+    ROUND 3 — ``text`` DEFAULTS TO THE REAL WORKFLOW BUT IS A PARAMETER, so the
+    document-level mutants in ``_CONCURRENCY_MUTANTS`` can be driven through the
+    same parser the real assertions use instead of through a copy of it.
+
+    KNOWN AND DELIBERATE LIMIT, stated here rather than left to be discovered:
+    this is ``re.search``, so it returns the FIRST match and knows nothing about
+    the rest of the document — it cannot see a second top-level block, a
+    duplicated key inside the block, or a job-level override. Those are exactly
+    the three measured defeats of the round-2 guards, and they are decided by
+    ``_concurrency_structure_defect`` below, which does look at the whole
+    document. Do not add whole-document reasoning here; keep the two jobs apart.
     """
-    match = re.search(rf"^{key}:\n(?P<body>(?:[ \t]+.*\n|\n)*)", WORKFLOW_DIRECTIVES, re.MULTILINE)
+    match = re.search(
+        rf"^{key}:\n(?P<body>(?:[ \t]+.*\n|\n)*)",
+        WORKFLOW_DIRECTIVES if text is None else text,
+        re.MULTILINE,
+    )
     assert match, f".github/workflows/ci.yml has no top-level `{key}:` key"
     return match.group("body")
 
@@ -2936,6 +2952,140 @@ def _concurrency_group() -> str:
     )
     assert setting, "the concurrency block declares no `group:` key"
     return setting.group(1)
+
+
+# =============================================================================
+# ROUND 3 — THE VALUE GUARDS ABOVE ARE SCOPE-BLIND. THIS CLOSES THAT.
+#
+# `_concurrency_group` / `_cancel_in_progress` read the FIRST match of a regex
+# anchored at the top-level `concurrency:` block. Three mutations were MEASURED
+# to reinstate a cancellable, ref-keyed group for a push to main while leaving
+# the full suite byte-identical to the unmutated baseline (30 failed / 648
+# passed in the scratch copy, the failures being the Docker-gated controls in
+# both runs, same test ids):
+#
+#   (a) A JOB-LEVEL OVERRIDE — the load-bearing one. Adding
+#           concurrency:
+#             group: ci-${{ github.workflow }}-gitleaks-${{ github.ref }}
+#             cancel-in-progress: true
+#       to the `gitleaks` job. `jobs.<job_id>.concurrency` is GitHub's
+#       documented per-job override of the workflow-level block, so the
+#       gitleaks full-history scan on main becomes cancellable again — the
+#       literal RB-008 incident, reintroduced in the one job whose result
+#       Constitution VII rests on, with every value assertion above still green
+#       because the top-level block was not touched.
+#   (b) A SECOND TOP-LEVEL `concurrency:` BLOCK. YAML resolves duplicate
+#       mapping keys to the LAST one; `re.search` takes the FIRST. The pinned
+#       block stops being the block that runs.
+#   (c) A DUPLICATE `group:` KEY INSIDE THE ONE BLOCK. Same asymmetry one level
+#       down: `_concurrency_key_defect` is handed the first occurrence, calls it
+#       correct and returns None, while GitHub reads the second.
+#
+# So the structure gets its own decision procedure, separate from the value
+# one, and — like `_concurrency_key_defect` — it is a FUNCTION OF ITS INPUT
+# rather than a reader of the module global, so the mutants can be pushed
+# through the real procedure as negative controls.
+#
+# NO YAML PARSER, DELIBERATELY. PyYAML is not a declared dependency of this
+# repository and adding one to a test that guards a gate would put a
+# third-party parser between the gate and its proof. A textual scan is enough
+# for all three: (a) is "any `concurrency:` at non-zero indentation", (b) and
+# (c) are key counts.
+# =============================================================================
+
+# `concurrency:` at column 0 (the workflow-level block) and at any indentation
+# (a job-level override, or anything nested). Both are counted over the WHOLE
+# comment-stripped document — that whole-document view is the thing the value
+# guards do not have.
+_TOP_LEVEL_CONCURRENCY_RE: Final = re.compile(r"^concurrency:", re.MULTILINE)
+_NESTED_CONCURRENCY_RE: Final = re.compile(r"^[ \t]+concurrency:", re.MULTILINE)
+
+# A job header: a two-space indented, valueless key. Used only to NAME the
+# offending job in the diagnosis — a finding that says "some job" sends the
+# reader hunting.
+_JOB_HEADER_RE: Final = re.compile(r"^  ([A-Za-z_][A-Za-z0-9_-]*):[ \t]*$", re.MULTILINE)
+
+# The keys the top-level block must declare exactly once each.
+_CONCURRENCY_BLOCK_KEYS: Final[tuple[str, ...]] = ("group", "cancel-in-progress")
+
+
+def _enclosing_job(workflow_text: str, position: int) -> str:
+    """Name of the job whose block contains ``position``, or a placeholder.
+
+    Anchored at ``jobs:`` rather than scanning from the top of the file: the
+    ``on:`` block's own two-space keys (``push:``, ``pull_request:``,
+    ``schedule:``, ``workflow_dispatch:``) match ``_JOB_HEADER_RE`` exactly, so
+    an unanchored scan would confidently report ``schedule`` as a job name.
+    This is diagnostic text — being confidently wrong in it is the defect class
+    this whole block is about.
+    """
+    jobs_at = workflow_text.find("\njobs:\n")
+    if jobs_at == -1 or position < jobs_at:
+        return "<not inside jobs:>"
+    headers = [
+        match
+        for match in _JOB_HEADER_RE.finditer(workflow_text)
+        if jobs_at < match.start() < position
+    ]
+    return headers[-1].group(1) if headers else "<unnamed job>"
+
+
+def _concurrency_structure_defect(workflow_text: str) -> str | None:
+    """``None`` when the workflow declares ONE unoverridden concurrency block.
+
+    Checks, in the order a reader would want them reported:
+
+    1. exactly one top-level ``concurrency:`` key;
+    2. exactly one ``group:`` and one ``cancel-in-progress:`` inside it;
+    3. no ``concurrency:`` at any deeper indentation anywhere in the file.
+
+    This says nothing about the VALUES of those keys — that is
+    ``_concurrency_key_defect``'s job, and the two are kept apart on purpose:
+    "the pinned block is the block that runs" and "the block says the right
+    thing" are separate claims, and merging them would leave one of the two
+    provable only by inspection.
+    """
+    top_level = _TOP_LEVEL_CONCURRENCY_RE.findall(workflow_text)
+    if len(top_level) != 1:
+        return (
+            f".github/workflows/ci.yml declares the top-level `concurrency:` key "
+            f"{len(top_level)} times, expected exactly once. YAML resolves duplicate "
+            "mapping keys to the LAST one while every regex in this file takes the "
+            "FIRST, so the block whose exact text is pinned below need not be the "
+            "block GitHub actually uses — and a second block reinstating "
+            "`cancel-in-progress: true` on a ref-keyed group is the RB-008 incident "
+            "with the pinning still green (run 32575049407, head 4a76930: no "
+            "completed gitleaks full-history scan, conclusion `cancelled`, which "
+            "never reads as `failure`)."
+        )
+
+    body = _workflow_top_level_block("concurrency", workflow_text)
+    for key in _CONCURRENCY_BLOCK_KEYS:
+        occurrences = re.findall(rf"^[ \t]+{re.escape(key)}:", body, re.MULTILINE)
+        if len(occurrences) != 1:
+            return (
+                f"the top-level `concurrency:` block declares `{key}:` "
+                f"{len(occurrences)} times, expected exactly once. The value guards "
+                "read the first occurrence and would call it correct, while a YAML "
+                "parser resolves the block to the last — so a duplicate key is a "
+                "silent way to change what runs without changing what is checked."
+            )
+
+    nested = list(_NESTED_CONCURRENCY_RE.finditer(workflow_text))
+    if nested:
+        jobs = sorted({_enclosing_job(workflow_text, match.start()) for match in nested})
+        return (
+            f".github/workflows/ci.yml declares an indented `concurrency:` key in "
+            f"{jobs}. `jobs.<job_id>.concurrency` is GitHub's documented PER-JOB "
+            "OVERRIDE of the workflow-level block, so the per-commit grouping pinned "
+            "at the top of the file simply does not apply to that job: it can be "
+            "given a ref-keyed, cancellable group of its own and a push to main "
+            "becomes cancellable again — in the `gitleaks` job that is the RB-008 "
+            "incident verbatim (run 32575049407, head 4a76930), and `cancelled` "
+            "never reads as `failure`. If a job genuinely needs its own group, pin "
+            "its exact value here the way the top-level keys are pinned, and say why."
+        )
+    return None
 
 
 # THE EXACT EXPRESSIONS, not a bag of substrings they must contain.
@@ -2993,6 +3143,51 @@ _CONCURRENCY_TOKENS: Final[tuple[str, ...]] = (
 )
 
 
+# THE CONSEQUENCE CLAUSE IS PER KEY, and that is a fix, not a flourish.
+#
+# `_concurrency_key_defect` takes a `key` and is called for BOTH `group` and
+# `cancel-in-progress`, but until round 3 both of its branches described only
+# the GROUPING failure — "with the operands swapped, pull requests group per
+# commit ... pushes to main share the ref-keyed group with the weekly timer".
+# A failing `cancel-in-progress` assertion therefore emitted text that is
+# simply false about the defect at hand and sent the reader to fix the group.
+# That is this PR's own subject — a gate whose message points at the wrong fix
+# — sitting inside the guard meant to embody it (Copilot review, PR #12).
+#
+# Kept as data, keyed by the key, so a THIRD concurrency key added later
+# without its own narrative fails the lookup assertion below loudly instead of
+# silently inheriting one of these two. The negative controls additionally
+# assert the other key's clause is ABSENT from each diagnosis, so the two
+# narratives cannot be quietly re-merged.
+_ARRANGEMENT_CONSEQUENCE: Final[dict[str, str]] = {
+    "group": (
+        "with the operands swapped, pull requests group per commit (a new push to "
+        "a PR stops superseding its own stale run) and pushes to main share the "
+        "ref-keyed group with the weekly timer, so a queued run of main goes "
+        "PENDING and the next arrival cancels it"
+    ),
+    "cancel-in-progress": (
+        "with the event test inverted, cancellation is ENABLED for every non-PR "
+        "event and disabled for the one case where superseding is wanted: a push "
+        "to main is cancelled the moment the next one lands — before its gitleaks "
+        "full-history scan finishes — while a PR's stale head is left to burn a "
+        "full matrix"
+    ),
+}
+
+_ABSENCE_CONSEQUENCE: Final[dict[str, str]] = {
+    "group": (
+        "A grouping key that does not choose per event cannot keep a push to main "
+        "out of a shared, cancellable group."
+    ),
+    "cancel-in-progress": (
+        "A cancellation rule that does not choose per event cancels a push to main "
+        "as readily as a PR's stale head, so main's run is stopped before its "
+        "gitleaks full-history scan finishes."
+    ),
+}
+
+
 def _concurrency_key_defect(key: str, actual: str, expected: str) -> str | None:
     """``None`` when ``actual`` is exactly ``expected``, else a diagnosis.
 
@@ -3001,9 +3196,19 @@ def _concurrency_key_defect(key: str, actual: str, expected: str) -> str | None:
     correct — two regexes that disagree about the same property is the drift
     this module exists to catch — and so the token-preserving mutants can be
     driven through the real decision procedure in a negative control.
+
+    ROUND 3 — the SHAPE of the two diagnoses is shared; the clause that explains
+    what actually breaks is looked up per key (see the two tables above). Before
+    that, a `cancel-in-progress` failure was explained in terms of grouping.
     """
     if actual == expected:
         return None
+    assert key in _ARRANGEMENT_CONSEQUENCE and key in _ABSENCE_CONSEQUENCE, (
+        f"no consequence clause is recorded for the concurrency key {key!r}, so "
+        "this guard would have to describe its failure in another key's terms — "
+        "the exact defect the per-key tables replaced. Add an entry to "
+        "_ARRANGEMENT_CONSEQUENCE and _ABSENCE_CONSEQUENCE for it."
+    )
     relevant = tuple(token for token in _CONCURRENCY_TOKENS if token in expected)
     assert relevant, (
         f"no known concurrency token appears in the expected `{key}` value "
@@ -3014,19 +3219,15 @@ def _concurrency_key_defect(key: str, actual: str, expected: str) -> str | None:
         return (
             f"`{key}` is {actual!r}. Every expected token is present, so the "
             "round-1 substring assertions would pass, but they are ARRANGED "
-            f"differently from {expected!r}. Arrangement is the entire fix: with "
-            "the operands swapped, pull requests group per commit (a new push to "
-            "a PR stops superseding its own stale run) and pushes to main share "
-            "the ref-keyed group with the weekly timer, so a queued run of main "
-            "goes PENDING and the next arrival cancels it — unscanned, and "
-            "`cancelled` never reads as `failure` (run 32575049407, head "
-            "4a76930 is what that looks like)."
+            f"differently from {expected!r}. Arrangement is the entire fix: "
+            f"{_ARRANGEMENT_CONSEQUENCE[key]} — unscanned, and `cancelled` never "
+            "reads as `failure` (run 32575049407, head 4a76930 is what that looks "
+            "like)."
         )
     missing = [token for token in relevant if token not in actual]
     return (
         f"`{key}` is {actual!r}, expected exactly {expected!r}. Absent entirely: "
-        f"{missing}. A key that does not choose per event cannot keep a push to "
-        "main out of a shared, cancellable group."
+        f"{missing}. {_ABSENCE_CONSEQUENCE[key]}"
     )
 
 
@@ -3069,7 +3270,29 @@ def test_a_push_to_main_shares_no_concurrency_group_and_is_never_cancelled() -> 
     full-suite result. Both keys are pinned exactly, and the rejection of the
     token-preserving mutants is itself under test in
     ``test_the_concurrency_guards_reject_token_preserving_mutations``.
+
+    ROUND 3 — EXACT VALUES ARE NOT ENOUGH EITHER, because pinning the top-level
+    block says nothing about whether that block is what GitHub uses. Three
+    mutations were measured to reinstate a cancellable ref-keyed group for a push
+    to main at a byte-identical suite result: a job-level ``concurrency:``
+    override on ``gitleaks`` (GitHub's documented per-job override), a second
+    top-level ``concurrency:`` block, and a duplicate ``group:`` key inside the
+    one block. All three are now decided by ``_concurrency_structure_defect``,
+    asserted FIRST below because a value pinned on a block that does not run is
+    not a check, and all three are negative controls in
+    ``_CONCURRENCY_MUTANTS``.
+
+    WHAT THIS TEST DOES AND DOES NOT COVER, stated plainly rather than claimed
+    away: it covers the workflow-level block's two values, the uniqueness of that
+    block and of its keys, and the absence of any indented ``concurrency:`` key
+    anywhere in the file. It does NOT parse YAML (PyYAML is deliberately not a
+    dependency), so an anchor/alias, a flow-style mapping, or a key smuggled in
+    through a reusable workflow would not be seen; and it says nothing about
+    repository settings, required checks, or re-run behaviour.
     """
+    structure_defect = _concurrency_structure_defect(WORKFLOW_DIRECTIVES)
+    assert structure_defect is None, structure_defect
+
     group_defect = _concurrency_key_defect(
         "group", _concurrency_group(), _EXPECTED_CONCURRENCY_GROUP
     )
@@ -3081,55 +3304,183 @@ def test_a_push_to_main_shares_no_concurrency_group_and_is_never_cancelled() -> 
     assert cancel_defect is None, cancel_defect
 
 
-# (label, key, the mutant value, expected diagnosis fragment). Every entry is a
-# mutation the ROUND-1 substring guards were MEASURED to accept, plus the
-# reversion they were written for. The first is the adversarial reviewer's own
-# probe, applied to the real .github/workflows/ci.yml: it scored 520 passed / 11
-# environmental — byte-identical to the unmutated baseline — which is what
-# "order-blind" means in practice.
-_CONCURRENCY_MUTANTS: Final[tuple[tuple[str, str, str, str], ...]] = (
-    (
+# The workflow text as this file's guards actually see it, rebuilt from the
+# pinned values rather than typed again, so a change to either expected value
+# cannot leave the document mutants below anchored on text that no longer
+# exists. The `count(anchor) == 1` assertion in the control makes that loud.
+_REAL_GROUP_LINE: Final = f"  group: {_EXPECTED_CONCURRENCY_GROUP}\n"
+_REAL_CANCEL_LINE: Final = f"  cancel-in-progress: {_EXPECTED_CANCEL_IN_PROGRESS}\n"
+_REAL_CONCURRENCY_BLOCK: Final = "concurrency:\n" + _REAL_GROUP_LINE + _REAL_CANCEL_LINE
+
+# The two mutant kinds, and why one table holds both. A KEY mutant is a bad
+# VALUE for one concurrency key and goes through `_concurrency_key_defect`; a
+# DOCUMENT mutant is an edit to .github/workflows/ci.yml as a whole and goes
+# through `_concurrency_structure_defect`. They share a table because they share
+# a claim — "a push to main is never cancelled" — and splitting them into two
+# tables invites a future reader to extend one and forget the other, which is
+# how the round-2 guards ended up covering values only.
+_KEY_MUTANT: Final = "key"
+_DOCUMENT_MUTANT: Final = "document"
+
+
+class _ConcurrencyMutant(NamedTuple):
+    """One measured defeat, plus what its rejection must say.
+
+    ``target``/``mutant`` are read according to ``kind``: for ``_KEY_MUTANT``
+    they are the concurrency key name and the bad value; for
+    ``_DOCUMENT_MUTANT`` they are a unique anchor in the comment-stripped
+    workflow and the text that replaces it.
+    """
+
+    label: str
+    kind: str
+    target: str
+    mutant: str
+    fragments: tuple[str, ...]
+
+
+# Every entry is a mutation the PREVIOUS round's guards were MEASURED to accept.
+# The first three are round 2's (the adversarial reviewer's own probe applied to
+# the real .github/workflows/ci.yml: 520 passed / 11 environmental, byte-
+# identical to the unmutated baseline — which is what "order-blind" means in
+# practice), plus the reversion they were written for. The last three are round
+# 3's, measured the same way in a scratch copy of this tree: 30 failed / 648
+# passed, the same test ids as that copy's own unmutated baseline.
+_CONCURRENCY_MUTANTS: Final[tuple[_ConcurrencyMutant, ...]] = (
+    _ConcurrencyMutant(
         "group operands swapped — PRs per commit, main shares with the timer",
+        _KEY_MUTANT,
         "group",
         "ci-${{ github.workflow }}-"
         "${{ github.event_name == 'pull_request' && github.sha || github.ref }}",
-        "ARRANGED",
+        ("ARRANGED", "share the ref-keyed group with the weekly timer"),
     ),
-    (
+    _ConcurrencyMutant(
         "group condition negated — same inversion by a different spelling",
+        _KEY_MUTANT,
         "group",
         "ci-${{ github.workflow }}-"
         "${{ !(github.event_name == 'pull_request') && github.ref || github.sha }}",
-        "ARRANGED",
+        ("ARRANGED", "share the ref-keyed group with the weekly timer"),
     ),
-    (
+    _ConcurrencyMutant(
         "group reverted to the pre-fix ref-only form (the original incident)",
+        _KEY_MUTANT,
         "group",
         "ci-${{ github.workflow }}-${{ github.ref }}",
-        "Absent entirely",
+        ("Absent entirely", "A grouping key that does not choose per event"),
     ),
-    (
+    _ConcurrencyMutant(
         "cancel-in-progress negated — cancels everything EXCEPT pull requests",
+        _KEY_MUTANT,
         "cancel-in-progress",
         "${{ !(github.event_name == 'pull_request') }}",
-        "ARRANGED",
+        ("ARRANGED", "cancellation is ENABLED for every non-PR event"),
     ),
-    (
+    _ConcurrencyMutant(
         "cancel-in-progress unconditionally true (the original incident)",
+        _KEY_MUTANT,
         "cancel-in-progress",
         "true",
-        "Absent entirely",
+        ("Absent entirely", "A cancellation rule that does not choose per event"),
+    ),
+    _ConcurrencyMutant(
+        "job-level concurrency override on gitleaks — RB-008's incident, per job",
+        _DOCUMENT_MUTANT,
+        "  gitleaks:\n    needs: versions\n",
+        "  gitleaks:\n"
+        "    needs: versions\n"
+        "    concurrency:\n"
+        "      group: ci-${{ github.workflow }}-gitleaks-${{ github.ref }}\n"
+        "      cancel-in-progress: true\n",
+        ("PER-JOB", "'gitleaks'"),
+    ),
+    _ConcurrencyMutant(
+        "a second top-level concurrency block — YAML takes the last, regex the first",
+        _DOCUMENT_MUTANT,
+        _REAL_CONCURRENCY_BLOCK,
+        _REAL_CONCURRENCY_BLOCK + "\nconcurrency:\n"
+        "  group: ci-${{ github.workflow }}-${{ github.ref }}\n"
+        "  cancel-in-progress: true\n",
+        ("top-level `concurrency:` key 2 times", "LAST"),
+    ),
+    _ConcurrencyMutant(
+        "a duplicate group: key inside the one block — same asymmetry, one level down",
+        _DOCUMENT_MUTANT,
+        _REAL_GROUP_LINE,
+        _REAL_GROUP_LINE + "  group: ci-${{ github.workflow }}-${{ github.ref }}\n",
+        ("declares `group:` 2 times", "first occurrence"),
     ),
 )
+
+# The other key, for the "the two narratives have not been re-merged" assertion
+# in the control below.
+_OTHER_CONCURRENCY_KEY: Final[dict[str, str]] = {
+    "group": "cancel-in-progress",
+    "cancel-in-progress": "group",
+}
+
+
+def _rejected_key_mutant(case: _ConcurrencyMutant) -> str:
+    """Drive a bad VALUE through ``_concurrency_key_defect`` and return its text."""
+    expected = (
+        _EXPECTED_CONCURRENCY_GROUP if case.target == "group" else _EXPECTED_CANCEL_IN_PROGRESS
+    )
+    assert case.mutant != expected, (
+        f"{case.label}: the mutant is identical to the expected value, so this "
+        "control proves nothing. Fix the case, not the guard."
+    )
+    defect = _concurrency_key_defect(case.target, case.mutant, expected)
+    assert defect is not None, (
+        f"{case.label}: _concurrency_key_defect accepted {case.mutant!r} for "
+        f"`{case.target}`. This is the order-blind failure the exact-literal form "
+        "replaced — a guard that cannot tell the correct wiring from its inversion."
+    )
+    other = _OTHER_CONCURRENCY_KEY[case.target]
+    for table_name, table in (
+        ("_ARRANGEMENT_CONSEQUENCE", _ARRANGEMENT_CONSEQUENCE),
+        ("_ABSENCE_CONSEQUENCE", _ABSENCE_CONSEQUENCE),
+    ):
+        assert table[other] not in defect, (
+            f"{case.label}: the diagnosis for a `{case.target}` defect quotes "
+            f"{table_name}[{other!r}] — the OTHER key's narrative. That is the "
+            "Copilot finding on PR #12 returning: a `cancel-in-progress` failure "
+            "explained in terms of grouping sends the reader at the wrong fix, "
+            "inside the guard whose whole subject is gates that misname their cause."
+        )
+    return defect
+
+
+def _rejected_document_mutant(case: _ConcurrencyMutant) -> str:
+    """Apply a whole-file edit and drive it through ``_concurrency_structure_defect``."""
+    occurrences = WORKFLOW_DIRECTIVES.count(case.target)
+    assert occurrences == 1, (
+        f"{case.label}: the anchor {case.target!r} appears {occurrences} times in the "
+        "comment-stripped .github/workflows/ci.yml, expected exactly once. The "
+        "workflow moved under this control — re-anchor it, because a mutant that "
+        "cannot be applied proves nothing while still reporting green."
+    )
+    mutated = WORKFLOW_DIRECTIVES.replace(case.target, case.mutant, 1)
+    assert mutated != WORKFLOW_DIRECTIVES, (
+        f"{case.label}: the mutation is a no-op, so this control proves nothing."
+    )
+    defect = _concurrency_structure_defect(mutated)
+    assert defect is not None, (
+        f"{case.label}: _concurrency_structure_defect accepted the mutated workflow. "
+        "Each of these three was MEASURED to reinstate a cancellable, ref-keyed "
+        "group for a push to main at a byte-identical full-suite result — a guard "
+        "that accepts them is a guard the RB-008 incident walks straight past."
+    )
+    return defect
 
 
 @pytest.mark.parametrize(
-    ("label", "key", "mutant", "fragment"),
+    "case",
     _CONCURRENCY_MUTANTS,
-    ids=[case[0] for case in _CONCURRENCY_MUTANTS],
+    ids=[case.label for case in _CONCURRENCY_MUTANTS],
 )
 def test_the_concurrency_guards_reject_token_preserving_mutations(
-    label: str, key: str, mutant: str, fragment: str
+    case: _ConcurrencyMutant,
 ) -> None:
     """The NEGATIVE CONTROL for the guard above — its failure path, executed.
 
@@ -3142,24 +3493,26 @@ def test_the_concurrency_guards_reject_token_preserving_mutations(
     REJECT them, so the blind spot cannot return unnoticed — and they check the
     diagnosis distinguishes an arrangement defect from a missing token, because
     "the group is wrong" and "the group was reverted" need different fixes.
-    """
-    expected = _EXPECTED_CONCURRENCY_GROUP if key == "group" else _EXPECTED_CANCEL_IN_PROGRESS
-    assert mutant != expected, (
-        f"{label}: the mutant is identical to the expected value, so this control "
-        "proves nothing. Fix the case, not the guard."
-    )
 
-    defect = _concurrency_key_defect(key, mutant, expected)
-    assert defect is not None, (
-        f"{label}: _concurrency_key_defect accepted {mutant!r} for `{key}`. This is "
-        "the order-blind failure the exact-literal form replaced — a guard that "
-        "cannot tell the correct wiring from its inversion."
+    ROUND 3 adds the three DOCUMENT mutants (job-level override, duplicate
+    block, duplicate key) and, for the KEY mutants, asserts each diagnosis does
+    NOT quote the other key's consequence clause — the round-2 diagnoses
+    described a `cancel-in-progress` failure in grouping terms.
+    """
+    assert case.kind in (_KEY_MUTANT, _DOCUMENT_MUTANT), (
+        f"{case.label}: unknown mutant kind {case.kind!r}. An unrecognised kind "
+        "would fall through to one of the two procedures and prove something "
+        "other than what the case claims."
     )
-    assert fragment in defect, (
-        f"{label}: the diagnosis for {mutant!r} was {defect!r}, which does not say "
-        f"{fragment!r}. A rejection that misnames WHY sends the next reader at the "
-        "wrong fix."
+    defect = (
+        _rejected_key_mutant(case) if case.kind == _KEY_MUTANT else _rejected_document_mutant(case)
     )
+    for fragment in case.fragments:
+        assert fragment in defect, (
+            f"{case.label}: the diagnosis was {defect!r}, which does not say "
+            f"{fragment!r}. A rejection that misnames WHY sends the next reader at "
+            "the wrong fix."
+        )
 
 
 def test_the_workflow_runs_on_a_schedule() -> None:
@@ -3215,6 +3568,20 @@ def test_the_workflow_runs_on_a_schedule() -> None:
         f"cron {crons[0]!r} does not fix a single weekday, so the cadence is not "
         "the weekly one this test's rationale is written for"
     )
+    # ROUND 3 — the off-the-hour rule was PROSE, and prose is not a gate. The
+    # comment beside the `cron:` key states it ("Deliberately off the hour:
+    # GitHub queues scheduled runs and drops them under load, which is worst at
+    # :00"), and replacing "17 6 * * 1" with "0 0 * * 0" was measured to leave
+    # this test — and the whole suite — green: a different day AND exactly on
+    # the hour, the one thing the comment says to avoid. Asserted, not assumed.
+    assert int(minute) != 0, (
+        f"cron {crons[0]!r} fires exactly on the hour. .github/workflows/ci.yml's "
+        "own comment beside this key gives the rule: GitHub queues scheduled runs "
+        "and drops them under load, and the load is worst at :00 — so a run "
+        "scheduled there is the most likely to be silently skipped, and a skipped "
+        "`audit` week is invisible (no diff, no push, nothing red). Pick any "
+        "non-zero minute."
+    )
 
 
 def test_a_scheduled_run_can_never_cancel_a_push_to_main() -> None:
@@ -3229,12 +3596,31 @@ def test_a_scheduled_run_can_never_cancel_a_push_to_main() -> None:
     because ``cancelled`` never reads as ``failure``.
 
     Adding the schedule and gating the cancellation are consequently one change,
-    not two: either alone is safe and the pair in the wrong order is not. This
-    assertion is what makes that un-reintroducible, since a future PR adding a
-    second timer, or relaxing the concurrency rule, has to come past it. It is
+    not two: either alone is safe and the pair in the wrong order is not. It is
     deliberately an IMPLICATION (schedule -> conditional cancellation); the
     schedule's own existence is pinned by the test above, so neither half can go
     missing unnoticed.
+
+    WHAT THIS ASSERTION COVERS — corrected in round 3. It previously said "this
+    assertion is what makes that un-reintroducible", and that was MEASURED
+    FALSE: it reads the top-level ``concurrency:`` block's two VALUES through
+    ``_concurrency_key_defect`` and nothing else, so three edits reinstated a
+    cancellable ref-keyed group for a push to main while it stayed green — a
+    job-level ``concurrency:`` override (GitHub's documented per-job override,
+    which simply replaces the block this reads), a second top-level block (YAML
+    takes the last, ``re.search`` the first), and a duplicate ``group:`` key
+    inside the block. Those three are now decided by
+    ``_concurrency_structure_defect``, asserted here before the values and
+    exercised as negative controls in ``_CONCURRENCY_MUTANTS``.
+
+    What is covered, precisely: the workflow-level block's ``group`` and
+    ``cancel-in-progress`` values, that block's uniqueness and its keys'
+    uniqueness, and the absence of any indented ``concurrency:`` key in the
+    file. What is NOT: anything requiring a YAML parser (PyYAML is deliberately
+    not a dependency of this repository), so anchors/aliases, flow-style
+    mappings and reusable-workflow indirection are unchecked — and nothing about
+    repository settings or re-run behaviour. "Un-reintroducible" is a claim no
+    textual guard can make; this one names its edge instead.
 
     ROUND 2 — this test shared the order-blind substring gap the guard above had,
     and shares its fix: it goes through ``_concurrency_key_defect``, so "the
@@ -3255,6 +3641,14 @@ def test_a_scheduled_run_can_never_cancel_a_push_to_main() -> None:
             "test_the_workflow_runs_on_a_schedule states why the trigger must exist; "
             "restore it rather than leaving this assertion unarmed."
         )
+    structure_defect = _concurrency_structure_defect(WORKFLOW_DIRECTIVES)
+    assert structure_defect is None, (
+        "the workflow runs on a schedule, and the keys asserted below govern the "
+        "timer only if the block they are read from is the block GitHub uses — a "
+        "job-level override, a second block or a duplicated key silently makes it "
+        f"something else. {structure_defect}"
+    )
+
     group_defect = _concurrency_key_defect(
         "group", _concurrency_group(), _EXPECTED_CONCURRENCY_GROUP
     )

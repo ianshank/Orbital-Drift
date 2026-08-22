@@ -1593,6 +1593,61 @@ def test_checks_sh_resolves_script_dir_with_no_path_at_all() -> None:
     assert "usage: sh ci/checks.sh" in output, output
 
 
+def test_more_than_one_stage_argument_is_refused_instead_of_silently_ignored() -> None:
+    """MEASURED (round 3, item A4): ``ci/checks.sh a b c`` ran ``a`` and exited 0.
+
+    The dispatch reads ``case "${1:-all}"`` and never looks at ``$2..$n``, so
+
+        sh ci/checks.sh lint typecheck dead audit specs traceability
+            projections governance
+
+    printed the preflight and lint blocks ONLY and returned rc=0 — measured on
+    this tree at 8a7f814. Seven of the eight named gates never ran, and the exit
+    status said everything passed. Any "eight stages rc=0" claim produced that
+    way is false, which is exactly the silently-green class RB-008 part (1)
+    exists to close, sitting in the single gate source (design D1).
+
+    Refusing is the only safe reading. Running all of them instead would be a
+    behaviour change to the CI contract (``.github/workflows/ci.yml`` invokes
+    one stage per job, and ``stage_all`` already exists for "run everything"),
+    and guessing between the two is how a runner acquires a second, undocumented
+    mode. rc=2 is the script's own usage exit, the same one an unknown stage
+    already takes.
+
+    Run directly rather than through ``run_checks``: the guard must fire BEFORE
+    any preflight, tool probe or stage body, so no stub is needed — and needing
+    none is part of the claim.
+    """
+    result = subprocess.run(
+        [posix_shell(), str(CHECKS_SH), "lint", "typecheck"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 2, (
+        "ci/checks.sh accepted two stage arguments instead of refusing them "
+        f"(rc={result.returncode}). The dispatch `case` reads only $1, so every "
+        "argument after the first is silently discarded and the exit status "
+        f"reports on ONE stage while the command named several:\n{output}"
+    )
+    assert ">>> lint" not in output, (
+        "the refusal came AFTER the first stage had already started — the point "
+        "is that nothing executes when the invocation is ambiguous, so a partial "
+        f"run cannot be mistaken for the whole one:\n{output}"
+    )
+    assert "typecheck" in output, (
+        "the refusal does not echo the arguments it rejected, so an operator "
+        f"cannot see which invocation was refused:\n{output}"
+    )
+    assert "usage: sh ci/checks.sh" in output, (
+        f"the refusal prints no usage line, so it does not say what the accepted form is:\n{output}"
+    )
+
+
 def test_a_reduced_path_reaches_the_guard_instead_of_dying_at_script_dir(
     tmp_path: Path,
 ) -> None:
