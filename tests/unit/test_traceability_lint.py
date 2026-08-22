@@ -182,9 +182,12 @@ def test_a_missing_matrix_is_reported(tmp_path: Path, monkeypatch: pytest.Monkey
 
 # --- the collection paths, which `--cov-branch` showed were never taken ----
 #
-# RB-008 part 3. This module carries the THINNEST per-file margin in the tree
-# (91.45% combined against the 90 floor, measured at 18330d4), and the arcs
-# below are the reason: `_collected_node_ids` has three failure exits and the
+# RB-008 part 3. This module CARRIED, at 18330d4, the thinnest per-file margin
+# in the tree (91.45% combined against the 90 floor) — past tense deliberately:
+# after 8d12321 closed the eleven exposed arcs, every module measures 100% with
+# 0 partial (D-14 in docs/decisions/001-coverage-gate.md), so the margin these
+# tests were written to widen is no longer the thinnest, or thin at all. The
+# arcs below are why it was: `_collected_node_ids` has three failure exits and the
 # suite exercised none of them, while `lint`'s early return on a collection
 # error was likewise unproved. These are not theoretical — a Green row citing
 # an uncollectable node id took CI red on PR #6. Each test names the one-line

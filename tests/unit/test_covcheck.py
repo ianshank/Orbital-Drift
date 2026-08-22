@@ -233,6 +233,67 @@ def test_the_bar_the_combined_rate_replaces_is_strictly_easier(tmp_path: Path) -
     assert covcheck.check(statement_only, floor=90.0) == []
 
 
+def test_a_breach_message_names_the_quantity_it_measured_not_only_statements(
+    tmp_path: Path,
+) -> None:
+    """The message must not pair a combined numerator with a statements-only
+    denominator — the operator reads THIS string, not D-14.
+
+    The shape below is this PR's own probe: 5 statements all covered, 2 arcs of
+    which 1 is taken, so the rate is 6/7 = 85.7%. The message the module shipped
+    before this test read ``85.7% over 5 statements``, which pairs a numerator
+    drawn from statements AND arcs with a denominator labelled "statements" —
+    85.7% of 5 statements is 4.3 statements, which is not a quantity that
+    exists, and it sends an operator hunting for uncovered LINES in a file whose
+    entire shortfall is arcs. Same defect class as D-14's own "FR-011a false
+    about its own gate", one layer down.
+
+    Mutation that reddens this: restore
+    ``f"{filename}: {rate:.1f}% over {statements} statements < ..."`` in
+    ``covcheck.check``. Verified by making exactly that edit — the
+    ``combined statement+branch`` assertion fails. The second assertion pins the
+    absence of the old pairing directly, so a message that merely APPENDED the
+    branch count while keeping "85.7% over 5 statements" intact is also caught.
+    """
+    path, combined = _branch_report(
+        tmp_path,
+        statements=5,
+        covered_statements=5,
+        branches=2,
+        covered_branches=1,
+    )
+    assert f"{combined:.1f}" == "85.7", f"fixture arithmetic drifted: {combined}"
+
+    failures = covcheck.check(path, floor=90.0)
+    assert len(failures) == 1, f"the probe did not breach the floor: {failures!r}"
+    assert "85.7% combined statement+branch over 5 statements and 2 branches" in failures[0], (
+        f"the breach message does not say what the percentage was taken over: {failures[0]!r}"
+    )
+    assert "85.7% over 5 statements" not in failures[0], (
+        f"the message still attributes the combined rate to a statement count: {failures[0]!r}"
+    )
+
+
+def test_a_report_without_branch_measurement_reports_zero_branches(tmp_path: Path) -> None:
+    """``num_branches`` is absent from a report produced WITHOUT ``--cov-branch``.
+
+    The gate always passes ``--cov-branch`` (``stage_coverage``), so this is the
+    hand-run case. Reporting ``0 branches`` is correct rather than merely safe:
+    with no arcs in the denominator the combined rate degrades to the statement
+    rate (D-14, rejected alternative 3), so ``50.0% ... over 10 statements and 0
+    branches`` is arithmetically the statement rate it looks like. The "0
+    branches" is also the signal that distinguishes a hand-run from the gate.
+
+    Mutation that reddens this: drop the ``.get`` default and read
+    ``summary["num_branches"]`` — a hand-run report raises ``KeyError`` instead
+    of reporting.
+    """
+    path = _report(tmp_path, {"src/orbital_drift/a.py": (10, 50.0)})
+    failures = covcheck.check(path, floor=90.0)
+    assert len(failures) == 1
+    assert "50.0% combined statement+branch over 10 statements and 0 branches" in failures[0]
+
+
 def test_a_fractional_floor_is_reported_exactly_not_rounded(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
