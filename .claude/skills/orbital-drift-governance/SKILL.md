@@ -43,7 +43,7 @@ never assume standing.
 - **DEC-001** (08-21): governance kit adopted; Constitution v1.1.0 amendment.
 - **DEC-002** (08-21): budgets 4 PRs / 16 h per milestone.
 - **DEC-003** (08-21): remote allowlist = origin only (armed at Phase 6).
-- **DEC-004** (08-21): coverage floor 90 over src/orbital_drift; honest-limit note.
+- **DEC-004** (08-21): coverage floor 90 over src/orbital_drift; honest-limit note; superseded for the global floor by RB-006 — ratified 85 global + 90 per-file.
 - **G-0** (08-21): T001 verified; Phase-0 authoring tasks unlocked.
 - **RB-001** (08-21): roster change — spec-implementer added; adversarial-reviewer supersedes peer-reviewer (D5).
 - **RB-002** (08-21): settings.json merge — PreToolUse guard + SessionStart check; denies kept; allowlist seeded (DEC-003).

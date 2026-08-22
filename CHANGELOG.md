@@ -7,9 +7,12 @@ item 6). Format loosely follows [Keep a Changelog](https://keepachangelog.com/);
 versioning is deferred to the first tagged release (none exists yet — see
 `pyproject.toml`'s placeholder `version = "0.0.0"`).
 
-There is no `main` history to diff against: `main` holds only the two-file
-seed commit (`8f3689f`, `.gitattributes` + `.gitignore`). Everything below is
-this repository's entire body of work to date, on `001-orbital-drift-ct`.
+An earlier revision of this file claimed `main` held only the two-file seed
+commit (`8f3689f`, `.gitattributes` + `.gitignore`). That is no longer true:
+RB-006 (`docs/decision-log.md`) reconciled this line of work with
+`origin/main`'s independently-merged PR #3 (infra T007–T010, the coverage
+gate, runbooks), so `main` now carries the merged history. Everything below
+is this repository's body of work to date.
 
 ## [Unreleased]
 
@@ -20,9 +23,14 @@ this repository's entire body of work to date, on `001-orbital-drift-ct`.
   wrapper commands and env assignments, re-analyzes `bash -c` payloads as
   code, and resolves `git push` destinations without ever assuming a default
   remote.
-- `src/orbital_drift/covcheck.py`: per-file coverage floor (90%), run after
-  the global floor (raised 90% → 95%) so a fully-untested new module cannot
-  hide behind a healthy aggregate.
+- `src/orbital_drift/covcheck.py`: per-file coverage floor (90%,
+  `PER_FILE_FLOOR` in `covcheck.py`), run after the global floor so a
+  fully-untested new module cannot hide behind a healthy aggregate. (This
+  batch originally proposed raising the global floor 90 → 95; that proposal
+  was superseded at the RB-006 reconciliation — the operator-ratified GLOBAL
+  floor is **85**, `COVERAGE_MIN_PERCENT` in `ci/versions.env`, enforced by
+  `stage_coverage`, with the per-file 90 floor retained as an additive check
+  wired into `stage_coverage`'s success path. Measured at commit `7c4d0d9`.)
 - `scripts/_lib.sh`: shared venv-Python discovery and allowlist-path
   resolution, replacing three previously-divergent copies in
   `pretooluse_guard.sh`, `pre_push_scan.sh`, and `session_start_check.sh`.

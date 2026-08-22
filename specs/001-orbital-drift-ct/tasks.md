@@ -79,7 +79,7 @@ Tag legend:
 ## Dependencies (summary)
 Phase 0: T001 → T002 → **[T004, T006–T010 may proceed in parallel with the T003/T005 hardware gates]** → T011 → T012. The `[HUMAN]` gates T003 and T005 block *execution*; authoring may proceed alongside them. T011 still requires T006–T010 to be review-APPROVED (not merely drafted), since it documents bring-up order for the final artifacts. T012 requires everything. Operator-approved 2026-08-09.
 
-⚠ **T006 is AUTHORED-PROVISIONAL.** An earlier revision of this section claimed "no agent artifact in T004 or T006–T010 depends on the cluster existing." **That was wrong** — `docs/decisions/000-phase0-technical-decisions.md` records four couplings to T003, three of which land directly in T006's GPU Operator values:
+⚠ **T006, once authored, is AUTHORED-PROVISIONAL until re-reviewed against the T003/T005 verification blocks** (no T006 artifact exists yet; per RB-007 its authoring is deferred until a `G-1` entry exists in `docs/decision-log.md`, since three of its four hardware couplings resolve only at T003). An earlier revision of this section claimed "no agent artifact in T004 or T006–T010 depends on the cluster existing." **That was wrong** — `docs/decisions/000-phase0-technical-decisions.md` records four couplings to T003, three of which land directly in T006's GPU Operator values:
 
 | Coupling | Resolved at | Lands in |
 |---|---|---|

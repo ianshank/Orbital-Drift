@@ -259,13 +259,14 @@ D1–D14, spec deltas, and task record):
 
 ## Current status
 
-Snapshot at commit `4ba5774` (2026-08-21) — **the live source is
+Snapshot at commit `7c4d0d9` (2026-08-22) — **the live source is
 `specs/001-orbital-drift-ct/tasks.md`; if this disagrees with it, the tasks
-file wins.** Phase 0 of 6 (`specs/001-orbital-drift-ct/plan.md`), task T002 of
-52 complete. **Next: T003 `[HUMAN]`** — the operator executes
+file wins.** Phase 0 of 6 (`specs/001-orbital-drift-ct/plan.md`); 8 of the 55
+task checkboxes are complete: T001, T001a, T002, T004, T007, T008, T009, T010.
+**Next: T003 `[HUMAN]`** — the operator executes
 `docs/runbooks/00-host-prep.md` on node A and logs `G-1` in
-`docs/decision-log.md`, which is what unlocks the T006 AUTHORED-PROVISIONAL
-re-review. See `CHANGELOG.md` for what has shipped and
+`docs/decision-log.md`; per RB-007, T006 authoring is deferred until that
+`G-1` entry exists. See `CHANGELOG.md` for what has shipped and
 `docs/architecture/ARCHITECTURE.md` for what is built versus planned.
 
 ## Local configuration
