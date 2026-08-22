@@ -1,6 +1,6 @@
 # D-010: entry-text drift in `docs/decision-log.md` is unmechanized — the gap, why the obvious fixes do not work, and what closing it would cost
 
-**Status:** authored 2026-08-22 alongside `tests/governance/test_governance_meta.py` (PR #11, RB-008 part 2). Recorded per CLAUDE.md working agreements — *"Unknowns discovered mid-task: write a short note in `docs/decisions/` and surface to the operator; do not improvise architecture."* Raised by `spec-guardian` review of commit `e13dda7`, which ruled that recording this gap in a test docstring alone was insufficient. **Proposes nothing for execution**: closing the gap needs its own `RB` entry first, for the reason in D-010/03.
+**Status:** authored 2026-08-22 alongside `tests/governance/test_governance_meta.py` (PR #11, RB-008 part 2). Recorded per CLAUDE.md working agreements — *"Unknowns discovered mid-task: write a short note in `docs/decisions/` and surface to the operator; do not improvise architecture."* Raised by `spec-guardian` review of commit `e13dda7`, which ruled that recording this gap in a test docstring alone was insufficient. **Audience:** the operator deciding whether to pay for the manifest in D-010/03, and whoever executes the follow-up PR RB-008a(e) names — plus any reviewer who needs to know, before relying on a green governance suite, exactly which properties of `docs/decision-log.md` that suite does and does not check. **Proposes nothing for execution**: closing the gap needs its own `RB` entry first, for the reason in D-010/03.
 
 **Decision-ID namespace:** independent of `plan.md`'s `D-01…D-05` and of `000-phase0-technical-decisions.md`'s series. Cross-references read `D-010/nn`. `010` confirmed free by listing `docs/decisions/` before authoring (`000`–`009` exist).
 
@@ -8,25 +8,36 @@
 
 ## D-010/01 — The gap
 
-`docs/decision-log.md` is the authorization substrate for this repo. Gates presence-check IDs in it; `RB-007` keeps T013+ locked, `RB-008` declares "no gate bar VALUE changes", `DEC-004` sets the coverage floor. The log's own rules say **"change not one character of any entry's text — the text is the decision."**
+`docs/decision-log.md` is the authorization substrate for this repo. Gates presence-check IDs in it; `RB-007` keeps T013+ locked, `RB-008` declares "no gate bar VALUE changes", and — measured at `09a16b5` — the coverage bars are `RB-006`'s operator-ratified global 85 (origin/main's `D-05`, `ci/versions.env:91 COVERAGE_MIN_PERCENT=85`, which supersedes `DEC-004`'s proposed global floor) plus the per-file 90 that `RB-006` kept as an independent check and `RB-008` part (1) authorizes moving into `ci/versions.env` and binding via `--floor`. *That move has not landed on this branch*: `ci/checks.sh:983` still invokes `orbital_drift.covcheck` with no argument, so the module default `PER_FILE_FLOOR = 90.0` (`src/orbital_drift/covcheck.py:36`) **is** the gate bar today. The earlier draft of this paragraph said "`DEC-004` sets the coverage floor", which had been false since `RB-006` — a document about entry-text drift illustrating its thesis with a drifted claim, which is the defect it describes.
 
-As of PR #11 the mechanized invariants over the log and its governance-skill mirror are:
+**Where the "text is the decision" rule actually lives — corrected.** The earlier draft of this section attributed to the log's own RULES block the sentence *"change not one character of any entry's text — the text is the decision."* **Measured at `09a16b5`: that string does not occur in `docs/decision-log.md` at all**; `grep -rn "not one character"` over the tracked tree returned exactly two hits, both outside the log: this file, and `tests/governance/test_governance_meta.py`. Its origin is the tail of a single assertion **message** in `test_decision_log_entries_are_in_chronological_order` (`test_governance_meta.py:231-232`), addressed to whoever is fixing a **chronology** violation: *"Move the line, and change not one character of any entry's text — the text is the decision."* So the rule is not one of the log's rules 1–7. It is not stated in any governed document. It exists only as advice printed at the moment a different check fails — which nobody sees while the suite is green. The load-bearing half of that measurement — *the log's RULES block states no such rule* — survives this change: the `RB-008a` clause (e) added alongside it **reports** the gap and names rule 8 as the prerequisite, deliberately without stating the rule, because amending the RULES block is a governance change this PR is not authorized to make.
+
+As of PR #11 the mechanized invariants over the log and its governance-skill mirror are — note that the first three share one unstated filter, `date >= since`, where `since` is the skill's own *"Decisions since YYYY-MM-DD"* heading:
 
 | property | mechanized? | by |
 |---|---|---|
-| every logged ID appears in the skill's list | yes | `test_skill_decision_section_is_fresh` |
-| the two lists agree in **order** | yes | `test_the_skill_decision_summary_lists_decisions_in_the_logs_order` |
-| the two lists agree on each bullet's **date** | yes (new, this PR) | same test, `(id, MM-DD)` pairs |
-| entries are in **chronological** order | yes | `test_decision_log_entries_are_in_chronological_order` |
-| an entry's **TEXT** is unchanged after logging | **no** | review only |
+| every logged ID **dated on/after the skill's own "Decisions since" date** appears in the skill's list | yes, within that window | `test_skill_decision_section_is_fresh` |
+| the two lists agree in **order**, over that same window | yes, within that window | `test_the_skill_decision_summary_lists_decisions_in_the_logs_order` |
+| the two lists agree on each bullet's **date**, over that same window | yes (new, this PR), within that window | same test, `(id, MM-DD)` pairs |
+| entries are in **chronological** order | yes — whole file, no window | `test_decision_log_entries_are_in_chronological_order` |
+| **the scope of the three windowed checks**: the `since` date is chosen by the audited artifact | **no** | the skill sets its own audit window |
+| an entry's **TEXT** is unchanged after logging | **no** | not even review-enforced — see the correction above |
 
-So an edit to `RB-007(b)`'s budget arithmetic, or to `RB-008`'s "no gate bar VALUE changes" limit, or to any entry's stated `EXPLICIT LIMIT`, passes every gate. That is the one rule among its neighbours with nothing behind it.
+So an edit to `RB-007(b)`'s budget arithmetic, or to `RB-008`'s "no gate bar VALUE changes" limit, or to any entry's stated `EXPLICIT LIMIT`, passes every gate.
 
-## D-010/02 — Two obvious mechanizations, and why neither works
+**The `since` filter is part of the gap, not part of the mechanism.** MEASURED at `09a16b5`, in a scratch copy of this tree: inserting `2026-08-19 | RB-097 | GHOST entry, mirrored NOWHERE in the governance skill (probe only) | probe` into `docs/decision-log.md`, at its correct chronological position and mirrored **nowhere** in `.claude/skills/orbital-drift-governance/SKILL.md`, leaves `tests/governance` at **149 passed** and the whole suite at **666 passed / 11 failed** — byte-identical to the unmutated baseline. Re-dating that same line to `2026-08-21` reddens exactly two tests (`test_skill_decision_section_is_fresh` and `test_the_skill_decision_summary_lists_decisions_in_the_logs_order`), which pins the filter as the sole cause. A gate whose scope the audited file chooses is a gate whose scope can be narrowed by editing the audited file, so it belongs in the unmechanized column above rather than being read as "every logged ID".
+
+**Narrowing the window fails closed, but says the wrong thing.** MEASURED at `09a16b5` in the same copy: advancing the skill's heading to `## Decisions since 2026-08-22` and dropping the twelve now-out-of-range bullets leaves `test_skill_decision_section_is_fresh` **green** (the five in-range IDs are all still mirrored) and reddens `test_the_skill_decision_summary_lists_decisions_in_the_logs_order` on its **vacuity floor** — `assert len(bullets) > 5, "parsed only 5 skill bullets — the check is vacuous"` — not on any mismatch. So the repo does not silently lose the twelve entries; but the failure reads as a broken test rather than as "you just de-mechanized twelve entries", and the next reader's cheapest apparent fix is to lower the floor.
+
+## D-010/02 — The prerequisite nobody costed, and two obvious mechanizations that do not work
+
+**FIRST, THE ONE-LINE PREREQUISITE TO EITHER MECHANIZATION: state the rule as decision-log rule 8.** Per the correction in D-010/01, the log's RULES block runs 1–7 and says nothing about entry text being immutable. You cannot mechanize a rule the governed file does not state — a manifest test that reddens on an entry edit would be enforcing a rule a reader of `docs/decision-log.md` has no way to discover, and a reviewer asked to block such an edit would be citing a test's assertion string as authority. Writing rule 8 costs one paragraph and no code, and it is the cheapest thing on this page by an order of magnitude.
+
+**It is deliberately NOT done in this PR.** Adding a rule to the log's RULES block changes what the log's editors are bound by; that is a governance change and needs its own authorization, exactly like the manifest in D-010/03 and for the same reason. It is named here as the precondition so the follow-up PR costs it, rather than discovering mid-implementation that there is no rule to enforce.
 
 **Compare the skill bullet's text against the log entry's text.** Rejected: not decidable. The bullet is a one-line summary of a paragraph-long entry — a paraphrase *by design*. Any check strict enough to catch a meaning change would reject every legitimate summary; any check loose enough to accept summaries catches nothing. This is not a tuning problem.
 
-**Forbid edits to the log in review.** Already the rule, and already the thing that failed: it is exactly what "review only" means in the table above.
+**Forbid edits to the log in review.** The earlier draft of this section said "already the rule, and already the thing that failed". Half of that was wrong: it is what *review only* means in the table above, but it is **not** the rule — no governed document states it (D-010/01). Review cannot be said to have failed at enforcing something it was never given. What is true is narrower and worse: entry-text immutability is today neither mechanized nor written down, so both the "review only" cell and this option depend on a reviewer independently reaching the same conclusion the test's assertion string reached. That is the argument for rule 8 first.
 
 ## D-010/03 — What would work, and why it is NOT proposed for execution here
 
@@ -36,14 +47,18 @@ It is not proposed here because **it changes who may edit what**, which is a gov
 
 Per the `log-decision` skill's rule 4 ("decide, then execute"), that decision belongs in an `RB` entry logged **before** any manifest lands.
 
-## D-010/04 — Owner, so this cannot become permanent by silence
+## D-010/04 — Owner and durable home: `RB-008a` clause (e), not this file
 
-Owner: **its own follow-up PR under RB-008**, to be authorized by a new `RB` entry per D-010/03. It is carried by neither the gate-integrity nor the branch-coverage PR.
+Owner: **its own follow-up PR under RB-008**, to be authorized by a new `RB` entry per D-010/03 (which should carry rule 8 from D-010/02 in the same entry — same authorization, same reason). It is carried by neither the gate-integrity nor the branch-coverage PR.
 
-This mirrors the two deferrals RB-008a already records with named owners — clause (b), `REPO_ROOT`/`_relative` single-homing, and clause (d), the `ci/*.sh` errexit-sweep handoff. Recording this one the same way is what the `spec-guardian` review required; the asymmetry with those two was the finding.
+**This heading used to read "so this cannot become permanent by silence", and this file could not deliver that on its own.** MEASURED at `09a16b5`, in a scratch copy: deleting `docs/decisions/010-decision-log-text-drift.md` outright leaves the full suite at **666 passed / 11 failed**, with a failure list byte-identical to the baseline's — no test enumerates `docs/decisions/` filenames, and this file's only inbound reference was a docstring in `test_the_skill_decision_summary_lists_decisions_in_the_logs_order`, which cites the path in prose and therefore reddens nothing when the path stops existing.
+
+The earlier draft claimed this arrangement "mirrors the two deferrals RB-008a already records". It did not. `RB-008a` (b) and (d) are **clauses of a decision-log entry**, and the freshness gate mirrors that entry's ID into the governance skill that CLAUDE.md step 0 makes every agent read before anything else; a `docs/decisions/` file is pointed at by no gate and no reading protocol. The `spec-guardian` finding this file answers was "a docstring is not a durable record" — and moving the record from a docstring to an equally unreferenced ADR would have been a *weaker* fix than the precedent it invoked.
+
+**So the durability now sits where the precedent puts it:** `docs/decision-log.md`'s `RB-008a` gains clause **(e)**, a third deferral with a named owner, stating the gap (entry-TEXT drift is unmechanized, and the three windowed gates see only the skill's own `since` window), naming this file, naming the rule-8 precondition, and naming the owner. The governance-skill bullet for `RB-008a` is updated in the same change per the two-file rule. `RB-008a` is editable because it is authored on this branch and is **not** on `origin/main` — verified at `09a16b5` by parsing `git show origin/main:docs/decision-log.md` for line-anchored entry IDs: `RB-008b`, `RB-009` and every entry before them are on `main` and are immutable; `RB-008a` appears there only as a cross-reference inside `RB-008b`'s text, never as an entry of its own. This file keeps the reasoning, which is what an ADR is for; the log keeps the obligation, which is what the log is for.
 
 ## D-010/05 — Verified-correct at authoring
 
 - The date half of mirror drift **is** now closed: mutating a skill bullet's date from `08-22` to `08-19` was invisible before commit `e13dda7` and reddens after it. Only the text half remains.
-- `docs/*` is already on `PUBLIC_CANDIDATE_ALLOWLIST` (`tests/governance/test_governance_meta.py`), and no test enumerates `docs/decisions/` filenames, so adding this file reddens no gate.
-- This document is a `D-nn` artifact. Per decision-log rule 3 the `D-nn` and `RB-nn`/`DEC-nn`/`G-n` namespaces are deliberately disjoint, so this file needs **no** decision-log line and **no** governance-skill bullet — it does not trip the two-file rule.
+- `docs/*` is already on `PUBLIC_CANDIDATE_ALLOWLIST` (`tests/governance/test_governance_meta.py`), and no test enumerates `docs/decisions/` filenames, so adding this file reddens no gate. That is also exactly why it cannot carry the deferral by itself — see D-010/04.
+- This document is a `D-nn` artifact. Per decision-log rule 3 the `D-nn` and `RB-nn`/`DEC-nn`/`G-n` namespaces are deliberately disjoint, so this file gets **no decision-log line of its own** and **no governance-skill bullet of its own** — it does not trip the two-file rule. It is *cited by* `RB-008a` clause (e); a citation inside an existing entry's text is not a second ID, and the skill's existing `RB-008a` bullet is updated to match that entry per the two-file rule.

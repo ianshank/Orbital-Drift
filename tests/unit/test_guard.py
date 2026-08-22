@@ -390,12 +390,32 @@ def test_segment_queue_has_a_work_ceiling(allowlist: Path) -> None:
     truncated, so the C-1 BLOCK below still arrives and this test would stay
     green on the strength of a segmenter returning pure garbage.
 
+    THE VACUITY GUARD IS AT ``> 0``, NOT ``> 1``, because that is where the
+    degeneracy actually starts. ``_LAST_ANALYZABLE_DEPTH = (_MAX_SEGMENTS - 1)
+    // 2`` reaches 0 at ``_MAX_SEGMENTS <= 2``, and at depth 0 ``_nested``
+    returns the bare command: the first assertion becomes
+    ``split_segments("echo hi") == ["echo hi"]``, trivially true, with no
+    nesting for the segmenter to unwrap. MEASURED 2026-08-22 at 09a16b5 in a
+    scratch COPY: with the ceiling rewritten to 2 this test PASSED before the
+    guard was added and FAILS on the guard after it; at ceiling 3 the readable
+    depth is 1, ``readable`` is ``$(echo hi)``, and the assertion is live
+    again. The shipped ceiling of 512 puts the depth at 255, nowhere near the
+    boundary — the guard exists so that a future ceiling change cannot silence
+    this assertion without saying so, the same role ``len(bullets) > 5`` plays
+    in ``tests/governance/test_governance_meta.py``.
+
     The PUBLIC ``split_segments`` is used deliberately, not the checked
     ``_split_segments`` that
     ``test_split_segments_reports_truncation_to_policy_callers`` drives: this
     is the return shape whose invisible truncation caused RB-009, so what it
     returns at each side of the ceiling is worth pinning in its own right.
     """
+    assert _LAST_ANALYZABLE_DEPTH > 0, (
+        f"_MAX_SEGMENTS={guard._MAX_SEGMENTS} puts the readable depth at "
+        f"{_LAST_ANALYZABLE_DEPTH}, so `readable` carries no nesting at all and the "
+        "first assertion below is vacuous"
+    )
+
     readable = _nested("echo hi", _LAST_ANALYZABLE_DEPTH)
     pathological = _nested("echo hi", _TRUNCATING_DEPTH)
 

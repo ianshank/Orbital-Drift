@@ -274,20 +274,38 @@ def test_the_skill_decision_summary_lists_decisions_in_the_logs_order() -> None:
     ``[5:]`` — the same within-one-year assumption ``_SKILL_BULLET``'s own
     comment documents, with the same fix if it ever breaks (year in the bullet).
 
-    STILL NOT COVERED, deliberately: drift in the TEXT of a bullet or of a
-    logged entry. Word-level agreement between a one-line summary and a
-    paragraph-long entry is not a mechanical property, and the log's own rule
-    ("change not one character of any entry's text") is review-enforced. That
-    gap is real; it is not this check's shape.
+    STILL NOT COVERED, deliberately, and in TWO ways rather than one. (i) Drift
+    in the TEXT of a bullet or of a logged entry: word-level agreement between a
+    one-line summary and a paragraph-long entry is not a mechanical property.
+    (ii) The WINDOW: this check and the freshness check above both filter on
+    ``date >= since``, and ``since`` is read out of the audited file's own
+    heading, so the skill sets the scope of its own audit — MEASURED 2026-08-22
+    at 09a16b5 in a scratch copy, a log entry dated BEFORE that heading's date
+    and mirrored nowhere in the skill leaves the governance suite at 149 passed.
 
-    THE GAP HAS A DURABLE HOME, not just this docstring:
-    ``docs/decisions/010-decision-log-text-drift.md`` states it, records the two
-    mechanizations that do not work and why, proposes the immutability manifest
-    that would, and names an owner. It is written up rather than built because a
-    manifest changes WHO MAY EDIT WHAT — a legitimate correction to a logged
-    entry would then cost a manifest update plus an authorizing entry — so it
-    needs its own RB entry before execution. Do not build it from this comment;
-    read D-010 first.
+    NOT "the log's own rule", which an earlier version of this docstring
+    claimed. MEASURED at 09a16b5: "change not one character of any entry's text"
+    appears NOWHERE in ``docs/decision-log.md`` — its RULES block runs 1-7 and
+    says nothing about entry text. The sentence originates in the assertion
+    MESSAGE of ``test_decision_log_entries_are_in_chronological_order`` above,
+    where it is advice to someone fixing a CHRONOLOGY violation. So the property
+    is not review-enforced either: there is no written rule for a reviewer to
+    enforce, and writing one (as decision-log rule 8) is the untaken
+    precondition to mechanizing anything here.
+
+    THE GAP HAS A DURABLE HOME, and it is NOT this docstring and NOT an ADR:
+    ``docs/decision-log.md``'s ``RB-008a`` clause (e) records it as a third
+    deferral with a named owner, which puts it in the file the gates read and
+    mirrors its ID into the governance skill CLAUDE.md step 0 makes every agent
+    read first. ``docs/decisions/010-decision-log-text-drift.md`` carries the
+    reasoning — the two mechanizations that do not work and why, the
+    immutability manifest that would, and its cost — and is cited BY that
+    clause; on its own it is inert, MEASURED at 09a16b5: deleting the file
+    leaves the full suite byte-identical (666 passed / 11 failed). The manifest
+    is written up rather than built because it changes WHO MAY EDIT WHAT — a
+    legitimate correction to a logged entry would then cost a manifest update
+    plus an authorizing entry — so it needs its own RB entry before execution.
+    Do not build it from this comment; read RB-008a(e), then D-010.
     """
     bullets = _SKILL_BULLET.findall(SKILL.read_text(encoding="utf-8"))
     assert len(bullets) > 5, f"parsed only {len(bullets)} skill bullets — the check is vacuous"
