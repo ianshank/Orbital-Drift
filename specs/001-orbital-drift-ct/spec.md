@@ -59,6 +59,7 @@ As the operator, I want runbooks and incident templates, so six weeks of operati
 - **FR-010** Prometheus metrics from every component; Grafana dashboards as code; Alertmanager rules for the three alert classes in US7.
 - **FR-011** CI: lint, type-check, unit, contract, DAG smoke, gitleaks; all green required to merge.
 - **FR-011a** CI enforces a minimum measured statement coverage of `src/orbital_drift`. The threshold is a reviewable pin, never a literal in the gate runner (Constitution III). Added on operator request; not implied by FR-011, which enumerates six gates and does not mention coverage. Rationale and rejected designs: `docs/decisions/001-coverage-gate.md`.
+- **FR-011b** CI enforces canonical Terraform formatting: a formatting check runs both as a pre-commit hook and in the `hooks` CI stage against files classified as Terraform, using the digest-pinned container image. The version and digest are reviewable pins in `ci/versions.env`, never literals in the gate runner (Constitution III/IV). Added on operator request (Phase-0 plan step 7, 2026-08-16; unlocked by RB-007); explicitly not implied by FR-011, which enumerates six gates and does not mention formatting. Rationale and rejected readings: `docs/decisions/007-terraform-fmt-hook.md`.
 - **FR-012** All thresholds, cadences, AOI, names: configuration, never constants (Constitution III).
 
 ## Edge Cases

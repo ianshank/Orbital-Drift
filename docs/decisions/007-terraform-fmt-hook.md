@@ -1,6 +1,6 @@
 # D-007: `terraform fmt -check` pre-commit hook — digest resolution without a Docker daemon, the tag-prefix defect, and an open FR-provenance question
 
-**Status:** authored 2026-08-16 alongside `.pre-commit-config.yaml`, `ci/versions.env`, `ci/checks.sh`, `tests/unit/test_version_pins.py`, `tests/unit/test_ci_contract.py`, `tests/unit/shell_harness.py`, and `tests/unit/test_terraform_fmt_positive_control.py` — Step 7 of the Phase 0 plan the operator approved 2026-08-16. Not yet reviewed by `spec-guardian`/`peer-reviewer`.
+**Status:** authored 2026-08-16 alongside `.pre-commit-config.yaml`, `ci/versions.env`, `ci/checks.sh`, `tests/unit/test_version_pins.py`, `tests/unit/test_ci_contract.py`, `tests/unit/shell_harness.py`, and `tests/unit/test_terraform_fmt_positive_control.py` — Step 7 of the Phase 0 plan the operator approved 2026-08-16. Reviewed 2026-08-22 (T001b-closure PR): `spec-guardian` APPROVE, ruling in D-007/06; adversarial review same PR. (`peer-reviewer` was superseded by `adversarial-reviewer`, RB-001/RB-006.)
 
 **Decision-ID namespace:** independent of `plan.md`'s own `D-01…D-05` and of `docs/decisions/000-phase0-technical-decisions.md`'s `D-000/D-nn` series. Cross-references from other docs should read `D-007/D-nn`. `007` confirmed free by listing `docs/decisions/` before authoring (`000` through `006` exist).
 
@@ -88,7 +88,7 @@ $ echo $?
 
 Zero diff, 13 of 13 files, both times. No separate reformatting commit was needed — this section exists to record that the check was actually run and passed, not merely assumed to.
 
-## D-007/06 — Open question for `spec-guardian`: does this hook need its own FR, or is it covered by `stage_hooks`'s existing mandate?
+## D-007/06 — Open question for `spec-guardian` (resolved 2026-08-22 — ruling recorded below): does this hook need its own FR, or is it covered by `stage_hooks`'s existing mandate?
 
 Stated honestly rather than pre-decided: the operator originated this specific scope (land `terraform fmt -check` via pre-commit) after being shown the Phase 0 plan's rev-1 review findings — it is not inferred from FR-011, and CLAUDE.md requires unknowns to be surfaced, not improvised past.
 
@@ -97,11 +97,14 @@ Two readings of existing precedent point different directions:
 - **For "no new FR needed":** `stage_hooks` already runs the full `.pre-commit-config.yaml` in CI (T001's own scope: "Constitution VII requires gitleaks as pre-commit hook **and** CI gate, which a config nobody executes does not satisfy"). Adding one more hook to an existing, already-conformant stage could be read as within that stage's standing mandate, the same way a new ruff rule or a new mypy strict flag would not need its own FR.
 - **Against it, and the reasoning this document defers to:** `docs/decisions/001-coverage-gate.md` D-01 draws the line differently — `hooks` was judged conformant *specifically* because it enforced an *existing* Constitution VII requirement (gitleaks), not because "the hooks stage runs whatever is in the config" is itself a standing blanket mandate. Nothing in the constitution or `spec.md` names Terraform formatting the way Constitution VII names secrets scanning. Under that reading, this hook is closer to T001a's coverage gate (FR-011a, added explicitly on operator request) than to a T001-scope extension.
 
-This document does not resolve it. `spec-guardian` is asked to rule on it in review; whichever way it goes, `specs/001-orbital-drift-ct/tasks.md`'s T001b entry and this section will be updated to record the ruling, not silently left inconsistent with it.
+(Historical, pre-ruling:) This document does not resolve it. `spec-guardian` is asked to rule on it in review; whichever way it goes, `specs/001-orbital-drift-ct/tasks.md`'s T001b entry and this section will be updated to record the ruling, not silently left inconsistent with it.
+
+**RULING (spec-guardian, 2026-08-22, T001b-closure PR): own FR — FR-011b.** The gate gets its own FR line, **FR-011b**, following the FR-011a precedent (`docs/decisions/001-coverage-gate.md` D-01). The "covered by `stage_hooks`'s existing mandate" reading is **rejected**: nothing in the constitution or `spec.md` names Terraform formatting the way Constitution VII names secrets scanning, and this gate's provenance — operator-originated scope, added by explicit request after plan review — is exactly FR-011a's shape. The shellcheck hook's own missing FR line is a legacy inconsistency, not a precedent, and is explicitly NOT fixed in this PR; it is flagged for operator triage as item 3 of "Not resolved here" below. `specs/001-orbital-drift-ct/spec.md` (FR-011b) and tasks.md's T001b entry record the outcome per this section's own commitment.
 
 ---
 
 ## Not resolved here, flagged for whoever reviews next
 
-1. D-007/06 above — the FR-provenance ruling itself.
-2. This pin was resolved without ever running the actual `hashicorp/terraform` Docker image (no daemon in the authoring environment) — D-007/01's registry-API method and D-007/04's static-binary measurements are both faithful proxies (same released artifact HashiCorp ships inside the image), not a substitute for CI's first real `docker run` of it. Budget the same 2-3-red-CI-runs allowance the approved plan already states for this reason.
+1. ~~D-007/06 above — the FR-provenance ruling itself.~~ **CLOSED 2026-08-22** by the spec-guardian ruling in the T001b-closure PR (own FR — FR-011b; ruling recorded in D-007/06 above).
+2. **STILL OPEN.** This pin was resolved without ever running the actual `hashicorp/terraform` Docker image (no daemon in the authoring environment) — D-007/01's registry-API method and D-007/04's static-binary measurements are both faithful proxies (same released artifact HashiCorp ships inside the image), not a substitute for CI's first real `docker run` of it. Budget the same 2-3-red-CI-runs allowance the approved plan already states for this reason. **Closure condition (spec-guardian, 2026-08-22):** closes only when a CI run shows `require_terraform_image` and the three positive-control tests in `tests/unit/test_terraform_fmt_positive_control.py` actually EXECUTED (not skipped) against the pinned container — record that CI run's id here when closing.
+3. **OPEN — operator triage.** The shellcheck hook has no FR line of its own either (no FR in `spec.md`, no dedicated traceability row). The D-007/06 ruling classifies this as a legacy inconsistency predating the D-001/D-01 discipline (shellcheck was named inside T001's original operator-approved task text), NOT a precedent, and deliberately does not fix it here — closing it in the PR that cites it would look like retro-justification. The operator decides: add an FR line for the shellcheck gate in a separate change, or record an explicit N/A-by-design rationale. Flagged 2026-08-22 (spec-guardian finding 7, T001b-closure PR).
