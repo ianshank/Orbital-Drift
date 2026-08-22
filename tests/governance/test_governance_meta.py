@@ -279,6 +279,15 @@ def test_the_skill_decision_summary_lists_decisions_in_the_logs_order() -> None:
     paragraph-long entry is not a mechanical property, and the log's own rule
     ("change not one character of any entry's text") is review-enforced. That
     gap is real; it is not this check's shape.
+
+    THE GAP HAS A DURABLE HOME, not just this docstring:
+    ``docs/decisions/010-decision-log-text-drift.md`` states it, records the two
+    mechanizations that do not work and why, proposes the immutability manifest
+    that would, and names an owner. It is written up rather than built because a
+    manifest changes WHO MAY EDIT WHAT — a legitimate correction to a logged
+    entry would then cost a manifest update plus an authorizing entry — so it
+    needs its own RB entry before execution. Do not build it from this comment;
+    read D-010 first.
     """
     bullets = _SKILL_BULLET.findall(SKILL.read_text(encoding="utf-8"))
     assert len(bullets) > 5, f"parsed only {len(bullets)} skill bullets — the check is vacuous"

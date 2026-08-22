@@ -190,10 +190,13 @@ SEGMENTS_PAST_THE_CEILING: Final = 2 * CEILING_NESTING_DEPTH + 1
 
 
 def _corpus_id(value: object) -> str | None:
-    """Readable pytest ids for the two corpus entries that are payload-sized:
+    """Readable pytest ids for every corpus entry that is payload-sized:
     the RB-009 nested payload (790 characters — mostly `$(` — at
     ``CEILING_NESTING_DEPTH`` 256: ``2 * 256`` opening, 22 for the command, 256
-    closing) and the ``SEGMENTS_PAST_THE_CEILING`` chain. pytest would
+    closing), its below-ceiling sibling ``NESTED_BELOW_CEILING`` (772, one
+    nesting level shallower), and the ``SEGMENTS_PAST_THE_CEILING`` chain. The
+    two nested payloads share a long ``$($($(`` prefix, so it is the length in
+    the id that tells them apart. pytest would
     otherwise use either verbatim as the test id, including in the
     ``--collect-only -q`` probe ci/checks.sh runs over this suite.
 
