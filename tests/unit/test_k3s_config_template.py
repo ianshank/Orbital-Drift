@@ -198,7 +198,7 @@ def test_fallback_guard_polarity_and_full_enclosure() -> None:
 
     guard = '{{- if not (index .ExtraRuntimes "nvidia").BinaryName }}'
     assert guard in active, (
-        "fallback guard `{{- if not (index .ExtraRuntimes \"nvidia\").BinaryName }}` "
+        'fallback guard `{{- if not (index .ExtraRuntimes "nvidia").BinaryName }}` '
         "is missing from active content, or its polarity changed — either way the "
         "stanza collides with the base's own nvidia table on some restart "
         "(D-008/D-02; exact text and the `not` are both load-bearing)"
@@ -220,9 +220,7 @@ def test_fallback_guard_polarity_and_full_enclosure() -> None:
         "fallback stanza must set SystemdCgroup (mirrors the base template's "
         "byte-verified shape, D-008/D-01)"
     )
-    assert cgroup.start() > guard_idx, (
-        "the SystemdCgroup line must sit inside the guarded branch"
-    )
+    assert cgroup.start() > guard_idx, "the SystemdCgroup line must sit inside the guarded branch"
 
     assert active.find("{{- end }}", cgroup.end()) != -1, (
         "no `{{- end }}` after the SystemdCgroup line — the fallback stanza is not "
