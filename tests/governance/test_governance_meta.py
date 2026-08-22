@@ -1,7 +1,7 @@
 """Governance meta-tests — tests that watch the PROCESS, not the product.
 
 The donor kit's core insight: every hand-maintained governance artifact rots
-unless a test fails when it does (adopt-governance-kit design.md). Four rot
+unless a test fails when it does (adopt-governance-kit design.md). Six rot
 vectors are covered here and in test_zero_skip_guard.py:
 
 1. Makefile/checks.sh divergence (this file, design D1 — direction inverted
@@ -10,6 +10,9 @@ vectors are covered here and in test_zero_skip_guard.py:
 2. A stale governance-skill decision summary (this file).
 3. A tracked file neither governed nor explicitly public (this file).
 4. A zero-skip guard nobody has watched fire (test_zero_skip_guard.py).
+5. An entry quoting a decision-log rule the log never states (this file).
+6. An in-code decision-log citation left behind by the record it points at
+   (this file).
 """
 
 from __future__ import annotations
@@ -181,3 +184,118 @@ def test_matcher_is_not_vacuous() -> None:
     green-with-the-fix-removed failure mode."""
     patterns = [*_governed_globs(), *PUBLIC_CANDIDATE_ALLOWLIST]
     assert not _matches_any("some-new-root-file.xyz", patterns)
+
+
+# ── 4. No entry quotes a log rule the log does not state ─────────────────────
+# Rot vector: an entry attributes its reasoning to "the log's rule '<quote>'",
+# the quote is nowhere in the RULES block above the entries, and a later session
+# enforces — or is refused under — a rule that never existed. MEASURED instance:
+# RB-008c cited "change not one character of any entry's text" as a log rule; a
+# repo-wide git grep for that phrase returned that citation and nothing else.
+# The constraint is one-directional: an entry may STATE a new rule (the RULES
+# block is amended in the same change), but it may not quote the block for text
+# the block does not contain.
+
+#: Straight AND curly quote marks, written as escapes so this source stays
+#: ASCII — ruff RUF001 rejects a literal curly quote inside a string.
+_QUOTE_MARKS: Final = "'\"\u2018\u2019\u201c\u201d"
+_QUOTED_RULE = re.compile(f"rule [{_QUOTE_MARKS}]([^{_QUOTE_MARKS}]{{4,}})[{_QUOTE_MARKS}]")
+
+
+def _normalise(text: str) -> str:
+    """Fold the markdown the RULES block carries but a quotation would not."""
+    return " ".join(text.replace("*", "").replace("`", "").split()).lower()
+
+
+def _quoted_rule_citations(text: str) -> list[str]:
+    """Every ``rule '<quote>'`` fragment in ``text``, normalised for comparison."""
+    return [_normalise(match) for match in _QUOTED_RULE.findall(text)]
+
+
+def _rules_block(log_text: str) -> str:
+    """The blockquoted RULES preamble: every line starting with ``>``. Entries
+    never do, so this cannot accidentally include an entry's own prose."""
+    lines = [line[1:] for line in log_text.splitlines() if line.startswith(">")]
+    assert lines, "docs/decision-log.md lost its blockquoted RULES block"
+    return _normalise("\n".join(lines))
+
+
+def test_quoted_rule_citation_parser_has_positive_and_negative_controls() -> None:
+    """The invariant below can only bite if the parser SEES a fabricated quote
+    and IGNORES the log's ordinary prose. Both directions, on synthetic text."""
+    assert _quoted_rule_citations("the log's rule 'change not one character' applies") == [
+        "change not one character"
+    ]
+    assert _quoted_rule_citations('per the rule "decide, then execute" above') == [
+        "decide, then execute"
+    ]
+    for benign in (
+        "logged after per rule 6, landing with the commits it authorizes",
+        "the operator's disposition was 'record honestly', NOT 'widen the glob'",
+        "namespace rule (design D7) - this file owns DEC-/RB-/G- IDs only",
+    ):
+        assert _quoted_rule_citations(benign) == [], benign
+
+
+def test_no_entry_quotes_a_log_rule_the_log_does_not_state() -> None:
+    log_text = DECISION_LOG.read_text(encoding="utf-8")
+    rules = _rules_block(log_text)
+    entries = "\n".join(line for line in log_text.splitlines() if _ENTRY.match(line))
+    assert entries, "decision log parsed to zero entries — the check would be vacuous"
+
+    fabricated = [quote for quote in _quoted_rule_citations(entries) if quote not in rules]
+    assert fabricated == [], (
+        f"decision-log entries quote rules the RULES block does not state: {fabricated} — "
+        "cite a rule that exists (by number), or amend the RULES block in the same change"
+    )
+
+
+# ── 5. An in-code decision citation resolves to an entry about that file ─────
+# Rot vector: a record moves from one entry to another, the in-code back-
+# reference does not move with it, and the comment sends its reader to an entry
+# that says nothing about the code it annotates. MEASURED instance: ci/checks.sh
+# cited RB-008b for the multi-argument dispatch defect, while RB-008b records a
+# workflow `schedule:` move and two covcheck.py edits; the defect is recorded by
+# RB-008c(c). Scoped to ci/checks.sh on purpose — scripts/*.sh cite the DONOR
+# kit's RB numbers ("donor kit RB-023"), which this log does not own (D7).
+
+_CITED_ENTRY = re.compile(r"\bRB-\d+[a-z]?\b")
+
+
+def _entry_line(log_text: str, entry_id: str) -> str:
+    for line in log_text.splitlines():
+        match = _ENTRY.match(line)
+        if match and match.group(2) == entry_id:
+            return line
+    raise AssertionError(f"{entry_id} is cited in ci/checks.sh but is not in the decision log")
+
+
+def _ids_cited_in_comments(source: str) -> set[str]:
+    return {
+        entry_id
+        for line in source.splitlines()
+        if line.lstrip().startswith("#")
+        for entry_id in _CITED_ENTRY.findall(line)
+    }
+
+
+def test_every_decision_id_cited_in_checks_sh_names_that_file() -> None:
+    log_text = DECISION_LOG.read_text(encoding="utf-8")
+    cited = _ids_cited_in_comments(CHECKS.read_text(encoding="utf-8"))
+    assert cited, "no decision-log citation found in ci/checks.sh — the check would be vacuous"
+
+    dangling = sorted(
+        entry_id for entry_id in cited if "ci/checks.sh" not in _entry_line(log_text, entry_id)
+    )
+    assert dangling == [], (
+        f"ci/checks.sh cites {dangling}, whose log entries never mention this file — "
+        "cite the entry that records the item (a record that moves between entries takes "
+        "its in-code back-reference with it)"
+    )
+
+
+def test_citation_check_discriminates() -> None:
+    """Negative control: "the entry mentions ci/checks.sh" must not be true of
+    every entry, or the invariant above is satisfied by a lookup bug."""
+    log_text = DECISION_LOG.read_text(encoding="utf-8")
+    assert "ci/checks.sh" not in _entry_line(log_text, "RB-009")

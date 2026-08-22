@@ -173,14 +173,21 @@ log() { printf '\n\033[1m>>> %s\033[0m\n' "$*"; }
 # has already rotted once when it was hand-kept — see
 # test_the_usage_string_is_derived_from_stage_labels.
 #
-# `tr` is external, so on an empty PATH the substitution yields nothing and the
-# line degrades to `usage: sh ci/checks.sh <>`. That is deliberate and already
-# relied upon: the dispatch guard is the one path through this script that must
-# still speak with no PATH at all (see
-# test_checks_sh_resolves_script_dir_with_no_path_at_all), and `set -e` does not
-# abort on a failed command substitution used as a word.
+# `command -p tr`, NOT a bare `tr`, and this is load-bearing rather than style.
+# The dispatch guards below (unknown stage, too many arguments) are the one path
+# through this script that must still speak with no PATH at all — see
+# test_checks_sh_resolves_script_dir_with_no_path_at_all — and both of them print
+# this line. MEASURED under PATH="" in dash AND bash, with a bare `tr`: the
+# substitution yields nothing and the operator gets `tr: not found` followed by
+# `usage: sh ci/checks.sh <>`, i.e. an error about a helper they never invoked
+# plus a usage message naming zero of the fifteen stages, exactly when this
+# message is the only thing still working. `-p` resolves tr from the standard
+# utilities path (`getconf PATH`) instead of PATH, so the list renders either
+# way. Do not "simplify" the `-p` away; pinned by
+# test_the_usage_line_still_names_every_stage_with_no_path_at_all.
 usage() {
-  printf 'usage: sh ci/checks.sh <%s>\n' "$(printf '%s' "${STAGE_LABELS}" | tr ' ' '|')" >&2
+  printf 'usage: sh ci/checks.sh <%s>\n' \
+    "$(printf '%s' "${STAGE_LABELS}" | command -p tr ' ' '|')" >&2
 }
 
 # Read one pin straight out of ci/versions.env by key. Used so the preflight can
@@ -2248,7 +2255,7 @@ stage_all() {
 
 # EXACTLY ONE STAGE PER INVOCATION, AND EXTRA ARGUMENTS ARE REFUSED.
 #
-# MEASURED defect (RB-008b, round-3 item A4): the dispatch below reads only
+# MEASURED defect (RB-008c(c), round-3 item A4): the dispatch below reads only
 # `$1`, so `sh ci/checks.sh lint typecheck dead audit specs traceability
 # projections governance` printed the preflight and lint blocks and exited 0.
 # Seven of the eight named gates never ran and the exit status said everything
@@ -2267,8 +2274,9 @@ stage_all() {
 # test_more_than_one_stage_argument_is_refused_instead_of_silently_ignored.
 if [ "$#" -gt 1 ]; then
   printf 'too many arguments: %s\n' "$*" >&2
-  printf 'ci/checks.sh takes ONE stage. It reads only the first argument, so a\n' >&2
-  printf 'list would run just that stage and exit 0 for all of them. Use\n' >&2
+  printf 'ci/checks.sh takes ONE stage. The dispatch would otherwise read only\n' >&2
+  printf 'the first argument, running that stage alone and exiting 0 as though\n' >&2
+  printf 'every stage named had passed. Use\n' >&2
   # Double quotes, not backticks: shellcheck reads a backtick inside a
   # single-quoted string as an unexpanded command substitution (SC2016) and
   # the pinned-container hook treats that as a failure. The characters are
