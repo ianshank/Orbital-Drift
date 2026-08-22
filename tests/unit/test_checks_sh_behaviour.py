@@ -439,12 +439,18 @@ def test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it(tmp_path: 
     (ruff), ``typecheck`` (mypy), ``unit``/``contract``/``smoke`` (pytest,
     three times), ``coverage`` (pytest + pytest-cov + coverage), ``dead``
     (vulture), ``audit`` (pip-audit), ``traceability`` (pytest) and
-    ``governance`` (pytest); ``gitleaks``'s, ``specs``'s and ``projections``'s
-    pin sets are all empty, so those three make no interpreter or tool call at
-    all. If verification were still memoised the pre-round-7 way, every count
-    below would be 1 — the tool's version would be probed once, by whichever
-    stage happened to need it first, and every later stage that also needs it
-    would trust the cached result instead of probing again.
+    ``governance`` (pytest). ``projections`` is the THIRTEENTH interpreter
+    probe and declares no pins at all: it executes ``python -m
+    orbital_drift.projections`` with no pinned DISTRIBUTION to assert, so
+    ``stage_runs_python`` keeps it in the preflight for the interpreter alone
+    (RB-008 F2 — before that fix it verified nothing and this count was 12).
+    ``gitleaks`` and ``specs`` run no Python whatsoever, so those two make no
+    interpreter or tool call at all.
+
+    If verification were still memoised the pre-round-7 way, every count below
+    would be 1 — the tool's version would be probed once, by whichever stage
+    happened to need it first, and every later stage that also needs it would
+    trust the cached result instead of probing again.
     """
     recording = run_checks("all", tmp_path)
     assert recording.returncode == 0, recording.output
@@ -456,17 +462,19 @@ def test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it(tmp_path: 
         assert contains is not None
         return sum(1 for call in python_calls if contains in call.joined)
 
-    # The interpreter itself: full + minor version probes, once per
-    # preflight() call with a non-empty pin set (all, lint, typecheck, unit,
-    # contract, smoke, coverage, dead, audit, traceability, governance,
-    # hooks = 12).
+    # The interpreter itself: full + minor version probes, once per preflight()
+    # call that verifies the interpreter — the twelve with a non-empty pin set
+    # (all, lint, typecheck, unit, contract, smoke, coverage, dead, audit,
+    # traceability, governance, hooks) PLUS projections, which has no pins and
+    # runs Python anyway = 13.
     full_probes = _count(contains="version_info[:3]")
     minor_probes = _count(contains="version_info[:2]")
-    assert full_probes == 12, (
-        f"expected 12 python full-version probes (one per non-empty-pin-set "
-        f"preflight() call), found {full_probes}: {[c.joined for c in python_calls]!r}"
+    assert full_probes == 13, (
+        f"expected 13 python full-version probes (one per preflight() call that "
+        f"verifies the interpreter), found {full_probes}: "
+        f"{[c.joined for c in python_calls]!r}"
     )
-    assert minor_probes == 12, f"expected 12 python minor-version probes, found {minor_probes}"
+    assert minor_probes == 13, f"expected 13 python minor-version probes, found {minor_probes}"
 
     # the ruff pin is needed by `all` and `lint` = 2 calls, not 1.
     assert _count(exact="-m ruff --version") == 2, "ruff --version did not re-probe for `lint`"
@@ -723,13 +731,14 @@ def test_sequenced_stub_repeats_the_last_value_once_the_queue_is_exhausted(
     """Exercises the previously-dead clamp branch in ``_od_seq_next``.
 
     A two-value PY_MINOR sequence (both the correct pinned minor version)
-    against a full ``all`` run, which probes PY_MINOR twelve times (once per
-    non-empty-pin ``preflight()`` call: all, lint, typecheck, unit, contract,
-    smoke, coverage, dead, audit, traceability, governance, hooks — the same
-    count ``test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it``
-    measures for an unsequenced run). Calls 1 and 2 consume the two queued
-    values directly; calls 3-12 each ask for an index past the two-line queue
-    and must hit ``_od_seq_next``'s
+    against a full ``all`` run, which probes PY_MINOR thirteen times (once per
+    ``preflight()`` call that verifies the interpreter: all, lint, typecheck,
+    unit, contract, smoke, coverage, dead, audit, traceability, governance,
+    hooks, and — pin-less but Python-executing, RB-008 F2 — projections; the
+    same count ``test_the_actual_pin_check_reexecutes_once_per_stage_that_
+    needs_it`` measures for an unsequenced run). Calls 1 and 2 consume the two
+    queued values directly; calls 3-13 each ask for an index past the two-line
+    queue and must hit ``_od_seq_next``'s
     ``if [ "${_od_idx}" -gt "${_od_total}" ]; then _od_idx="${_od_total}"; fi``
     clamp, repeating line 2's value, for the run to still see the CORRECT
     minor version on every call and reach exit 0. If that branch were broken
@@ -744,9 +753,9 @@ def test_sequenced_stub_repeats_the_last_value_once_the_queue_is_exhausted(
     assert recording.returncode == 0, recording.output
 
     minor_probes = [call for call in recording.of("python") if "version_info[:2]" in call.joined]
-    assert len(minor_probes) == 12, (
-        "expected 12 interpreter minor-version probes across a full `all` run "
-        "(2 from the queue, 10 past exhaustion via the clamp branch), found "
+    assert len(minor_probes) == 13, (
+        "expected 13 interpreter minor-version probes across a full `all` run "
+        "(2 from the queue, 11 past exhaustion via the clamp branch), found "
         f"{len(minor_probes)}: {[c.joined for c in recording.of('python')]!r}"
     )
 
@@ -839,6 +848,62 @@ def test_the_secrets_gate_consults_no_python_at_all(tmp_path: Path) -> None:
     assert recording.of("python") == (), (
         "the secrets gate invoked the Python interpreter: "
         f"{[call.argv for call in recording.of('python')]!r}"
+    )
+
+
+def test_the_specs_gate_consults_no_python_at_all(tmp_path: Path) -> None:
+    """The second, and only other, genuinely Python-free stage.
+
+    ``ci/validate_specs.sh`` is POSIX sh plus awk by design (design D13), which
+    is why ``stage_specs`` declares no pins and why it is the one stage besides
+    ``gitleaks`` exempt from the interpreter preflight. That exemption has to be
+    pinned by a test in both directions: this asserts the stage really does run
+    without Python, so the exemption is honest rather than a leftover.
+    """
+    recording = run_checks(
+        "specs",
+        tmp_path,
+        stubs=Stubs(
+            py_full="2.7.18",
+            py_minor="2.7",
+            ruff="0.0.1",
+            mypy="0.0.1",
+            pytest="0.0.1",
+            pre_commit="0.0.1",
+            python_rc=1,
+        ),
+    )
+    assert recording.returncode == 0, recording.output
+    assert recording.of("python") == (), (
+        "the specs gate invoked the Python interpreter: "
+        f"{[call.argv for call in recording.of('python')]!r}"
+    )
+
+
+def test_the_projections_stage_refuses_a_wrong_interpreter(tmp_path: Path) -> None:
+    """RB-008 F2 — declaring no PINNED TOOL is not the same as running no Python.
+
+    ``stage_projections`` executes ``python -m orbital_drift.projections``
+    (ci/checks.sh), yet its ``stage_python_pins`` arm is empty and ``preflight``
+    returned on an empty pin set BEFORE ``require_python_interpreter`` ever ran.
+    The empty arm is honest — the module is pure stdlib, so there is no pinned
+    DISTRIBUTION to assert — but the interpreter is itself a pin
+    (ci/versions.env ``PYTHON_VERSION``), and this file's stated contract is
+    that "the version a stage header PRINTS is the version that stage RUNS".
+
+    ``projections`` was the only stage in that position: ``gitleaks`` and
+    ``specs`` declare no pins AND execute no Python, and each has its own test
+    above proving it. Asserted the same way ``test_a_wrong_interpreter_stops_
+    the_stage`` asserts it for ``unit``, so the two cannot drift apart.
+    """
+    recording = run_checks("projections", tmp_path, stubs=Stubs(py_minor="3.11", py_full="3.11.9"))
+    assert recording.returncode != 0, (
+        f"the projections stage ran on an unpinned interpreter:\n{recording.output}"
+    )
+    assert "wrong Python interpreter" in recording.output, recording.output
+    assert [call for call in recording.of("python") if "-m" in call.argv] == [], (
+        "the module ran anyway, on the interpreter the preflight was supposed to "
+        f"reject: {[call.argv for call in recording.of('python')]!r}"
     )
 
 
@@ -2226,9 +2291,15 @@ def test_the_coverage_stage_asserts_the_threshold_from_the_pin_file(tmp_path: Pa
     """The Principle III enforcement: the argv must carry the PINNED value.
 
     Compared against ``PINS["COVERAGE_MIN_PERCENT"]`` rather than a literal
-    written here, so this fails if anyone moves the number into ci/checks.sh and
-    keeps passing if the pin is legitimately changed. A test asserting ``85``
-    would have inverted both.
+    written here, so this keeps passing if the pin is legitimately changed; a
+    test asserting ``85`` would fail a reviewed bump.
+
+    IT DOES NOT, HOWEVER, CATCH THE NUMBER BEING MOVED INTO ci/checks.sh — an
+    earlier version of this docstring claimed it did. ``--cov-fail-under=85``
+    hardcoded there produces byte-identical argv and this assertion stays green
+    (measured during the RB-008 review). The source-level half lives in
+    ``test_ci_contract.py::test_both_coverage_floors_reach_the_gate_by_
+    interpolation_not_by_literal``, which covers this floor and the per-file one.
     """
     recording = run_checks("coverage", tmp_path)
     assert recording.returncode == 0, recording.output
@@ -2371,7 +2442,77 @@ def test_the_coverage_stage_measures_every_suite_not_just_one(tmp_path: Path) ->
 # claim ci/checks.sh's stage_coverage docstring makes — that a per-file breach
 # still reddens the `coverage` job, and that covcheck runs only inside the
 # success path so it can never mask a real global-floor breach's diagnosis.
+#
+# RB-008 F4 adds the third claim: WHICH BAR it runs at. The stage invoked
+# covcheck with no `--floor` at all, so the module's own PER_FILE_FLOOR default
+# WAS the gate bar while nothing asserted it — measured by lowering that default
+# to 11.0, which left the entire suite green. The global floor has been bound to
+# ci/versions.env since FR-011a (see
+# test_the_coverage_stage_asserts_the_threshold_from_the_pin_file); the per-file
+# floor now is too, at the same VALUE (90, ratified in RB-006 — RB-008 moves its
+# home and its binding, not the number).
 # =============================================================================
+
+
+def _covcheck_calls(recording: Recording) -> list[Call]:
+    """Every ``python -m orbital_drift.covcheck ...`` invocation, flags included.
+
+    Prefix-matched rather than compared for equality against the bare module
+    name: the stage now passes ``--floor``, and an equality check would silently
+    stop matching the moment a flag is added — reporting "covcheck never ran"
+    for a stage that ran it correctly, which is the misdiagnosis direction that
+    costs an operator the most time.
+    """
+    return [
+        call for call in recording.of("python") if call.argv[:2] == ("-m", "orbital_drift.covcheck")
+    ]
+
+
+def test_the_per_file_floor_is_the_pinned_one_not_the_module_default(tmp_path: Path) -> None:
+    """Constitution III, for the second of the two coverage bars.
+
+    ``stage_coverage`` ran ``python -m orbital_drift.covcheck`` with no
+    ``--floor``, so the gate's bar was whatever ``covcheck.PER_FILE_FLOOR``
+    happened to say — a number in application code, changeable by an edit to a
+    src/ module that no test and no pin file would notice. Measured: lowering
+    that default to 11.0 left every test in this repository green.
+
+    Compared against ``PINS[...]`` rather than a literal ``90`` written here,
+    for the same reason the global-floor assertion is: a literal would reject a
+    legitimate, reviewed pin change.
+
+    THIS HALF CANNOT SEE A HARDCODED FLOOR, and neither can the global-floor
+    assertion above — ``--floor 90`` written into ci/checks.sh produces argv
+    identical to ``--floor "${COVERAGE_PER_FILE_MIN_PERCENT}"``, and both stay
+    green (measured during review). What this proves is that the value REACHING
+    covcheck equals the pin. The source side — that ci/checks.sh interpolates
+    the pin rather than repeating its value — is
+    ``test_ci_contract.py::test_both_coverage_floors_reach_the_gate_by_
+    interpolation_not_by_literal``. Neither is sufficient alone.
+    """
+    assert "COVERAGE_PER_FILE_MIN_PERCENT" in PINS, (
+        "ci/versions.env does not pin COVERAGE_PER_FILE_MIN_PERCENT. The per-file "
+        "coverage floor is a gate threshold exactly like COVERAGE_MIN_PERCENT "
+        "beside it, and a gate threshold whose only home is a src/ module's "
+        "default argument is a magic number (Constitution III)."
+    )
+    recording = run_checks("coverage", tmp_path)
+    assert recording.returncode == 0, recording.output
+
+    calls = _covcheck_calls(recording)
+    assert len(calls) == 1, (
+        f"expected exactly one covcheck invocation from the coverage stage, got "
+        f"{[call.argv for call in calls]!r}"
+    )
+    argv = calls[0].argv
+    assert "--floor" in argv, (
+        "the coverage stage runs covcheck with no --floor, so the gate's per-file "
+        f"bar is the module default rather than the pinned one; argv was {argv!r}"
+    )
+    assert argv[argv.index("--floor") + 1] == PINS["COVERAGE_PER_FILE_MIN_PERCENT"], (
+        "the coverage stage does not pass ci/versions.env's "
+        f"COVERAGE_PER_FILE_MIN_PERCENT as covcheck's floor; argv was {argv!r}"
+    )
 
 
 def test_a_covcheck_failure_after_a_passing_global_floor_reddens_the_stage(
@@ -2379,9 +2520,7 @@ def test_a_covcheck_failure_after_a_passing_global_floor_reddens_the_stage(
 ) -> None:
     """A per-file breach must propagate even though the global floor passed."""
     recording = run_checks("coverage", tmp_path, stubs=Stubs(covcheck_rc=1))
-    covcheck_calls = [
-        call for call in recording.of("python") if call.joined == "-m orbital_drift.covcheck"
-    ]
+    covcheck_calls = _covcheck_calls(recording)
     assert covcheck_calls, (
         "the coverage stage did not run `python -m orbital_drift.covcheck` after "
         f"a passing global floor: {recording.output}"
@@ -2411,9 +2550,7 @@ def test_covcheck_does_not_run_when_the_global_floor_already_failed(tmp_path: Pa
             covcheck_rc=1,
         ),
     )
-    covcheck_calls = [
-        call for call in recording.of("python") if call.joined == "-m orbital_drift.covcheck"
-    ]
+    covcheck_calls = _covcheck_calls(recording)
     assert covcheck_calls == [], (
         f"covcheck ran even though the global coverage floor had already failed: {recording.output}"
     )
@@ -2636,6 +2773,151 @@ def test_the_failure_remediation_suggests_everything_when_the_suite_is_unrecogni
             f"an unrecognised FAILED path did not fall back to suggesting {stage!r}:\n"
             f"{recording.output}"
         )
+
+
+# =============================================================================
+# RB-008 F1 — the `specs` gate must FAIL CLOSED, like every gate beside it.
+#
+# ci/validate_specs.sh resolved its change root from the cwd-relative literal
+# `openspec/changes` and, when that directory was absent, printed "nothing to
+# validate" and exited 0 — so a DIRECT `sh ci/validate_specs.sh` from any other
+# directory reported a green OpenSpec gate having read no file at all. A second
+# fall-through did the same for a root holding zero packages, printing "all
+# change packages structurally valid" over nothing at all.
+#
+# NOT through `sh ci/checks.sh specs`, and the distinction matters enough to
+# state: checks.sh does `cd "${REPO_ROOT}"` before dispatch, so the GATE path
+# validated the real packages from any cwd — re-measured against the pre-fix
+# file from /tmp and from /home/user, both rc 0, both "all change packages
+# structurally valid". The caller MASKED the defect rather than inheriting it,
+# which is how it survived this long. The three tests below therefore cover the
+# two states reachable THROUGH the gate (a tree with no openspec/changes, and
+# one holding no packages — a partial checkout produces both) plus the
+# direct-invocation case scripts/_lib.sh actually recorded.
+#
+# Not hypothetical, and not this file's inference: scripts/_lib.sh:15-17 names
+# THIS script as the measured instance of the bug ("ci/validate_specs.sh was
+# measured green-lighting from /tmp because it trusted a relative literal").
+# Every sibling gate in ci/checks.sh fails closed in the same situation —
+# pytest_suite() spends fifty lines discriminating "declared but unauthored"
+# from "collected nothing because something is broken" specifically so that an
+# ambiguous emptiness never passes silently.
+#
+# Three properties, one test each: the validator resolves its root from its own
+# location (the cwd cannot change the verdict), a MISSING root is an error, and
+# an EMPTY root is an error.
+# =============================================================================
+
+VALIDATE_SPECS_SH: Final = REPO_ROOT / "ci" / "validate_specs.sh"
+
+
+def _specs_root(tmp_path: Path, *, changes: bool) -> Path:
+    """A scratch repo root carrying the real specs gate and nothing else.
+
+    Same device as ``_synthetic_root`` above and for the same reason — the copy
+    is the REAL ci/checks.sh, ci/versions.env and ci/validate_specs.sh, so a
+    test cannot pass by running against a weakened gate — but this one controls
+    the OpenSpec tree rather than a pytest suite directory.
+
+    The root is named distinctively (not ``root``) so an assertion can prove the
+    diagnostic names the RESOLVED absolute path rather than echoing the relative
+    literal that caused the bug.
+    """
+    root = tmp_path / "scratch-repo"
+    (root / "ci").mkdir(parents=True)
+    shutil.copy2(CHECKS_SH, root / "ci" / "checks.sh")
+    shutil.copy2(REPO_ROOT / "ci" / "versions.env", root / "ci" / "versions.env")
+    shutil.copy2(VALIDATE_SPECS_SH, root / "ci" / "validate_specs.sh")
+    if changes:
+        (root / "openspec" / "changes").mkdir(parents=True)
+    return root
+
+
+def test_the_specs_validator_resolves_its_change_root_from_its_own_location(
+    tmp_path: Path,
+) -> None:
+    """Run from an unrelated cwd, it must still validate THIS repository.
+
+    The measured failure verbatim: invoked from /tmp, the validator looked for
+    `./openspec/changes`, did not find it, announced "nothing to validate" and
+    exited 0 — a green Constitution-level gate that had read no file. Running it
+    from ``tmp_path`` reproduces exactly that, and the assertion that it reports
+    the real packages as valid is what distinguishes "resolved its own root"
+    from "found nothing and shrugged".
+    """
+    completed = subprocess.run(
+        [posix_shell(), VALIDATE_SPECS_SH.as_posix()],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        check=False,
+    )
+    output = completed.stdout + completed.stderr
+    assert completed.returncode == 0, (
+        f"the specs validator failed when run from an unrelated cwd:\n{output}"
+    )
+    assert "all change packages structurally valid" in output, (
+        "run from another directory, the validator did not validate this "
+        f"repository's change packages:\n{output}"
+    )
+    assert "nothing to validate" not in output, (
+        "the validator resolved its change root relative to the CALLER's cwd, so "
+        f"it green-lit a tree it never looked at:\n{output}"
+    )
+
+
+def test_the_specs_gate_fails_closed_when_the_change_root_is_missing(tmp_path: Path) -> None:
+    """No openspec/changes at all is a broken checkout, not a clean bill of health.
+
+    A gate whose subject is absent cannot report success about it. The message
+    must also name the RESOLVED path, so an operator can see WHICH tree was
+    inspected rather than re-deriving it from a relative literal, and it must go
+    to STDERR — asserted against ``recording.stderr`` specifically, because
+    ``recording.output`` concatenates both streams and would be satisfied by a
+    refusal printed to stdout, which a caller piping stdout to a log and
+    watching stderr for problems would never see.
+    """
+    root = _specs_root(tmp_path, changes=False)
+    recording = run_checks("specs", tmp_path, checks_sh=root / "ci" / "checks.sh")
+    assert recording.returncode != 0, (
+        f"the specs gate passed on a tree with no openspec/changes:\n{recording.output}"
+    )
+    assert "scratch-repo/openspec/changes" in recording.output, (
+        "the diagnostic does not name the resolved change root, so it cannot "
+        f"distinguish 'wrong tree' from 'missing directory':\n{recording.output}"
+    )
+    assert "does not exist" in recording.stderr, (
+        "the refusal was not written to stderr; a diagnostic on stdout is "
+        f"indistinguishable from ordinary gate chatter:\n{recording.output}"
+    )
+    assert "structurally valid" not in recording.output, recording.output
+
+
+def test_the_specs_gate_fails_closed_when_the_change_root_holds_no_packages(
+    tmp_path: Path,
+) -> None:
+    """The second fall-through: zero packages used to print the success line.
+
+    `found_any=0` printed "nothing to validate" and then fell through to "all
+    change packages structurally valid" and exit 0 — the gate asserting a
+    property of an empty set, which is the shape every other stage in
+    ci/checks.sh refuses. Stream-checked for the same reason as the
+    missing-directory case above.
+    """
+    root = _specs_root(tmp_path, changes=True)
+    recording = run_checks("specs", tmp_path, checks_sh=root / "ci" / "checks.sh")
+    assert recording.returncode != 0, (
+        f"the specs gate passed on an EMPTY openspec/changes:\n{recording.output}"
+    )
+    assert "scratch-repo/openspec/changes" in recording.output, recording.output
+    assert "holds no change packages" in recording.stderr, (
+        "the refusal was not written to stderr; a diagnostic on stdout is "
+        f"indistinguishable from ordinary gate chatter:\n{recording.output}"
+    )
+    assert "structurally valid" not in recording.output, (
+        "the gate announced every change package valid over zero change "
+        f"packages:\n{recording.output}"
+    )
 
 
 # =============================================================================
@@ -3101,6 +3383,20 @@ LOAD_BEARING_BEHAVIOURAL_TESTS: Final[frozenset[str]] = frozenset(
         # in round 8 as previously unprotected.
         "test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it",
         "test_the_actual_version_probe_still_runs_under_every_bypass_attempt",
+        # RB-008's five new behavioural tests (the three specs fail-closed
+        # cases, the projections interpreter refusal, the per-file floor's argv)
+        # are deliberately NOT registered here. This set is scoped to the
+        # anti-bypass property — "no memoisation can stand in for the current
+        # probe" — where the guard exists because those tests are the ONLY
+        # evidence for a claim about all possible runs, and a quiet deletion
+        # would leave nothing red. The RB-008 tests each assert a fixed,
+        # single-run behaviour that a second mechanism already watches: the
+        # specs and floor cases have source-level counterparts in
+        # test_ci_contract.py, and deleting the projections test leaves
+        # test_the_python_free_stage_exemptions_are_derived_from_the_source
+        # asserting the same exemption from the other side. Registering them
+        # would also mean calibrating MIN_ASSERT_COUNTS entries whose floors
+        # nothing has yet had reason to defend.
     }
 )
 

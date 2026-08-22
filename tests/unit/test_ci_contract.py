@@ -1632,6 +1632,102 @@ def test_the_secrets_gate_declares_no_python_pins() -> None:
     )
 
 
+# The preflight's own machinery, excluded from the call-graph walk below.
+#
+# NOT an arbitrary exclusion, and not optional: `preflight` reaches ``${PYTHON}``
+# itself (through require_python_interpreter's version probe) and EVERY stage
+# calls `preflight`, so a naive closure reports all fifteen stages as running
+# Python — measured, before this set existed — and the check answers its own
+# question. What is being derived is whether a stage's own WORK runs Python,
+# which is exactly what decides whether the interpreter must be verified first.
+_PREFLIGHT_MACHINERY: Final[frozenset[str]] = frozenset(
+    {
+        "preflight",
+        "require_pin_coverage",
+        "require_python_interpreter",
+        "require_pinned_tool",
+        "require_tool",
+        "tool_version",
+        "declared_stage_pins",
+        "stage_python_pins",
+        "stage_runs_python",
+        "versions_env_tools",
+        "tool_already_logged",
+    }
+)
+
+
+def _functions_running_python_outside_the_preflight() -> set[str]:
+    """Transitive closure of "runs ``${PYTHON}``" over ci/checks.sh's call graph.
+
+    Edges are detected by whole-word mention of a function's name in another
+    function's body (comments stripped) — coarse, but it can only ever make the
+    reaching set LARGER, and this check's dangerous direction is a stage
+    wrongly classified as Python-free.
+    """
+    bodies = {
+        name: _strip_comments(body)
+        for name, body in FUNCTIONS.items()
+        if name not in _PREFLIGHT_MACHINERY
+    }
+    reaching = {name for name, body in bodies.items() if '"${PYTHON}"' in body}
+    changed = True
+    while changed:
+        changed = False
+        for name, body in bodies.items():
+            if name in reaching:
+                continue
+            if any(
+                re.search(rf"(?<![\w-]){re.escape(callee)}(?![\w-])", body)
+                for callee in list(reaching)
+            ):
+                reaching.add(name)
+                changed = True
+    return reaching
+
+
+def test_the_python_free_stage_exemptions_are_derived_from_the_source() -> None:
+    """``stage_runs_python``'s exempt arm must equal what the source actually does.
+
+    RB-008 F2 added that predicate so a stage which executes Python but declares
+    no pinned distribution (``projections``) still has its interpreter verified.
+    The exemptions are listed by NAME, which is the hand-kept shape this very PR
+    calls "exactly the shape that rots" elsewhere — so they are cross-checked
+    here the way ``require_pin_coverage`` cross-checks PREFLIGHT_EXEMPT_PINS: a
+    stage may be exempt only if its call graph genuinely never reaches
+    ``${PYTHON}``.
+
+    This is the assertion that would have caught the original defect: with
+    ``projections`` added to the exempt arm, its stage function still runs
+    ``"${PYTHON}" -m orbital_drift.projections`` and this fails.
+    """
+    for name in sorted(_PREFLIGHT_MACHINERY):
+        assert name in FUNCTIONS, (
+            f"_PREFLIGHT_MACHINERY names {name}, which ci/checks.sh no longer "
+            "defines. A rename here silently widens the call-graph walk until "
+            "every stage looks like it runs Python."
+        )
+
+    arm = re.search(
+        r"^\s*([a-z|]+)\)\s*return 1\s*;;", FUNCTIONS["stage_runs_python"], re.MULTILINE
+    )
+    assert arm, "could not parse stage_runs_python's exempt arm out of ci/checks.sh"
+    exempt = set(arm.group(1).split("|"))
+
+    reaching = _functions_running_python_outside_the_preflight()
+    assert reaching, "the call-graph walk found nothing running ${PYTHON}; it is broken"
+    derived = {label for label, function in DISPATCH.items() if function not in reaching}
+
+    assert exempt == derived, (
+        f"stage_runs_python exempts {sorted(exempt)} from the interpreter check, but "
+        f"the stages whose call graph never reaches ${{PYTHON}} are {sorted(derived)}. "
+        f"Exempt-but-runs-Python ({sorted(exempt - derived)}) is the RB-008 F2 defect: "
+        "the module executes on an unverified interpreter under a header announcing "
+        f"the pinned one. Python-free-but-not-exempt ({sorted(derived - exempt)}) makes "
+        "that stage need an interpreter it does not use."
+    )
+
+
 def test_every_versions_env_pin_is_claimed_by_a_stage_or_explicitly_exempt() -> None:
     """Per-stage scoping only helps if nothing falls through it unnoticed.
 
@@ -1775,6 +1871,34 @@ def test_coverage_flags_never_enter_the_global_pytest_addopts() -> None:
             f"pyproject addopts carries {flag!r}: {addopts!r}. Coverage flags belong to "
             "ci/checks.sh's stage_coverage command line only."
         )
+
+
+def test_both_coverage_floors_reach_the_gate_by_interpolation_not_by_literal() -> None:
+    """The argv assertions cannot tell ``--floor 90`` from ``--floor "${PIN}"``.
+
+    ``tests/unit/test_checks_sh_behaviour.py`` runs the real script and asserts
+    the value that ARRIVES in argv equals the pin. That is necessary and it is
+    not sufficient: a literal ``90`` written into ci/checks.sh produces the same
+    argv, so both floors could be silently decoupled from ci/versions.env with
+    the whole suite green — MEASURED for the per-file floor during review, and
+    the pre-existing global-floor assertion has exactly the same blind spot.
+    Constitution III's "no magic numbers in code" is about the SOURCE, so it
+    needs a source-level check; the two together bind both ends of the wire.
+    """
+    body = _strip_comments(FUNCTIONS["stage_coverage"])
+    for flag, pin in (
+        ("--cov-fail-under=", "COVERAGE_MIN_PERCENT"),
+        ("--floor ", "COVERAGE_PER_FILE_MIN_PERCENT"),
+    ):
+        expected = f'{flag}"${{{pin}}}"'
+        assert expected in body, (
+            f"stage_coverage does not pass {pin} by interpolation. Expected the "
+            f"literal {expected!r} in ci/checks.sh; a hardcoded number there yields "
+            "an identical argv, so the behavioural assertion in "
+            "test_checks_sh_behaviour.py would stay green while the gate stopped "
+            "reading its own pin file (Constitution III)."
+        )
+        assert pin in VERSIONS, f"ci/versions.env no longer defines {pin}"
 
 
 def test_no_coverage_config_silently_redefines_what_the_gate_measures() -> None:
@@ -2775,14 +2899,393 @@ def test_workflow_has_no_gate_disabling_constructs() -> None:
         )
 
 
+def _workflow_top_level_block(key: str) -> str:
+    """The indented body under a top-level workflow key, comments stripped.
+
+    One parser for ``on:`` and ``concurrency:`` rather than one per test: the
+    three assertions below all read the same two blocks, and two regexes that
+    disagree about where a block ends is exactly the drift this file exists to
+    catch elsewhere.
+    """
+    match = re.search(rf"^{key}:\n(?P<body>(?:[ \t]+.*\n|\n)*)", WORKFLOW_DIRECTIVES, re.MULTILINE)
+    assert match, f".github/workflows/ci.yml has no top-level `{key}:` key"
+    return match.group("body")
+
+
+def _cancel_in_progress() -> str:
+    """The raw ``cancel-in-progress:`` value, or fail saying it is absent."""
+    setting = re.search(
+        r"^[ \t]+cancel-in-progress:[ \t]*(.+?)[ \t]*$",
+        _workflow_top_level_block("concurrency"),
+        re.MULTILINE,
+    )
+    assert setting, (
+        "the concurrency block declares no `cancel-in-progress:` key. GitHub's "
+        "default is false, which is safe — but say so explicitly, because the "
+        "next person to add the key will reach for `true`."
+    )
+    return setting.group(1)
+
+
+def _concurrency_group() -> str:
+    """The raw ``group:`` value of the top-level concurrency block."""
+    setting = re.search(
+        r"^[ \t]+group:[ \t]*(.+?)[ \t]*$",
+        _workflow_top_level_block("concurrency"),
+        re.MULTILINE,
+    )
+    assert setting, "the concurrency block declares no `group:` key"
+    return setting.group(1)
+
+
+# THE EXACT EXPRESSIONS, not a bag of substrings they must contain.
+#
+# MEASURED blind spot in the round-1 form of these guards, which asserted only
+# that "github.sha", "github.ref" and "github.event_name == 'pull_request'" were
+# each PRESENT somewhere in the group. Swapping the two operands to
+#
+#     ${{ github.event_name == 'pull_request' && github.sha || github.ref }}
+#
+# keeps all three tokens present, so every `in group` assertion stayed green —
+# while inverting the behaviour completely. Pull requests would group per COMMIT
+# (so a new push to a PR no longer supersedes its own stale run) and pushes to
+# main would share the ref-keyed group WITH the weekly timer: precisely the
+# pending-cancellation path this whole block exists to close. The mutant scored
+# an unchanged full-suite result, so nothing anywhere caught it.
+#
+# The ARRANGEMENT is the fix, so the arrangement is what gets asserted. The
+# technique is the file's own precedent —
+# ``test_both_coverage_floors_reach_the_gate_by_interpolation_not_by_literal``
+# pins the exact ``--floor "${COVERAGE_PER_FILE_MIN_PERCENT}"`` text for the
+# same reason: a check that cannot distinguish a correct wiring from an inverted
+# one is not a check. ``_concurrency_key_defect`` below is the single decision
+# point, so the swapped form can be fed to it directly as a NEGATIVE CONTROL
+# (``test_the_concurrency_guards_reject_token_preserving_mutations``); a guard
+# whose failure path is never executed is a guard nobody has checked.
+_EXPECTED_CONCURRENCY_GROUP: Final = (
+    "ci-${{ github.workflow }}-"
+    "${{ github.event_name == 'pull_request' && github.ref || github.sha }}"
+)
+
+# ``cancel-in-progress`` has the same exposure and the round-1 form had the same
+# gap: ``value != "true"`` plus the ``github.event_name == 'pull_request'``
+# substring is satisfied by ``${{ !(github.event_name == 'pull_request') }}``,
+# which cancels in-progress runs for EVERY event except pull requests — the
+# exact inversion of the rule, and the original incident restored. Same file,
+# same block, same defect class, so it is pinned the same way.
+_EXPECTED_CANCEL_IN_PROGRESS: Final = "${{ github.event_name == 'pull_request' }}"
+
+# The tokens whose mere presence the round-1 guards were satisfied by. Kept as
+# data so the diagnosis can distinguish "a token is missing" (someone reverted
+# to the old ref-only group) from "every token is here but ARRANGED wrongly"
+# (the mutation above) — two different fixes, so two different messages.
+#
+# Which of these apply is read off the EXPECTED value rather than fixed per key:
+# the group legitimately mentions all three, `cancel-in-progress` only the
+# event test. Hardcoding the full tuple for both made the guard misreport the
+# negated `cancel-in-progress` mutant as "github.sha absent" — a real defect,
+# caught by the negative control below on its first run, which is precisely the
+# job a negative control exists to do.
+_CONCURRENCY_TOKENS: Final[tuple[str, ...]] = (
+    "github.sha",
+    "github.ref",
+    "github.event_name == 'pull_request'",
+)
+
+
+def _concurrency_key_defect(key: str, actual: str, expected: str) -> str | None:
+    """``None`` when ``actual`` is exactly ``expected``, else a diagnosis.
+
+    Factored out of the tests rather than inlined so that BOTH callers (the
+    push-to-main guard and the schedule-coupling guard) share one definition of
+    correct — two regexes that disagree about the same property is the drift
+    this module exists to catch — and so the token-preserving mutants can be
+    driven through the real decision procedure in a negative control.
+    """
+    if actual == expected:
+        return None
+    relevant = tuple(token for token in _CONCURRENCY_TOKENS if token in expected)
+    assert relevant, (
+        f"no known concurrency token appears in the expected `{key}` value "
+        f"{expected!r}, so this guard would call every mutant an arrangement "
+        "defect. Update _CONCURRENCY_TOKENS alongside the expected value."
+    )
+    if all(token in actual for token in relevant):
+        return (
+            f"`{key}` is {actual!r}. Every expected token is present, so the "
+            "round-1 substring assertions would pass, but they are ARRANGED "
+            f"differently from {expected!r}. Arrangement is the entire fix: with "
+            "the operands swapped, pull requests group per commit (a new push to "
+            "a PR stops superseding its own stale run) and pushes to main share "
+            "the ref-keyed group with the weekly timer, so a queued run of main "
+            "goes PENDING and the next arrival cancels it — unscanned, and "
+            "`cancelled` never reads as `failure` (run 32575049407, head "
+            "4a76930 is what that looks like)."
+        )
+    missing = [token for token in relevant if token not in actual]
+    return (
+        f"`{key}` is {actual!r}, expected exactly {expected!r}. Absent entirely: "
+        f"{missing}. A key that does not choose per event cannot keep a push to "
+        "main out of a shared, cancellable group."
+    )
+
+
+def test_a_push_to_main_shares_no_concurrency_group_and_is_never_cancelled() -> None:
+    """BOTH halves, because ``cancel-in-progress: false`` alone does not do it.
+
+    MEASURED incident: run 32575049407 (event ``push``, branch ``main``, head
+    4a76930, run #56) was CANCELLED 43 seconds in, superseded by run #57. That
+    merge commit consequently has no completed gitleaks full-history scan
+    anywhere, and a ``cancelled`` conclusion is not a ``failure`` — no
+    required-check breach, no red X, nothing to skim past. Constitution VII ("a
+    red gitleaks halts everything") cannot hold for a commit whose scan was
+    stopped before it finished, and main is the one branch where a commit lands
+    permanently.
+
+    ``cancel-in-progress`` ALONE IS NOT SUFFICIENT, and this test's previous
+    name ("...is never cancelled by the next push") claimed more than it proved.
+    Per GitHub's DOCUMENTED concurrency behaviour — cited and reasoned, not
+    measured here, since the docs are egress-blocked from this container — a run
+    queued into a group that already has one in progress goes PENDING, and any
+    previously pending run in that group is cancelled. ``cancel-in-progress:
+    false`` protects only the IN-PROGRESS run. With one shared group for main,
+    two merges landing while a run holds the group (up to 25 minutes, the
+    ``hooks`` job timeout) leave the FIRST merge's run cancelled while pending:
+    the same incident, reintroduced — and the weekly timer added in this PR
+    would make it recurring.
+
+    So the group is per-COMMIT for every non-PR event, and a push to main then
+    contends with nothing: not a later push (different SHA, different group) and
+    not the timer (a scheduled run on the same SHA cannot cancel an in-progress
+    run, and with no third arrival neither is ever left pending). PRs keep
+    REF-grouping, which is what lets a new push to a PR supersede its own stale
+    run — desirable, and safe because the superseding commit gets a full run of
+    its own and a PR cannot merge on a cancelled check.
+
+    ROUND 2 — WHY THIS ASSERTS EXACT TEXT AND NOT THREE SUBSTRINGS. The
+    substring form of this test was measured order-blind: see
+    ``_EXPECTED_CONCURRENCY_GROUP``'s comment for the mutant that satisfied all
+    three ``in group`` checks while inverting the behaviour, at an unchanged
+    full-suite result. Both keys are pinned exactly, and the rejection of the
+    token-preserving mutants is itself under test in
+    ``test_the_concurrency_guards_reject_token_preserving_mutations``.
+    """
+    group_defect = _concurrency_key_defect(
+        "group", _concurrency_group(), _EXPECTED_CONCURRENCY_GROUP
+    )
+    assert group_defect is None, group_defect
+
+    cancel_defect = _concurrency_key_defect(
+        "cancel-in-progress", _cancel_in_progress(), _EXPECTED_CANCEL_IN_PROGRESS
+    )
+    assert cancel_defect is None, cancel_defect
+
+
+# (label, key, the mutant value, expected diagnosis fragment). Every entry is a
+# mutation the ROUND-1 substring guards were MEASURED to accept, plus the
+# reversion they were written for. The first is the adversarial reviewer's own
+# probe, applied to the real .github/workflows/ci.yml: it scored 520 passed / 11
+# environmental — byte-identical to the unmutated baseline — which is what
+# "order-blind" means in practice.
+_CONCURRENCY_MUTANTS: Final[tuple[tuple[str, str, str, str], ...]] = (
+    (
+        "group operands swapped — PRs per commit, main shares with the timer",
+        "group",
+        "ci-${{ github.workflow }}-"
+        "${{ github.event_name == 'pull_request' && github.sha || github.ref }}",
+        "ARRANGED",
+    ),
+    (
+        "group condition negated — same inversion by a different spelling",
+        "group",
+        "ci-${{ github.workflow }}-"
+        "${{ !(github.event_name == 'pull_request') && github.ref || github.sha }}",
+        "ARRANGED",
+    ),
+    (
+        "group reverted to the pre-fix ref-only form (the original incident)",
+        "group",
+        "ci-${{ github.workflow }}-${{ github.ref }}",
+        "Absent entirely",
+    ),
+    (
+        "cancel-in-progress negated — cancels everything EXCEPT pull requests",
+        "cancel-in-progress",
+        "${{ !(github.event_name == 'pull_request') }}",
+        "ARRANGED",
+    ),
+    (
+        "cancel-in-progress unconditionally true (the original incident)",
+        "cancel-in-progress",
+        "true",
+        "Absent entirely",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "key", "mutant", "fragment"),
+    _CONCURRENCY_MUTANTS,
+    ids=[case[0] for case in _CONCURRENCY_MUTANTS],
+)
+def test_the_concurrency_guards_reject_token_preserving_mutations(
+    label: str, key: str, mutant: str, fragment: str
+) -> None:
+    """The NEGATIVE CONTROL for the guard above — its failure path, executed.
+
+    ``test_a_push_to_main_shares_no_concurrency_group_and_is_never_cancelled``
+    asserts only that the real workflow is correct, which a guard that accepts
+    everything also satisfies. That is not a hypothetical: the round-1 form of
+    that test accepted the first mutant below at an unchanged full-suite result,
+    so the fix it guards was silently un-guarded from the day it landed. These
+    cases drive the mutants through the real decision procedure and require it to
+    REJECT them, so the blind spot cannot return unnoticed — and they check the
+    diagnosis distinguishes an arrangement defect from a missing token, because
+    "the group is wrong" and "the group was reverted" need different fixes.
+    """
+    expected = _EXPECTED_CONCURRENCY_GROUP if key == "group" else _EXPECTED_CANCEL_IN_PROGRESS
+    assert mutant != expected, (
+        f"{label}: the mutant is identical to the expected value, so this control "
+        "proves nothing. Fix the case, not the guard."
+    )
+
+    defect = _concurrency_key_defect(key, mutant, expected)
+    assert defect is not None, (
+        f"{label}: _concurrency_key_defect accepted {mutant!r} for `{key}`. This is "
+        "the order-blind failure the exact-literal form replaced — a guard that "
+        "cannot tell the correct wiring from its inversion."
+    )
+    assert fragment in defect, (
+        f"{label}: the diagnosis for {mutant!r} was {defect!r}, which does not say "
+        f"{fragment!r}. A rejection that misnames WHY sends the next reader at the "
+        "wrong fix."
+    )
+
+
+def test_the_workflow_runs_on_a_schedule() -> None:
+    """``audit`` queries a LIVE advisory database, so an unchanged tree can rot.
+
+    pip-audit resolves the pinned dependency set against PyPI's advisory feed at
+    run time. A CVE published today against a dependency pinned last month makes
+    this repository vulnerable with no diff, no push and no red anything — the
+    gate that would catch it simply never runs. Every other stage is a pure
+    function of the tree and genuinely does not need a timer; this one does.
+    """
+    schedule = _workflow_top_level_block("on")
+    assert re.search(r"^[ \t]+schedule:[ \t]*$", schedule, re.MULTILINE), (
+        ".github/workflows/ci.yml declares no `schedule:` trigger, so "
+        "`sh ci/checks.sh audit` only ever runs when somebody happens to push. A "
+        "CVE published against an already-pinned dependency stays invisible until "
+        "then."
+    )
+    crons = re.findall(r"^[ \t]+-[ \t]*cron:[ \t]*(\S.*?)[ \t]*$", schedule, re.MULTILINE)
+    assert crons, "the `schedule:` trigger declares no `cron:` entry, so it never fires"
+
+    # THE CADENCE IS CHECKED, not just its existence. "some cron exists" is
+    # satisfied by `* * * * *` — a full matrix every minute, which is a
+    # self-inflicted outage, not a weekly audit — so the shape is asserted:
+    # exactly one entry, a fixed minute and hour, every day-of-month and month,
+    # and one fixed weekday.
+    #
+    # WHY THE LITERAL IS NOT IN ci/versions.env, given that CI_RUNNER_IMAGE set
+    # the precedent for exactly this: the precedent's MECHANISM is unavailable
+    # here. `runs-on` reads its pin at run time through a job output
+    # (`needs.versions.outputs.runner`), and GitHub evaluates NO expressions in
+    # the `on:` block at all — a `${{ }}` cron is not a cadence, it is a parse
+    # error. The pin file also cannot hold "17 6 * * 1" without quotes that
+    # every reader would then have to strip, for a value no other tool consumes.
+    # So: one home, in the workflow, with its shape asserted here.
+    assert len(crons) == 1, (
+        f"expected exactly one cron entry, found {crons}. Two timers double the "
+        "audit's cost and give a scheduled run a second chance to collide with a "
+        "push to main; if a second cadence is genuinely wanted, say why here."
+    )
+    fields = crons[0].strip("\"'").split()
+    assert len(fields) == 5, f"cron {crons[0]!r} is not five fields"
+    minute, hour, day_of_month, month, weekday = fields
+    assert minute.isdigit() and hour.isdigit(), (
+        f"cron {crons[0]!r} does not fix a minute and hour. A wildcard in either "
+        "field runs the whole matrix every hour or every minute."
+    )
+    assert (day_of_month, month) == ("*", "*"), (
+        f"cron {crons[0]!r} restricts the day-of-month or month, so the audit "
+        "would skip whole weeks"
+    )
+    assert weekday.isdigit(), (
+        f"cron {crons[0]!r} does not fix a single weekday, so the cadence is not "
+        "the weekly one this test's rationale is written for"
+    )
+
+
+def test_a_scheduled_run_can_never_cancel_a_push_to_main() -> None:
+    """THE COUPLING, asserted directly — the two changes must not be separable.
+
+    A scheduled run fires on ``refs/heads/main``, so it lands in the SAME
+    concurrency group as a push to main:
+    ``ci-${{ github.workflow }}-refs/heads/main``. Under an unconditional
+    ``cancel-in-progress: true`` the timer therefore becomes a RECURRING
+    canceller of exactly the run whose gitleaks full-history scan RB-008 records
+    as lost (run 32575049407, commit 4a76930) — weekly, unattended, and silent,
+    because ``cancelled`` never reads as ``failure``.
+
+    Adding the schedule and gating the cancellation are consequently one change,
+    not two: either alone is safe and the pair in the wrong order is not. This
+    assertion is what makes that un-reintroducible, since a future PR adding a
+    second timer, or relaxing the concurrency rule, has to come past it. It is
+    deliberately an IMPLICATION (schedule -> conditional cancellation); the
+    schedule's own existence is pinned by the test above, so neither half can go
+    missing unnoticed.
+
+    ROUND 2 — this test shared the order-blind substring gap the guard above had,
+    and shares its fix: it goes through ``_concurrency_key_defect``, so "the
+    timer cannot collide with main" is decided by ONE definition of a correct
+    key rather than by two sets of substring checks that could drift apart.
+
+    DIRECTION MATTERS, and this test asserts one of them. A scheduled run can
+    never cancel a push to main; the CONVERSE is a known residual — the timer
+    itself can be the casualty when it queues behind an in-progress run of the
+    same sha and a third arrival cancels it, costing one week of ``audit``. That
+    is documented beside the ``schedule:`` key in .github/workflows/ci.yml and is
+    deliberately NOT fixed here; do not read this test as proving the timer
+    always runs.
+    """
+    if not re.search(r"^[ \t]+schedule:[ \t]*$", _workflow_top_level_block("on"), re.MULTILINE):
+        pytest.fail(
+            "no `schedule:` trigger, so this coupling check would pass vacuously. "
+            "test_the_workflow_runs_on_a_schedule states why the trigger must exist; "
+            "restore it rather than leaving this assertion unarmed."
+        )
+    group_defect = _concurrency_key_defect(
+        "group", _concurrency_group(), _EXPECTED_CONCURRENCY_GROUP
+    )
+    assert group_defect is None, (
+        "the workflow runs on a schedule, so the grouping key is the ONLY thing "
+        "keeping the timer out of main's concurrency group. A run queued into an "
+        "occupied group goes PENDING, and a pending run is cancelled by the next "
+        f"arrival — cancel-in-progress does not govern that. {group_defect}"
+    )
+
+    cancel_defect = _concurrency_key_defect(
+        "cancel-in-progress", _cancel_in_progress(), _EXPECTED_CANCEL_IN_PROGRESS
+    )
+    assert cancel_defect is None, (
+        "the workflow runs on a schedule, so an unconditional or inverted "
+        "cancellation rule makes the timer a recurring canceller of main's own "
+        "run — including its gitleaks full-history scan — and `cancelled` is not "
+        f"`failure`. {cancel_defect}"
+    )
+
+
 # =============================================================================
 # MINOR 10 (round 3) — `set +e` must be SCOPED, not merely balanced.
 # =============================================================================
 
 FORBIDDEN_SUPPRESSORS: Final[tuple[str, ...]] = ("|| true", "|| :", "; true", "; :", "then :")
 
-# How many lines a disarmed window may span. Both current uses need three: the
-# command, `rc=$?`, and `set -e`.
+# How many lines a disarmed window may span. All THREE current uses need three
+# lines: the command, `rc=$?`, and `set -e`. (This comment said "both" while
+# ci/checks.sh had three windows — see ERREXIT_CAPTURE_FUNCTIONS below, which is
+# now cross-checked against the source rather than hand-kept.)
 ERREXIT_WINDOW: Final = 4
 
 
@@ -2831,7 +3334,20 @@ def test_checks_sh_has_no_gate_disabling_constructs() -> None:
         )
 
 
-@pytest.mark.parametrize("function_name", ["pytest_suite", "require_pinned_image"])
+# Every function in ci/checks.sh that disarms errexit to capture a status.
+# Written out rather than derived so a pytest id names the function under test,
+# and then cross-checked against the source by
+# ``test_every_disarmed_errexit_window_is_covered_by_that_check`` below — which
+# is how ``stage_coverage`` was found missing from it (RB-008 F5: three windows,
+# two parametrize cases, and the omitted one is the FR-011a coverage gate).
+ERREXIT_CAPTURE_FUNCTIONS: Final[tuple[str, ...]] = (
+    "pytest_suite",
+    "stage_coverage",
+    "require_pinned_image",
+)
+
+
+@pytest.mark.parametrize("function_name", ERREXIT_CAPTURE_FUNCTIONS)
 def test_each_captured_exit_status_is_actually_tested(function_name: str) -> None:
     """Capturing a status and not branching on it is the same as ``|| true``."""
     body = _strip_comments(FUNCTIONS[function_name])
@@ -2841,6 +3357,482 @@ def test_each_captured_exit_status_is_actually_tested(function_name: str) -> Non
         assert re.search(rf'\[ "\$\{{{variable}\}}" -(ne|eq|gt) ', body), (
             f"{function_name} captures {variable}=$? and never tests it"
         )
+
+
+def _functions_that_disarm_errexit() -> set[str]:
+    """Functions containing a `set +e` DIRECTIVE (comments stripped)."""
+    disarming: set[str] = set()
+    for name, raw_body in FUNCTIONS.items():
+        if any(line.strip() == "set +e" for line in _strip_comments(raw_body).splitlines()):
+            disarming.add(name)
+    return disarming
+
+
+def test_every_disarmed_errexit_window_is_covered_by_that_check() -> None:
+    """The parametrize list above must equal the set of windows in the source.
+
+    A hand-kept list of "the functions that disarm errexit" is exactly the shape
+    that rots, and it had: ``stage_coverage`` captures ``cov_rc=$?`` inside its
+    own ``set +e`` window and was named in neither the list nor the file's own
+    prose, so the FR-011a coverage gate — the one whose captured status decides
+    whether a per-file breach is even looked for — was the single disarmed
+    window nothing checked.
+
+    Derived from the source, so adding a fourth window without adding its name
+    fails here rather than silently going unchecked.
+    """
+    disarming = _functions_that_disarm_errexit()
+    assert disarming, (
+        "no function in ci/checks.sh disarms errexit at all. Either the parser "
+        "broke or every window was removed; both make the check below vacuous."
+    )
+    assert disarming == set(ERREXIT_CAPTURE_FUNCTIONS), (
+        f"ci/checks.sh disarms errexit in {sorted(disarming)} but "
+        f"test_each_captured_exit_status_is_actually_tested is parametrized over "
+        f"{sorted(ERREXIT_CAPTURE_FUNCTIONS)}. A window nobody checks is a window "
+        "whose captured status can go untested, which is `|| true` in slow motion."
+    )
+
+
+# WHAT THIS MATCHER COVERS, ENUMERATED — because "it checks the file's count
+# claims" would be a claim about the tree that is itself unchecked (DoD rule 6),
+# and an adversarial pass found five spellings it silently missed and three it
+# falsely scored. Covered:
+#
+#   * DIGITS ("2 times", "4 places"), any magnitude. The first version had none,
+#     while its own comment said "every real count claim can be spelled with a
+#     numeral" — a digit IS a numeral.
+#   * CARDINAL WORDS two..twelve, adjacent to the noun they count, with up to
+#     four intervening words ("two of the file's disarmed windows").
+#   * FREQUENCY ADVERBS once/twice/thrice, which carry their own noun ("appears
+#     twice below" — the wording of the defect this exists for).
+#   * The COPULAR order, where the count trails its noun and ends the sentence
+#     ("the number of `set +e` windows in this file is two").
+#
+# NOT covered, deliberately, each with the reason:
+#
+#   * The CARDINAL WORD "one". In this file's prose it is almost always generic
+#     ("one long line", "one call site", "one window ... is enough to hide a
+#     status", "disarmed in exactly one place inside stage_coverage" — a true
+#     statement about ONE FUNCTION, not the file), and no rule separates those
+#     from "the file has one window" without reading intent. A genuine claim of
+#     one is spelled "once" or "1", both of which ARE covered.
+#   * ``both``/``neither``: connectives, never the word in "N windows". Scoring
+#     them falsely reddened "the command and its `rc=$?` capture must BOTH sit
+#     inside the `set +e` window".
+#   * Any claim split across two sentences, or phrased without a counted noun
+#     ("the file disarms errexit in more places than the header admits").
+#
+# THE FALSE-POSITIVE SURFACE, NAMED (round 2) — the caveat above this line used
+# to describe MISSES only, which is the cheap half. Adding digit support to this
+# matcher widened the CRY-WOLF half, and this file's own standard is that a gate
+# reddening for a claim nobody made "gets a test deleted". So the surface is
+# enumerated, not left to be discovered: an adversarial pass MEASURED all six of
+# these against the rebuilt matcher, and each is now excluded by the mechanism
+# named beside it. All six are parametrized controls in ``_COUNT_CLAIM_CASES``,
+# so this comment cannot drift from the behaviour.
+#
+#   * "the set +e window is at line 1015."   was 1015 -> magnitude bound
+#   * "the errexit window discussed in PR 7."    was 7 -> reference marker
+#   * "...changed in coverage 7.15.4 windows."  7,15,4 -> dotted-version guard
+#   * "...must close within 20 lines or 3 windows." 20,3 -> bound sweep
+#   * "errexit is off in twenty-four places."      4(!) -> hyphen guard
+#   * "there are not two set +e windows in this file." 2 -> negation sweep
+#
+# LATENT, NOT ACADEMIC, at the time they were found: no errexit sentence in
+# ci/checks.sh contained a digit (measured), but that file's comments carry
+# roughly ten numeric and doc-reference citations (``D-06``, ``line 1``, ``line
+# 2``), so its prose demonstrably does mix numbers into explanatory sentences.
+# The fifth case is the worst of the six and is not a coverage gap at all: it
+# reports a WRONG VALUE, 4 for a sentence claiming 24.
+#
+# Every one of these exclusions can turn a real claim into a miss, and that
+# direction is chosen deliberately — see each mechanism's own comment for the
+# trade. A miss here is not the last line of defence: the count is bound to the
+# code by ``test_every_disarmed_errexit_window_is_covered_by_that_check``. This
+# binds the PROSE, which nothing else does.
+_CARDINAL_WORDS: Final[dict[str, int]] = {
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+}
+
+# Frequency adverbs are counts in themselves, so they need no adjacent noun.
+_FREQUENCY_WORDS: Final[dict[str, int]] = {"once": 1, "twice": 2, "thrice": 3}
+
+# The noun a CARDINAL has to be counting. ``use``/``uses`` are excluded on
+# purpose: "use" is a verb far more often than a noun here ("three of the gates
+# use ..."), the same ambiguity the connectives were dropped for.
+_COUNTED_NOUN: Final = r"(?:window|windows|place|places|time|times|instance|instances)"
+
+# A rate marker turns a TOTAL into a per-something: "two times per window"
+# counts occurrences within one window, "once per stage" counts stages. It is
+# checked after the count word for a frequency adverb, and after the NOUN for a
+# cardinal, because that is where the marker lands in each shape. The first
+# version applied it to adverbs only, and scored "appears two times per window"
+# as a claim of 2.
+_RATE_MARKER: Final = r"(?:per|a|an|every|each)"
+
+# Word characters, apostrophe-aware: without the apostrophes, "the file's
+# disarmed windows" is four words rather than three ("file" + "s"), and a real
+# claim falls outside the gap budget for a purely typographic reason. The curly
+# apostrophe is written as an escape because ruff's RUF001 rightly objects to an
+# ambiguous Unicode character sitting literally inside a character class.
+_WORD_CHARS: Final = "[A-Za-z0-9_'\u2019-]+"
+_NON_WORD_CHARS: Final = "[^A-Za-z0-9_'\u2019-]+"
+
+# A rate marker may not sit INSIDE the gap either, and this is not belt-and-
+# braces: without it the engine simply backtracks past the near noun to a later
+# one. "appears two times per window" was read as a claim of 2 by matching
+# ``two`` -> gap("times per") -> ``window``, sailing past the post-noun lookahead
+# that had already rejected ``two ... times``. Excluding the marker from the gap
+# is the semantic rule anyway — a count separated from its noun BY a rate marker
+# is a rate, whichever noun you land on.
+_GAP_TOKEN: Final = rf"(?!(?:per|every|each)\b){_WORD_CHARS}"
+_GAP: Final = rf"(?:{_NON_WORD_CHARS}{_GAP_TOKEN}){{0,4}}{_NON_WORD_CHARS}"
+
+# The largest number that can plausibly BE a count of disarmed-errexit windows
+# in one shell file — read off the word table rather than written twice, since
+# "the spellings we understand stop at twelve" and "a count above twelve is not
+# a count" are the same judgement.
+#
+# WHY A MAGNITUDE BOUND rather than a list of the contexts a stray number can
+# come from: the contexts are open-ended (line numbers, PR/issue/run ids, D-nn
+# doc refs, version components, timeouts, ports, byte budgets — ci/checks.sh
+# comments carry about ten such citations today), while the magnitude is not. A
+# bound is the only rule here that stays correct against prose nobody has
+# written yet.
+_MAX_PLAUSIBLE_WINDOW_COUNT: Final = max(_CARDINAL_WORDS.values())
+
+# A number introduced by one of these is a CITATION, not a count: "line 1015",
+# "PR 7", "D-06". Needed IN ADDITION to the magnitude bound because small ids
+# exist — "PR 7" is inside the plausible range and the bound cannot see it.
+# Applied to the sentence rather than as a lookbehind because `re` rejects
+# variable-width lookbehind; the simplification (a count in citation shape
+# ANYWHERE in the sentence is treated as a citation, even if the same number
+# also appears as a real count) is deliberate and errs toward a miss.
+_REFERENCE_MARKER: Final = r"(?:lines?|PRs?|issues?|runs?|commits?|versions?|steps?|columns?|D)"
+
+# A negated sentence asserts the OPPOSITE of its count: "there are not two
+# windows" is not a claim of two, and scoring it as one would redden the gate
+# for a sentence that is TRUE precisely when the count matches. Whole sentences
+# are skipped rather than parsed for scope, because deciding what a negation
+# attaches to needs the intent this module deliberately does not read.
+#
+# THE TRADE, stated rather than discovered: a genuine claim carrying a negation
+# ("three places, not two") becomes a MISS. That is the correct direction for
+# this file — a miss is backstopped by
+# ``test_every_disarmed_errexit_window_is_covered_by_that_check``, which binds
+# the count to the CODE, whereas a gate that reddens for a claim nobody made is
+# the cry-wolf failure this file's own standard says "gets a test deleted".
+_NEGATION_RE: Final = re.compile(r"\b(?:not|no|never|nor|cannot)\b|n't\b", re.IGNORECASE)
+
+# A BOUND is a rule about window size, not an inventory of windows: "must close
+# within 20 lines or 3 windows" is the ERREXIT_WINDOW line-budget prose shape,
+# and it would keep claiming 3 after the file grew a fourth window. Same
+# treatment and same reason as the negation sweep. Kept to explicit
+# limit-words — "keeps this file down to three places", a REAL claim in
+# ci/checks.sh today, contains no bound word and survives (measured).
+_BOUND_RE: Final = re.compile(
+    r"\b(?:within|at most|up to|no more than|fewer than|more than)\b", re.IGNORECASE
+)
+
+
+def _count_atom(count: str) -> str:
+    """The count word itself, guarded against hyphenated and dotted neighbours.
+
+    ``(?<![-.])`` — ``\\b`` treats ``-`` as a boundary, so a bare ``\\bfour\\b``
+    matches INSIDE "twenty-four" and the matcher reports 4 for a sentence
+    claiming 24. That is a WRONG VALUE rather than a coverage gap, which is the
+    worse of the two failures: the gate reddens citing a number the prose never
+    used. The same guard drops the ``15`` of a version like ``7.15.4``.
+
+    ``(?!\\.\\d)`` — and the ``7`` of ``7.15.4``, which the lookbehind cannot
+    reach because nothing precedes it. Together the two make a dotted version
+    one token instead of three counts.
+    """
+    return rf"(?<![-.])\b{count}\b(?!\.\d)"
+
+
+# Assembled by FUNCTION, not by ``str.format`` on a template: ``_GAP`` contains
+# the regex quantifier ``{0,4}``, which ``format`` reads as a replacement field
+# and rejects with ``KeyError: '0,4'``. Escaping braces through two layers of
+# templating is exactly the kind of thing that ends up silently matching
+# nothing, and a matcher that matches nothing passes every "no wrong claim"
+# assertion in this module.
+def _cardinal_shapes(count: str) -> tuple[str, str]:
+    """Both orders a cardinal count can take around its noun.
+
+    FORWARD is the ordinary one — "three times below", "4 places in this file",
+    "two of the file's disarmed windows".
+
+    TRAILING is the copular one — "the number of `set +e` windows in this file
+    is two" — and requires the count to END the sentence. That anchor is what
+    separates it from a number that merely follows the noun and then modifies
+    something else ("a disarmed-errexit window is deliberately one long line").
+    """
+    forward = rf"{_count_atom(count)}{_GAP}{_COUNTED_NOUN}\b(?!{_NON_WORD_CHARS}{_RATE_MARKER}\b)"
+    trailing = rf"\b{_COUNTED_NOUN}\b{_GAP}{_count_atom(count)}[\s.;:]*$"
+    return forward, trailing
+
+
+def _frequency_shape(count: str) -> str:
+    """A frequency adverb needs no noun, only the absence of a rate marker."""
+    return rf"{_count_atom(count)}(?!{_NON_WORD_CHARS}{_RATE_MARKER}\b)"
+
+
+def _comment_sentences(source: str) -> list[tuple[int, str]]:
+    """``(line number, sentence)`` for every sentence of every comment block.
+
+    Sentence-scoped rather than line-scoped because these comments wrap: the
+    claim "the `set +e` / `rc=$?` / `set -e` window used twice elsewhere in this
+    file" spans two source lines, and a line-scoped scan would see the count
+    word without the subject or the subject without the count. Block-scoped
+    would be worse in the other direction — one 10-line block explaining the
+    coverage stage mentions "which of the two happened" about pytest exit codes,
+    nine lines from an unrelated mention of errexit.
+    """
+    sentences: list[tuple[int, str]] = []
+    block: list[str] = []
+    block_start = 0
+    for number, raw in enumerate(source.splitlines(), start=1):
+        stripped = raw.lstrip()
+        if stripped.startswith("#"):
+            if not block:
+                block_start = number
+            block.append(stripped.lstrip("#").strip())
+            continue
+        if block:
+            joined = " ".join(block)
+            sentences.extend((block_start, part) for part in re.split(r"(?<=\.)\s+", joined))
+            block = []
+    if block:
+        joined = " ".join(block)
+        sentences.extend((block_start, part) for part in re.split(r"(?<=\.)\s+", joined))
+    return sentences
+
+
+def _sentence_count_candidates(sentence: str) -> list[tuple[str, int, bool]]:
+    """``(spelling, value, is_frequency_adverb)`` for every count word present.
+
+    Digits are collected from the sentence itself rather than enumerated in a
+    table, so "2 times" and "17 places" are read the same way "two times" is.
+    """
+    candidates: list[tuple[str, int, bool]] = [
+        (word, value, True) for word, value in _FREQUENCY_WORDS.items()
+    ]
+    candidates += [(word, value, False) for word, value in _CARDINAL_WORDS.items()]
+    candidates += [
+        (digits, int(digits), False) for digits in dict.fromkeys(re.findall(r"\b\d+\b", sentence))
+    ]
+    return candidates
+
+
+def _errexit_count_claims(source: str) -> list[tuple[int, str, int, str]]:
+    """``(line, spelling, number, sentence)`` for every claimed window count.
+
+    A sentence is a CLAIM only if it is about the disarmed windows — it mentions
+    ``set +e`` or errexit — AND its count word is actually counting one of them,
+    rather than merely appearing in the same sentence. The exact set of spellings
+    this reads, and the ones it deliberately does not, is enumerated above
+    ``_CARDINAL_WORDS``; its controls are
+    ``test_the_count_claim_matcher_reads_claims_and_not_connectives``.
+    """
+    claims: list[tuple[int, str, int, str]] = []
+    for line_number, sentence in _comment_sentences(source):
+        if "set +e" not in sentence and "errexit" not in sentence.lower():
+            continue
+        # Sentence-level exclusions, before any count is read: a negation
+        # inverts every count in the sentence and a bound word makes them
+        # limits, so neither is worth scoring count-by-count.
+        if _NEGATION_RE.search(sentence) or _BOUND_RE.search(sentence):
+            continue
+        for spelling, number, is_adverb in _sentence_count_candidates(sentence):
+            if not 1 <= number <= _MAX_PLAUSIBLE_WINDOW_COUNT:
+                continue
+            count = re.escape(spelling)
+            if re.search(rf"\b{_REFERENCE_MARKER}[-\s]*{count}\b", sentence, re.IGNORECASE):
+                continue
+            shapes = (_frequency_shape(count),) if is_adverb else _cardinal_shapes(count)
+            if any(re.search(shape, sentence, re.IGNORECASE) for shape in shapes):
+                claims.append((line_number, spelling, number, sentence))
+    return claims
+
+
+# (label, one synthetic comment line, the counts a correct matcher reads from
+# it). Controls for the matcher itself, in BOTH directions: the false-negative
+# half (a real claim must be seen, including the "once" spelling) and the
+# false-positive half (a connective, an adverb of frequency, or a number that
+# happens to sit near the word "window" must NOT be scored as a claim).
+#
+# The false-positive cases are not hypothetical style objections: a gate that
+# reddens for a claim nobody made is the cry-wolf failure that gets a test
+# deleted, and every one of these sentences is the kind ci/checks.sh's prose
+# actually writes.
+_COUNT_CLAIM_CASES: Final[tuple[tuple[str, str, tuple[int, ...]], ...]] = (
+    ("plain claim", "# `set +e` appears three times below.", (3,)),
+    ("claim spelled `once`", "# `set +e` appears once below.", (1,)),
+    ("the historical defect's own wording", "# `set +e` appears twice below.", (2,)),
+    ("claim with an adjective", "# errexit is off in three separate places.", (3,)),
+    (
+        "claim trailing its noun",
+        "# it keeps this file down to three places where errexit is off.",
+        (3,),
+    ),
+    (
+        "connective, not a count",
+        "# the command and its `rc=$?` capture must both sit inside the `set +e` window.",
+        (),
+    ),
+    (
+        "adverb of frequency",
+        "# require_pinned_tool re-probes once per stage; errexit is untouched.",
+        (),
+    ),
+    (
+        "number near the counted noun but not counting it",
+        "# a disarmed-errexit window is deliberately one long line.",
+        (),
+    ),
+    # The eight probes an adversarial review ran against the first version of
+    # this matcher: five it silently MISSED (returning no claim for a real one)
+    # and three it falsely SCORED. Kept verbatim, as the calibration set — every
+    # one of them is prose this file could plausibly carry.
+    ("digits, not words", "# `set +e` appears 2 times below.", (2,)),
+    ("digits with a different noun", "# errexit is off in 4 places in this file.", (4,)),
+    ("a word past the old table's end", "# `set +e` appears six times below.", (6,)),
+    (
+        "four words between count and noun",
+        "# errexit is off in two of the file's disarmed windows.",
+        (2,),
+    ),
+    (
+        "copular order, count last",
+        "# the number of `set +e` windows in this file is two.",
+        (2,),
+    ),
+    (
+        "a count scoped to ONE function, not the file",
+        "# errexit is disarmed in exactly one place inside stage_coverage.",
+        (),
+    ),
+    (
+        "a rate, not a total",
+        "# the `set +e` / `set -e` pair appears two times per window - disarm then re-arm.",
+        (),
+    ),
+    (
+        "a hypothetical, not an inventory",
+        "# one window of disarmed errexit is enough to hide a status.",
+        (),
+    ),
+    ("count, but not about errexit at all", "# the matrix runs three times a day.", ()),
+    # ROUND 2 — the six probes an adversarial review ran against the REBUILT
+    # matcher, after digit support widened the cry-wolf surface. All six were
+    # MEASURED false positives at the time they were written; each is now
+    # excluded by the mechanism named beside it above ``_CARDINAL_WORDS``. They
+    # are kept verbatim so the documented behaviour stays the MEASURED
+    # behaviour, which is the whole reason the earlier calibration set exists.
+    ("a line citation, not a count", "# the set +e window is at line 1015.", ()),
+    ("a PR citation, not a count", "# the errexit window discussed in PR 7.", ()),
+    (
+        "a dotted version, not three counts",
+        "# errexit handling changed in coverage 7.15.4 windows.",
+        (),
+    ),
+    (
+        "a line budget, not an inventory",
+        "# the set +e window must close within 20 lines or 3 windows.",
+        (),
+    ),
+    (
+        "a hyphenated cardinal — WRONG VALUE, not a miss",
+        "# errexit is off in twenty-four places.",
+        (),
+    ),
+    (
+        "a negated sentence asserts the opposite",
+        "# there are not two set +e windows in this file.",
+        (),
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "comment", "expected"),
+    _COUNT_CLAIM_CASES,
+    ids=[case[0] for case in _COUNT_CLAIM_CASES],
+)
+def test_the_count_claim_matcher_reads_claims_and_not_connectives(
+    label: str, comment: str, expected: tuple[int, ...]
+) -> None:
+    """Positive AND negative controls for ``_errexit_count_claims``.
+
+    ``test_the_files_own_errexit_count_claims_match_its_code`` below can only be
+    trusted as far as this matcher is: with no controls it passes equally well
+    while reading nothing at all (vacuous — it only ever asserts that no claim
+    is WRONG) and while reading every "both" in the file as a claim of two
+    (cry-wolf). Both failure modes were live, and the first version of this
+    matcher shipped with a control set that happened to avoid all of them — see
+    the enumeration above ``_CARDINAL_WORDS`` for what is and is not covered
+    now, and the eight calibration cases below for how that was found out.
+    """
+    source = f"{comment}\nx=1\n"
+    found = tuple(number for _, _, number, _ in _errexit_count_claims(source))
+    assert found == expected, (
+        f"{label}: the matcher read {found} from {comment!r}, expected {expected}"
+    )
+
+
+def test_the_files_own_errexit_count_claims_match_its_code() -> None:
+    """ci/checks.sh's prose said "twice" and "at two" while disarming three times.
+
+    Three separate places asserted a count of two — the NON-NEGOTIABLE header
+    paragraph, ``docker_daemon_or_fail``'s explanation of why it uses
+    ``|| rc=$?`` instead, and (outside this scan) this module's own
+    ``ERREXIT_WINDOW`` comment. ``stage_coverage``'s window had been there since
+    FR-011a. A reader auditing "where is errexit off in this file?" against a
+    header that says two stops looking after two, which is precisely how the
+    third window went unparametrized in the test above.
+
+    Definition-of-done rule 6: a factual claim about the tree is mechanically
+    checked or it is a defect. This is that check for the count claims — for the
+    SPELLINGS enumerated above ``_CARDINAL_WORDS``, which is not every sentence
+    an author could write. Digits, cardinals two..twelve, once/twice/thrice and
+    the copular order are read; the bare word "one", a claim split across two
+    sentences, and a claim with no counted noun are not, each for a reason given
+    there. Read this as "the countable claims are checked", not "no wrong
+    sentence can exist" — and if you are adding prose whose count matters, spell
+    it in one of the covered shapes so this gate can see it.
+    """
+    windows = len(_functions_that_disarm_errexit())
+    assert windows, "nothing disarms errexit; every assertion below would be vacuous"
+
+    claims = _errexit_count_claims(CHECKS_SRC)
+
+    assert claims, (
+        "no comment in ci/checks.sh states how many errexit windows it has any "
+        "more. Say it in prose beside the rule, or this check is vacuous: the "
+        "header's whole point is that a reader can trust the count without "
+        "grepping."
+    )
+    wrong = [
+        f"line ~{line_number}: says {word!r} ({number}), file has {windows}: {sentence[:90]}"
+        for line_number, word, number, sentence in claims
+        if number != windows
+    ]
+    assert not wrong, (
+        "ci/checks.sh makes a numerically wrong claim about its own errexit "
+        "windows:\n" + "\n".join(wrong)
+    )
 
 
 # =============================================================================

@@ -94,7 +94,11 @@ gates. The other two are not, and each has its own requirement:
   run that measured nothing. Once the global floor passes, the same stage also
   runs `orbital_drift.covcheck` over the `coverage.json` that run produced — a
   per-file floor (charter C-6, DEC-004) that catches a single untested module
-  hiding behind a healthy aggregate, which a global average alone cannot.
+  hiding behind a healthy aggregate, which a global average alone cannot. That
+  second bar is pinned the same way as the first: `COVERAGE_PER_FILE_MIN_PERCENT`
+  in `ci/versions.env`, passed to covcheck as `--floor` (RB-008 F4). The
+  module's own `PER_FILE_FLOOR` constant is only the fallback for a hand-run,
+  and a test holds it equal to the pin.
 * `hooks` exists so the pre-commit config is enforced in CI rather than only on
   machines where somebody remembered to install it.
 
