@@ -520,3 +520,150 @@ def test_main_debug_reports_truncation(
     err = capsys.readouterr().err
     assert "guard: TRUNCATED" in err, err[:400]
     assert "BLOCKED (C-1)" in err
+
+
+# --- arcs the statement counter could not see (RB-008 part 3) --------------
+#
+# Everything below was written because `--cov-branch` made it visible.
+# Statement coverage reported each of these `if` lines as executed the moment
+# any test ran the condition; the arc INTO the body was never taken, so the
+# body's behaviour was unproved. Measured at 18330d4: guard.py carried five
+# such partial arcs, and this section closes four of them — 335->336,
+# 319->320, 214->220, 258->259. Each test is paired, in its docstring, with the
+# one-line production mutation that reddens it: a test that survives every
+# mutation of the line it claims to cover is measuring nothing, and an arc
+# closed by such a test is a number, not a proof.
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "bash -c",  # `-c` as the final token
+        "bash -x -c",  # `-c` final AFTER another flag: `index` is not 1
+        "sh -c",  # not bash-specific
+        "/bin/bash -c",  # path form: `head` comes from `_basename`
+    ],
+)
+def test_a_shell_dash_c_with_nothing_to_analyze_fails_closed(command: str, allowlist: Path) -> None:
+    """A shell `-c` with no argument is a BLOCK no test had ever exercised.
+
+    This is the highest-value arc `--cov-branch` exposed (guard.py:335->336),
+    and it sits in the module whose OTHER fail-open — an empty segment list
+    read as "nothing to object to" — is what RB-009 was raised to close. Same
+    defect class: `analyze` meets an interpreter whose `-c` payload it cannot
+    see, and the only safe reading of "cannot see" is BLOCK. The module
+    docstring already promised that ("Every uncertain path returns a BLOCK");
+    until now nothing checked that this path agreed.
+
+    Both reaching shapes are covered because the index arithmetic differs:
+    `bash -c` puts `-c` at index 1, `bash -x -c` at index 2, so a bounds check
+    written against a fixed position instead of `index + 1 >= len(argv)` would
+    pass the first and fail the second.
+
+    THE MUTATION THAT REDDENS THIS: replace the `return Verdict(True, "C-1",
+    ...)` at guard.py:336-341 with `continue`. That is precisely the fail-open
+    the arc guards — an unreadable interpreter invocation waved through — and
+    it turns every assertion below from blocked=True to blocked=False.
+    """
+    verdict = _blocked(command, allowlist)
+    assert verdict.blocked, f"{command!r} was allowed with no payload to analyze: {verdict}"
+    assert verdict.constraint == "C-1", verdict
+    assert "no argument to analyze" in verdict.reason, verdict.reason
+    # The operator has to be able to tell WHICH segment objected: render()
+    # formats constraint + reason and nothing else, so a segment that no reason
+    # interpolates never reaches stderr.
+    assert command in verdict.render(), verdict.render()
+
+
+# NOTE ON THE MISSING CONTROL. The ALLOW side of the arc above — a `-c` that
+# DOES have a payload — is deliberately not re-asserted here. It already has
+# two tests, `test_shell_dash_c_with_safe_payload_allows` (`bash -c "pytest
+# -q"` allows) and `test_shell_dash_c_payloads_are_analyzed_as_code` (the
+# payload is really re-analyzed), both of which take the 335->False arc, so the
+# analyzer cannot be passing the test above by having turned blanket-hostile to
+# the token `-c`. Adding a third would be a redundant test, which RB-008 part 2
+# is in the business of removing.
+
+
+@pytest.mark.parametrize(
+    "segment",
+    [
+        "# just a comment",  # shlex drops it entirely (comments=True)
+        "FOO=bar",  # a bare assignment, stripped as a leading VAR=value
+        "FOO=bar BAZ=qux",  # ...and the loop must strip ALL of them
+        "builtin",  # a bare WRAPPERS entry with nothing wrapped
+        "FOO=bar # trailing",  # both mechanisms in one segment
+    ],
+)
+def test_a_segment_that_tokenizes_to_nothing_is_skipped_not_misread(
+    segment: str, allowlist: Path
+) -> None:
+    """Closes TWO arcs at once: `_argv`'s `while argv:` exhausting (214->220)
+    and `analyze`'s `if not argv: continue` (319->320).
+
+    They are one path seen twice. `_argv` strips leading `VAR=value`
+    assignments and wrapper commands; a segment made of nothing else strips to
+    the empty list, which the loop in `analyze` must SKIP. Skipping is not a
+    detail: the next segment of the same command line is where the real verb
+    usually sits, so the difference between `continue` and any early exit is
+    the difference between reading `FOO=bar && kubectl delete ns prod` and
+    stopping at `FOO=bar`.
+
+    THE MUTATIONS THAT REDDEN THIS, one per arc:
+
+    * 214->220 — change `while argv:` (guard.py:214) to `while len(argv) > 1:`.
+      `_argv("FOO=bar")` then returns `["FOO=bar"]`, and the first assertion
+      fails.
+    * 319->320 — change the `continue` (guard.py:320) to
+      `return Verdict(False)`. The empty segment then ends the whole analysis,
+      and the compound assertion below fails because the denied verb after it
+      is never read.
+    """
+    assert guard._argv(segment) == [], f"{segment!r} did not strip to nothing"
+    assert not _blocked(segment, allowlist).blocked
+
+    verdict = _blocked(f"{segment}\n{_DENIED}", allowlist)
+    assert verdict.blocked and verdict.constraint == "C-1", (
+        f"an empty segment ended the analysis instead of being skipped, so "
+        f"{_DENIED!r} after {segment!r} was never classified: {verdict}"
+    )
+
+
+@pytest.mark.parametrize("command", ["terraform", "helm"])
+def test_a_conditional_command_with_no_subcommand_matches_no_readonly_form(
+    command: str, allowlist: Path
+) -> None:
+    """Closes guard.py:258->259, the `len(argv) < len(form): continue` arc.
+
+    Every entry in `READONLY_FORMS` is a (command, subcommand) PAIR, so a
+    single-token argv is shorter than all five and can match none — which is
+    the right answer, because a bare `terraform` is not `terraform validate`
+    and must not inherit its permission. Reaching the arc needs no contrivance:
+    `terraform` on its own is a command a human types.
+
+    THE MUTATION THAT REDDENS THIS: change the `continue` at guard.py:259 to
+    `return form`. `_readonly_prefix(["terraform"])` then answers with the
+    first form in the tuple — `("helm", "template")` — instead of None, the
+    first assertion fails, and a bare `terraform` is ALLOWED on a permission it
+    never matched.
+    """
+    assert guard._readonly_prefix([command]) is None
+    verdict = _blocked(command, allowlist)
+    assert verdict.blocked and verdict.constraint == "C-1", verdict
+
+
+def test_a_single_token_command_outside_the_conditional_set_is_the_control(
+    allowlist: Path,
+) -> None:
+    """The same arc, ALLOW side: a one-token argv is shorter than every form,
+    comes back None, and `ls` is then judged on not being a conditional command
+    rather than on having failed to match one.
+
+    NOT redundant with `ls -la` in `test_permitted_commands_allow`, which is
+    the obvious objection. That argv is two tokens, so `len(argv) < len(form)`
+    is FALSE for all five forms and the 258->259 arc is never reached; the
+    single-token shape is the only one that gets there. The bare `_readonly_
+    prefix` assertion is likewise made nowhere else.
+    """
+    assert guard._readonly_prefix(["ls"]) is None
+    assert not _blocked("ls", allowlist).blocked
