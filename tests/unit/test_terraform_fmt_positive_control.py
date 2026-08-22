@@ -7,8 +7,9 @@ that the hook is *wired up*: right image, right digest, right flags, called from
 ``stage_hooks``. None of that proves the flags actually gate anything — a hook
 whose ``entry:`` silently no-ops (wrong subcommand, a typo'd flag cobra ignores,
 an image that doesn't ship a ``terraform`` binary at the expected path) would
-pass every one of those tests while checking nothing. ``peer-reviewer.md``'s own
-bar: "a stub-only gate is a BLOCK."
+pass every one of those tests while checking nothing. ``adversarial-reviewer.md``'s
+own bar (ported from the deleted ``peer-reviewer.md`` per RB-006): "a stub-only
+gate is a BLOCK."
 
 So: run the real, digest-pinned container against real HCL fixtures and observe
 the exit code ``terraform fmt -check`` actually produces — not a paraphrase of
