@@ -138,6 +138,15 @@ def _branch_report(
     the two keys ``check()`` happens to read is that the statement-only and
     branch-only rates ARE present in the real file: choosing ``percent_covered``
     over them is a decision, and a fixture that omitted them would hide it.
+
+    WHAT THIS FIXTURE CANNOT PIN, SO NOBODY READS MORE INTO IT. ``combined`` is
+    COMPUTED here with the same formula the tests below describe and then
+    planted in this fixture's own ``percent_covered``, so every assertion
+    against it proves that ``check()`` reads that key — not that coverage.py
+    puts the combined rate there. The engine-side claim is pinned against the
+    real engine by
+    ``tests/unit/test_coverage_positive_control.py::test_percent_covered_is_the_combined_rate_computed_from_the_reports_own_counts``,
+    which recomputes the expected value from the counts a real report carries.
     """
     combined = 100.0 * (covered_statements + covered_branches) / (statements + branches)
     payload: dict[str, Any] = {

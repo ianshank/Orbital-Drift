@@ -24,11 +24,14 @@ exit code of ``main()`` has to reach the process. ``main()`` (no ``raise``) is
 a one-word edit that leaves every unit test in this repo green while every gate
 that shells out to these modules — ``ci/checks.sh`` stages ``coverage``,
 ``traceability``, ``projections``; ``scripts/pre_push_scan.sh``;
-``scripts/pretooluse_guard.sh`` — starts exiting 0 on failure. That is a
-silently-disarmed gate, and Constitution VII's "a gate that cannot fail is not
-a gate" is exactly the case. Three of the five cases below therefore drive a
-FAILING run and assert the nonzero code survives; the fifth column of
-``_CASES`` is where that is pinned.
+``scripts/pretooluse_guard.sh`` — starts exiting 0 on failure. A gate that
+cannot fail is not a gate: charter C-5 and C-6 both name enforcement mechanisms
+that are exactly these entry points' exit codes. (An earlier draft of this
+paragraph attributed that sentence to Constitution VII as a quotation; it is
+not one — VII is Secrets Hygiene and contains no such text — and an invented
+citation in a file arguing for rigor is the defect it argues against.) Three of
+the eight cases below therefore drive a FAILING run and assert the nonzero code
+survives; ``_Case``'s fourth field, ``expected_code``, is where that is pinned.
 
 A CONSTRAINT THIS FILE OBEYS, WORTH STATING: ``run_module`` re-executes the
 module source in a fresh namespace, so module-level constants are recomputed
@@ -239,13 +242,18 @@ def test_the_module_entry_point_propagates_the_exit_code(
 
     Verified by making both edits: measured 2026-08-22 at 18330d4.
     """
-    code = _run_as_main(case.module, case.build(tmp_path), monkeypatch)
+    # Built ONCE. `build` is not a pure accessor — it writes an allowlist or a
+    # coverage report under tmp_path — so calling it again to render the failure
+    # message would re-run a file-writing builder on the failure path, where the
+    # message is supposed to describe the run that just happened.
+    invocation = case.build(tmp_path)
+    code = _run_as_main(case.module, invocation, monkeypatch)
     # Read and discard whatever the entry point wrote, so a failing case's
     # stderr does not leak into the report of an unrelated test.
     capsys.readouterr()
 
     assert code == case.expected_code, (
-        f"`python -m {case.module} {' '.join(case.build(tmp_path).args)}` exited "
+        f"`python -m {case.module} {' '.join(invocation.args)}` exited "
         f"{code}, expected {case.expected_code}"
     )
 

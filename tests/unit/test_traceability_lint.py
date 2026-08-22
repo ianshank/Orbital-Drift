@@ -162,9 +162,20 @@ def test_header_only_matrix_is_vacuous(tmp_path: Path, monkeypatch: pytest.Monke
     assert any("vacuous" in problem for problem in problems)
 
 
-def test_unreadable_matrix_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A directory where a file is expected: an OSError must become a named
-    violation, not a traceback out of a CI stage."""
+def test_a_missing_matrix_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No matrix where one is required must be a named violation, not a traceback.
+
+    ``MATRIX`` is pointed at a directory, so ``lint``'s first branch
+    (``traceability.py:150`` ``if not MATRIX.is_file()``) returns the "is
+    missing" violation. It therefore never reaches the ``OSError`` handler at
+    :155-156 — this test's earlier name and docstring claimed it exercised that
+    handler, and RB-008 part 3's branch measurement is what showed otherwise.
+    Renamed and restated to say what it actually covers.
+
+    The assertion stays as-is deliberately: strengthening it to name the
+    violation is RB-008 part (2)'s "unfalsifiable tests removed or
+    strengthened", a different PR, and this change alters no assertion.
+    """
     monkeypatch.setattr(traceability, "MATRIX", tmp_path)
     assert traceability.lint() != []
 
@@ -290,10 +301,10 @@ def test_a_matrix_that_is_not_valid_utf8_is_a_named_violation(
     """Closes traceability.py:155-156, the `OSError`/`UnicodeDecodeError` guard
     around reading the matrix.
 
-    `test_unreadable_matrix_is_reported` above does NOT reach this handler: it
+    `test_a_missing_matrix_is_reported` above does NOT reach this handler: it
     points `MATRIX` at a directory, and `MATRIX.is_file()` returns the "is
-    missing" violation before `read_text` is ever called — which is why its
-    `!= []` assertion passes while the arc it names stays open. A file that
+    missing" violation before `read_text` is ever called — which is why that
+    test was renamed off the word "unreadable". A file that
     exists and cannot be DECODED is the shape that actually gets here, and it
     is uid-independent, unlike a chmod-000 file under a root test runner.
 

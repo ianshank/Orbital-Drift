@@ -874,7 +874,7 @@ stage_smoke() {
 }
 
 # -----------------------------------------------------------------------------
-# Stage: coverage  (FR-011a — minimum measured statement coverage of src/)
+# Stage: coverage  (FR-011a — minimum measured statement+branch coverage of src/)
 #
 # NOT one of FR-011's six gates. It exists because FR-011a asks for it, which is
 # the only thing that makes it conformant: the `hooks` stage is NOT a precedent
@@ -989,6 +989,11 @@ stage_coverage() {
   # 85 floor (11.18 pts of headroom), per-file minimum 90.74% -> 91.45% against
   # the 90 floor. The global number falling is the flag working, not a
   # regression.
+  #
+  # WHY ONE COMBINED BAR RATHER THAN A SEPARATE BRANCH BAR, with the four
+  # rejected alternatives and the measurements behind them: D-14. That is the
+  # same document the breach message below sends a breaching operator to, and
+  # FR-011a now says "statement and branch" because of it.
   set +e
   cov_output=$("${PYTHON}" -m pytest tests --cov=src/orbital_drift --cov-branch --cov-report=term-missing --cov-report=json --cov-fail-under="${COVERAGE_MIN_PERCENT}" 2>&1)
   cov_rc=$?

@@ -2260,9 +2260,23 @@ def test_the_coverage_stage_measures_branches_not_only_statements(tmp_path: Path
 
     Statement coverage alone cannot see a branch that is never taken: a
     ``if x: return BLOCK`` whose body no test reaches still counts both of its
-    lines as executed the moment any test runs the ``if``. Five such arcs were
-    measured on this tree at 9de5a0e, one of them a C-1 BLOCK path in
-    ``orbital_drift.guard``.
+    lines as executed the moment any test runs the ``if``. Eleven such arcs were
+    measured on this tree at 9de5a0e — four in ``orbital_drift.guard``, five
+    ``if __name__ == "__main__"`` entry points, two in
+    ``orbital_drift.traceability`` — one of them a C-1 BLOCK path in
+    ``orbital_drift.guard``. ``ci/checks.sh``'s comment at the invocation this
+    test reads states the same eleven; an earlier draft of this docstring said
+    five, and a justification that measurement contradicts is worse than no
+    justification (pyproject.toml:150-153).
+
+    WHAT THIS TEST CANNOT SHOW, AND WHERE THAT IS SHOWN. ``run_checks`` drives
+    ``ci/checks.sh`` with a STUBBED python, so the only claim available here is
+    that the flag reaches argv — it would stay green if ``--cov-branch`` became
+    a no-op. The engine-side positive controls required alongside it live in
+    ``tests/unit/test_coverage_positive_control.py``
+    (``test_cov_branch_is_what_turns_an_untaken_arc_into_a_failing_build`` and
+    the two ``percent_covered``/``percent_branches_covered`` controls), which
+    run the real pytest-cov.
 
     Asserted on the CLI, because the other place coverage.py takes this setting
     — a ``[tool.coverage]`` section — is forbidden outright by
