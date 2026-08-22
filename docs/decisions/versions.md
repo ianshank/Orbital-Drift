@@ -15,8 +15,18 @@ Re-verify before use if this file is more than ~30 days old. `kube-prometheus-st
 | NVIDIA driver (host, **open** modules) | `610.57.04` | https://download.nvidia.com/XFree86/Linux-x86_64/ | UNVERIFIED-ON-RECHECK — `download.nvidia.com` egress-blocked, no reachable equivalent; 2026-08-08 confirmation stands as last-known-good |
 | CUDA | `13.x` | https://docs.nvidia.com/datacenter/tesla/tesla-release-notes-610-57-04/index.html | UNVERIFIED-ON-RECHECK — `docs.nvidia.com` egress-blocked; 2026-08-08 confirmation stands as last-known-good |
 | GPU Operator chart | `v26.3.3` | https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html | DRIFTED — upstream latest is now `v26.7.0` (released 2026-08-21, per https://github.com/NVIDIA/gpu-operator/releases); `v26.3.3` remains the newest 26.3.x patch. See finding 1 below — T006-relevant |
+| Component | Version | Source |
+|---|---|---|
+| k3s (recommended) | `v1.35.7+k3s1` | https://update.k3s.io/v1-release/channels · https://docs.k3s.io/release-notes/v1.35.X |
+| k3s (latest stable — **not** recommended, see D-07) | `v1.36.3+k3s1` | https://update.k3s.io/v1-release/channels |
+| NVIDIA driver (host, **open** modules) | `610.57.04` | https://download.nvidia.com/XFree86/Linux-x86_64/ |
+| CUDA | `13.x` | https://docs.nvidia.com/datacenter/tesla/tesla-release-notes-610-57-04/index.html |
+| GPU Operator chart | `v26.3.3` | https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html |
+| containerd (bundled in k3s `v1.35.7+k3s1` — not independently installed) | `v2.2.5-k3s2` | https://github.com/k3s-io/k3s/releases/tag/v1.35.7%2Bk3s1 |
 
 RTX 5060 Ti (device ID `2D04`) and RTX 5060 (`2D05`) are both explicitly listed as supported by driver 610.57.04: https://download.nvidia.com/XFree86/Linux-x86_64/610.57.04/README/supportedchips.html *(2026-08-22: UNVERIFIED-ON-RECHECK — `download.nvidia.com` egress-blocked; 2026-08-08 confirmation stands as last-known-good.)*
+
+The containerd row was read from the "Embedded Component Versions" table of the k3s `v1.35.7+k3s1` release notes (retrieved **2026-08-22**, later than this file's header date). It is not a pin the operator installs — it rides the k3s pin — and it exists here because `infra/k3s/config-v3.toml.tmpl` and `tests/unit/test_k3s_config_template.py` cite it (T004a); if the k3s pin ever moves, this row moves with it from the new tag's release notes.
 
 ## Platform charts
 
