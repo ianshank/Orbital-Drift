@@ -6,9 +6,11 @@ exit code — a guard test that matches exit codes alone can stay green via an
 unrelated fail-closed error path with the actual fix removed (donor-kit
 incident; adversarial-reviewer tooling-diff protocol).
 
-REGRESSION CORPUS. The `LAUNDERING` cases below were all measured ALLOWED by
-the first (sed + ERE) implementation and are the reason the tokenizer moved
-into orbital_drift.guard. They must never pass again.
+REGRESSION CORPUS. Every `LAUNDERING` case below was measured ALLOWED by a
+SHIPPED implementation of this guard: the first nine by the original sed + ERE
+tokenizer (the reason tokenization moved into orbital_drift.guard), and the
+last by the shlex rewrite itself, which fell off its own segment work ceiling
+and allowed a denied command outright (RB-009). They must never pass again.
 """
 
 from __future__ import annotations
@@ -35,12 +37,24 @@ def _bash() -> str:
     return found
 
 
-def _run(payload: str) -> subprocess.CompletedProcess[str]:
+def _env(**overrides: str) -> dict[str, str]:
+    """The environment every probe in this module hands the wrapper.
+
+    One home, because the tests, the debug test and the interpreter probe below
+    must all present the wrapper with the SAME environment — a probe that
+    resolved a different interpreter than the test it vouches for would be
+    worse than no probe.
+    """
     import os
 
     env = dict(os.environ)
     env["CLAUDE_PROJECT_DIR"] = str(REPO_ROOT)
     env.pop("GUARD_DEBUG", None)
+    env.update(overrides)
+    return env
+
+
+def _run(payload: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [_bash(), str(GUARD)],
         input=payload,
@@ -48,7 +62,56 @@ def _run(payload: str) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
         timeout=TIMEOUT,
-        env=env,
+        env=_env(),
+    )
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _analyzer_under_test_is_this_checkout() -> None:
+    """Pin WHICH `orbital_drift` the wrapper's subprocess actually loads.
+
+    The wrapper runs `${REPO_ROOT}/.venv/bin/python -m orbital_drift.guard`, so
+    the module it analyses with is whatever that interpreter resolves — not
+    necessarily the tree pytest is collecting from. In a git worktree whose
+    `.venv` is a symlink to another checkout's venv, the editable install
+    resolves to that OTHER checkout: measured 2026-08-22, the whole in-process
+    suite went green against a fixed guard while every test in THIS module
+    still ran the unfixed one and reported exit 0 on a payload that must block.
+
+    That is a false green in the fail-open direction, and no assertion in this
+    file could see it. So the interpreter is asked directly, once per module,
+    through the same `_lib.sh` resolution the wrapper uses rather than a second
+    copy of that probe order, and the answer must live under REPO_ROOT.
+    """
+    resolver = f'. "{REPO_ROOT}/scripts/_lib.sh"; od_find_python "{REPO_ROOT}"'
+    found = subprocess.run(
+        [_bash(), "-c", resolver],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=TIMEOUT,
+        env=_env(),
+    )
+    interpreter = found.stdout.strip()
+    assert interpreter, f"the wrapper would find no interpreter: {found.stderr}"
+
+    located = subprocess.run(
+        [interpreter, "-c", "import orbital_drift.guard as g; print(g.__file__)"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=TIMEOUT,
+        env=_env(),
+    )
+    assert located.returncode == 0, f"{interpreter} cannot import the guard: {located.stderr}"
+    module = Path(located.stdout.strip()).resolve()
+    assert module.is_relative_to(REPO_ROOT), (
+        f"the wrapper's interpreter ({interpreter}) analyses commands with\n"
+        f"    {module}\n"
+        f"which is OUTSIDE this checkout ({REPO_ROOT}). Every boundary verdict in\n"
+        "this module would be a verdict about someone else's code. Fix the\n"
+        f"environment (e.g. PYTHONPATH={REPO_ROOT / 'src'}, or install this tree\n"
+        "editable into the venv the wrapper resolves) — do not weaken this check."
     )
 
 
@@ -57,6 +120,67 @@ def _verdict(command: str) -> subprocess.CompletedProcess[str]:
 
 
 # --- the regression corpus: every shape the sed+ERE guard let through -------
+
+#: Nesting depth at which the segmenter's work ceiling truncates the split.
+#:
+#: Each `$( )` level costs TWO iterations of guard.split_segments' queue: the
+#: lifted body is queued AND the stripped remainder is re-queued. The queue is
+#: LIFO, so the body lifted on the first pass — the one holding the real
+#: command — lands at the bottom and is popped LAST, on iteration
+#: `2 * depth + 1`. Against the ceiling of 512 that is out of reach from
+#: `512 // 2` = 256 levels up, so the split returned an EMPTY list, analyze()
+#: looped over nothing, and this wrapper exited 0 (ALLOW).
+#:
+#: Measured 2026-08-22 through this very wrapper: depth 1 -> exit 2, depth 255
+#: -> exit 2, depth 256 -> exit 0 for a command denied in every mode (RB-009).
+#: Deliberately a literal here, not `guard._MAX_SEGMENTS // 2` — this suite
+#: drives the guard as a black box, through its real entry point, and importing
+#: the module under test to compute its own payload would let a change to the
+#: ceiling silently re-aim the probe. If the ceiling moves, the reason
+#: assertion in test_ceiling_truncation_is_blocked_at_the_boundary fails and
+#: says so.
+CEILING_NESTING_DEPTH: Final = 256
+
+#: RB-009's payload: a denied command buried under `CEILING_NESTING_DEPTH`
+#: command substitutions. Exercised at the boundary because that is the only
+#: place the bug was ever visible — in-process the analyzer merely returned a
+#: verdict object; here it is an exit code that permits a tool call.
+NESTED_PAST_CEILING: Final = (
+    "$(" * CEILING_NESTING_DEPTH + "kubectl delete ns prod" + ")" * CEILING_NESTING_DEPTH
+)
+
+#: How many `;`-separated commands the benign ALLOW control chains together.
+#: Deliberately MORE than the queue budget the block above is about: a chain is
+#: split in one pass, so segment count and queue budget are different
+#: quantities and the guard must not conflate them.
+#:
+#: DERIVED, not chosen, so the claim in that name cannot quietly stop being
+#: true. `test_ceiling_truncation_is_blocked_at_the_boundary` asserts the
+#: nested payload at `CEILING_NESTING_DEPTH` truncates, and a nested payload
+#: truncates exactly when `2 * depth + 1` exceeds the ceiling. So for as long
+#: as that assertion holds, the ceiling is strictly below the value below —
+#: i.e. this chain really does carry more segments than the guard's whole
+#: iteration budget. Raise `_MAX_SEGMENTS` and that assertion goes red first,
+#: which is the loud failure this constant would otherwise lack: a hard 513
+#: would degrade in silence into an ordinary long-chain ALLOW case.
+SEGMENTS_PAST_THE_CEILING: Final = 2 * CEILING_NESTING_DEPTH + 1
+
+
+def _corpus_id(value: object) -> str | None:
+    """Readable pytest ids for the two corpus entries that are payload-sized:
+    the RB-009 nested payload (790 characters — mostly `$(` — at
+    ``CEILING_NESTING_DEPTH`` 256: ``2 * 256`` opening, 22 for the command, 256
+    closing) and the ``SEGMENTS_PAST_THE_CEILING`` chain. pytest would
+    otherwise use either verbatim as the test id, including in the
+    ``--collect-only -q`` probe ci/checks.sh runs over this suite.
+
+    Returning ``None`` falls back to pytest's own id, so every pre-existing
+    case keeps the id it has always had.
+    """
+    if isinstance(value, str) and len(value) > 72:
+        return f"{value[:20]}...<{len(value)} chars>"
+    return None
+
 
 LAUNDERING: Final[tuple[tuple[str, str], ...]] = (
     # Co-located `git` token routed the whole segment into the push branch,
@@ -74,6 +198,10 @@ LAUNDERING: Final[tuple[tuple[str, str], ...]] = (
     ("git -C /somewhere push evil main", "C-5"),
     # An unparseable destination fell back to `origin` and was allowed.
     ("git -c user.name=x push evil", "C-5"),
+    # Not a tokenizer failure but a WORK-CEILING failure: the segmenter ran out
+    # of queue budget before it reached the denied command, returned nothing,
+    # and the analyzer read "no segments" as "nothing to object to" (RB-009).
+    (NESTED_PAST_CEILING, "C-1"),
 )
 
 BLOCKED: Final[tuple[tuple[str, str], ...]] = (
@@ -123,10 +251,23 @@ ALLOWED: Final[tuple[str, ...]] = (
     "sh ci/checks.sh lint",
     "ls -la && echo done",
     "python -m orbital_drift.traceability --json",
+    # SUBSTITUTIONS IN ORDINARY USE. The segment ceiling makes an unreadable
+    # command fail closed; it must not make a readable one fail closed too.
+    # Every other entry above is substitution-free, so without these the whole
+    # corpus would stay green if the guard started refusing `$( )` outright.
+    "echo $(git rev-parse HEAD)",
+    "cd $(git rev-parse --show-toplevel) && pytest -q",
+    "make pre-pr 2>&1 | tee /tmp/`date +%s`.log",
+    # MANY SEGMENTS IS NOT TRUNCATION. A `;`-chain is split in a single pass,
+    # so it costs one queue iteration however long it runs; this one yields
+    # more segments than the ceiling itself and must still be allowed. It is
+    # the control that separates "never read this command" from "read all of
+    # this command, at length" — a count-based ceiling would confuse the two.
+    "; ".join("echo x" for _ in range(SEGMENTS_PAST_THE_CEILING)),
 )
 
 
-@pytest.mark.parametrize(("command", "constraint"), LAUNDERING)
+@pytest.mark.parametrize(("command", "constraint"), LAUNDERING, ids=_corpus_id)
 def test_laundering_shapes_are_blocked(command: str, constraint: str) -> None:
     """The measured bypass corpus. A regression here is a live fail-open."""
     result = _verdict(command)
@@ -136,6 +277,40 @@ def test_laundering_shapes_are_blocked(command: str, constraint: str) -> None:
     )
     assert f"BLOCKED ({constraint}" in result.stderr, (
         f"block must name its constraint for {command!r}; stderr was: {result.stderr}"
+    )
+
+
+def test_ceiling_truncation_is_blocked_at_the_boundary() -> None:
+    """The block for RB-009's payload must come from REFUSING TO ANALYSE it.
+
+    The corpus entry above pins the exit code; this pins the reason, and with
+    it the probe's aim. Should `_MAX_SEGMENTS` ever REACH
+    `2 * CEILING_NESTING_DEPTH + 1` — the iteration on which the innermost body
+    is popped, and iteration i runs while i <= the ceiling — this payload would
+    be fully unwrapped and blocked on the denied verb instead: still exit 2, so
+    the corpus entry would stay green while no longer testing truncation at
+    all. This assertion fails loudly in that case and names the constant to
+    update.
+    """
+    result = _verdict(NESTED_PAST_CEILING)
+    assert result.returncode == 2, (
+        f"FAIL-OPEN at the enforcement boundary: {CEILING_NESTING_DEPTH} nested "
+        f"substitutions were allowed (rc={result.returncode})"
+    )
+    assert "ceiling" in result.stderr, (
+        "expected a refusal-to-analyse block naming the segment ceiling; "
+        f"CEILING_NESTING_DEPTH may no longer truncate. stderr was: {result.stderr}"
+    )
+    # ...and the operator must be shown WHICH command was refused, on the
+    # ordinary path, with no GUARD_DEBUG. This block names no segment because
+    # there is none, so it quotes a bounded excerpt of the command instead: a
+    # refusal that identifies nothing is a refusal nobody can act on.
+    assert NESTED_PAST_CEILING[:40] in result.stderr, (
+        f"the block quotes no part of the command it refused; stderr was: {result.stderr}"
+    )
+    assert len(result.stderr) < len(NESTED_PAST_CEILING), (
+        f"the block echoed the payload back: {len(result.stderr)} chars of stderr for a "
+        f"{len(NESTED_PAST_CEILING)}-char command"
     )
 
 
@@ -150,7 +325,7 @@ def test_blocks_with_reason(command: str, constraint: str) -> None:
     )
 
 
-@pytest.mark.parametrize("command", ALLOWED)
+@pytest.mark.parametrize("command", ALLOWED, ids=_corpus_id)
 def test_allows(command: str) -> None:
     result = _verdict(command)
     assert result.returncode == 0, (
@@ -197,25 +372,48 @@ def test_empty_command_is_allowed() -> None:
     assert result.returncode == 0, result.stderr
 
 
-def test_debug_mode_traces_segments() -> None:
-    """GUARD_DEBUG renders the parsed segments — the affordance whose absence
-    let the laundering bugs survive a full review cycle."""
-    import os
-
-    env = dict(os.environ)
-    env["CLAUDE_PROJECT_DIR"] = str(REPO_ROOT)
-    env["GUARD_DEBUG"] = "1"
-    payload = json.dumps(
-        {"tool_name": "Bash", "tool_input": {"command": "echo a && echo $(echo b)"}}
-    )
-    result = subprocess.run(
+def _debug_run(command: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [_bash(), str(GUARD)],
-        input=payload,
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}),
         capture_output=True,
         text=True,
         check=False,
         timeout=TIMEOUT,
-        env=env,
+        env=_env(GUARD_DEBUG="1"),
     )
+
+
+def test_debug_mode_traces_segments() -> None:
+    """GUARD_DEBUG renders the parsed segments — the affordance whose absence
+    let the laundering bugs survive a full review cycle."""
+    result = _debug_run("echo a && echo $(echo b)")
     assert result.returncode == 0, result.stderr
     assert "guard: segment=" in result.stderr, result.stderr
+
+
+def test_debug_mode_says_so_when_the_trace_is_incomplete() -> None:
+    """A trace that stops early must SAY it stopped early.
+
+    On a NESTED truncating payload the segment list comes back empty, so the
+    trace printed nothing whatsoever and the operator saw a block with no
+    evidence — the same silent shortfall as the bug itself.
+
+    The length assertion below is scoped to THAT shape and is not a general
+    claim about debug output. This payload traces zero segment lines, so its
+    stderr is two fixed lines carrying one bounded excerpt (measured
+    2026-08-22: 790-char payload -> 514 chars over 2 lines). A WIDE fan-out
+    legitimately exceeds its own payload length, because every lifted segment
+    gets a line of its own: `echo $(<denied>) ` plus 600 siblings measured
+    6031 -> 12780 chars over 513 lines. That output is bounded by
+    `_MAX_SEGMENTS` lines rather than by payload size — identical 12780 for a
+    10031-char payload — and it is opt-in behind GUARD_DEBUG, so it is a
+    verbosity property, not a hazard.
+    """
+    result = _debug_run(NESTED_PAST_CEILING)
+    assert result.returncode == 2, result.stderr
+    assert "guard: TRUNCATED" in result.stderr, result.stderr
+    assert len(result.stderr) < len(NESTED_PAST_CEILING), (
+        f"the trace echoed the payload back ({len(result.stderr)} chars of stderr for a "
+        f"{len(NESTED_PAST_CEILING)}-char command)"
+    )

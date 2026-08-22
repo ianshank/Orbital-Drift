@@ -39,6 +39,22 @@ pushes to a non-allowlisted remote, per charter C-1 and C-5 (Constitution I).
 - **WHEN** the hook payload cannot be parsed but its raw text matches a dangerous token
 - **THEN** the guard SHALL exit 2 — never treat a parse failure as permission
 
+#### Scenario: Command too large to segment fails closed
+- **WHEN** a Bash command carries more command substitutions than the segmenter's work
+  ceiling allows, so the split ends with substitutions still queued and the returned
+  segment list is incomplete — empty, or missing the part that holds the real command
+- **THEN** the guard SHALL exit 2 with a `BLOCKED (C-1)` reason naming the ceiling and
+  its refusal to analyze — never read a short or empty segment list as "nothing to
+  object to", and never condition the verdict on what the unread part turns out to say
+  (a benign command of that shape SHALL also block)
+
+#### Scenario: Command within the ceiling is judged on its contents
+- **WHEN** a Bash command's substitutions are within the segmenter's work ceiling, so
+  the split completes
+- **THEN** the guard SHALL judge it on its segments as usual — blocking a denied verb
+  with a reason naming that verb, and allowing a benign command; the ceiling SHALL NOT
+  become a blanket refusal of every nested command
+
 ### Requirement: Zero-skip test gate
 The test suite SHALL treat any skipped, xfailed, or xpassed test as a gate failure,
 except skips whose reason begins with the literal `capability-guard:` (design D10).
