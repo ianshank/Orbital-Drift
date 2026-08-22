@@ -226,6 +226,114 @@ def test_labels_fit_the_csv_projection_catches_overflow(
     assert roadmap_data.labels_fit_the_csv_projection() == ["S9.6"]
 
 
+def test_the_labels_column_count_has_exactly_one_home() -> None:
+    """The guard and the emitter must agree by construction, not by comment.
+
+    ``roadmap_data.labels_fit_the_csv_projection`` used to carry its own
+    ``limit = 3`` annotated "duplicated to keep this module I/O-free". That
+    reason was wrong — importing an ``int`` is not I/O. The real constraint is
+    direction: ``projections`` imports ``roadmap_data``, so ``roadmap_data``
+    cannot import ``projections`` back without a cycle. The fix is to put the
+    constant in the leaf and re-export it, not to keep two copies.
+
+    Two copies is not a style question here. Widening the CSV to four Labels
+    columns while updating only the emitter leaves the guard rejecting a
+    perfectly valid fourth label; updating only the guard restores exactly the
+    silent-data-loss bug ``_label_cells``' docstring says it exists to prevent.
+
+    IDENTITY ALONE CANNOT PROVE THIS, which is why the source check below
+    exists. ``LABEL_COLUMNS`` is ``3``, and CPython interns every int in
+    -5..256, so a re-introduced ``LABEL_COLUMNS: Final = 3`` inside
+    ``projections`` would be the very same object and satisfy ``is``. The
+    identity assertion is kept — it is the cheap check that the two names agree
+    at runtime — but the assertion that actually detects a second home has to
+    read the source and confirm no second declaration exists.
+
+    Plain regex, not the AST toolkit: an ``import``ed name is not an assignment,
+    so a one-line ``^LABEL_COLUMNS\\s*[:=]`` match distinguishes "declared here"
+    from "imported here" without parsing, and the AST helper is out of this
+    change's scope (RB-008 defers it explicitly).
+    """
+    assert roadmap_data.LABEL_COLUMNS is projections.LABEL_COLUMNS, (
+        "projections.LABEL_COLUMNS must be the re-exported roadmap_data value, not a second literal"
+    )
+
+    source = Path(projections.__file__).read_text(encoding="utf-8")
+    assert re.search(r"^LABEL_COLUMNS\s*[:=]", source, re.M) is None, (
+        "projections.py declares LABEL_COLUMNS itself. Because small ints are "
+        "interned, that second home would still satisfy the `is` check above while "
+        "silently re-creating the two-copies defect. Import it from roadmap_data."
+    )
+
+    home = Path(roadmap_data.__file__).read_text(encoding="utf-8")
+    assert re.search(r"^LABEL_COLUMNS\s*[:=]", home, re.M), (
+        "roadmap_data.py no longer declares LABEL_COLUMNS, so the check above passes "
+        "vacuously — neither module would own it"
+    )
+
+
+def test_the_overflow_guard_uses_the_shared_constant_not_a_literal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Move the single home and BOTH sides move. This is what pins the re-export.
+
+    Without this, ``labels_fit_the_csv_projection`` could go back to a local
+    literal that merely happens to equal the constant, and the test above would
+    still pass.
+    """
+    monkeypatch.setattr(roadmap_data, "LABEL_COLUMNS", 1)
+    two_labels = roadmap_data.Story(
+        key="S9.5",
+        title="S9.5 two labels",
+        epic="E0",
+        acceptance="AC: x. Trace: T002.",
+        labels=("orbital-drift", "owner"),
+        points=1,
+        priority="Low",
+    )
+    monkeypatch.setattr(roadmap_data, "STORIES", (two_labels,))
+    assert roadmap_data.labels_fit_the_csv_projection() == ["S9.5"]
+
+
+def test_the_emitter_uses_the_shared_constant_not_a_literal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of "the guard AND the emitter agree by construction".
+
+    The guard's half is pinned above by monkeypatching ``roadmap_data``. That
+    cannot move the emitter, which binds ``LABEL_COLUMNS`` into its own module
+    namespace at import — so until this test, replacing the emitter's two uses
+    with a literal ``3`` left the whole unit suite green while the docstring
+    above claimed both sides were bound. Padding width and overflow ceiling are
+    separate expressions, so both are exercised.
+    """
+    monkeypatch.setattr(projections, "LABEL_COLUMNS", 4)
+
+    assert projections._label_cells(("a", "b")) == ["a", "b", "", ""], (
+        "_label_cells pads to a literal instead of LABEL_COLUMNS"
+    )
+    # Four labels must now FIT, where at the real width of 3 they raise.
+    assert projections._label_cells(("a", "b", "c", "d")) == ["a", "b", "c", "d"]
+
+    with pytest.raises(projections.ProjectionError):
+        projections._label_cells(("a", "b", "c", "d", "e"))
+
+
+def test_the_csv_header_declares_one_labels_column_per_shared_constant() -> None:
+    """The header's width is the same fact as the padding width.
+
+    It was three literal ``"Labels"`` strings — a fourth un-derived expression
+    — so widening the constant would have emitted N label cells underneath 3
+    headers: a CSV Jira accepts and silently mis-imports.
+    """
+    header = projections.render_csv().splitlines()[0]
+    declared = header.count('"Labels"')
+    assert declared == projections.LABEL_COLUMNS, (
+        f"CSV header declares {declared} Labels columns but LABEL_COLUMNS is "
+        f"{projections.LABEL_COLUMNS}"
+    )
+
+
 def test_keys_are_unique_catches_a_duplicate(monkeypatch: pytest.MonkeyPatch) -> None:
     twin = roadmap_data.Story(
         key="S0.2",

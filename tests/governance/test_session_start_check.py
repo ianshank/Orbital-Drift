@@ -20,6 +20,7 @@ PATH, so the same tree produces the same result on any machine.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -32,7 +33,36 @@ import pytest
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 SCRIPT: Final = REPO_ROOT / "scripts" / "session_start_check.sh"
+CHECKS_SH: Final = REPO_ROOT / "ci" / "checks.sh"
 TIMEOUT: Final = 30.0
+
+
+def _checks_sh_exempt_pins() -> frozenset[str]:
+    """``PREFLIGHT_EXEMPT_PINS`` as ``ci/checks.sh`` declares it.
+
+    DERIVED, not restated. The parametrize below used to carry its own copy of
+    the five literals this script's ``EXEMPT`` set happened to contain, which
+    made it structurally incapable of catching the drift it was written to
+    catch: when ``terraform`` was added to ``ci/checks.sh`` and not here, the
+    test agreed with the bug. Reading the shell literal is the same
+    derive-don't-duplicate rule ``ci/checks.sh``'s own ``versions_env_tools()``
+    and ``tests/unit/test_version_pins.py``'s ``_dev_extra_pins()`` follow.
+    """
+    match = re.search(
+        r"^PREFLIGHT_EXEMPT_PINS='([^']*)'", CHECKS_SH.read_text(encoding="utf-8"), re.M
+    )
+    assert match, "ci/checks.sh no longer declares PREFLIGHT_EXEMPT_PINS as a single-quoted literal"
+    return frozenset(match.group(1).split())
+
+
+def _script_exempt_pins() -> frozenset[str]:
+    """``EXEMPT`` as ``scripts/session_start_check.sh``'s inline Python declares it."""
+    match = re.search(r"^EXEMPT = \{([^}]*)\}", SCRIPT.read_text(encoding="utf-8"), re.M)
+    assert match, "session_start_check.sh no longer declares EXEMPT as a single-line set literal"
+    return frozenset(re.findall(r'"([^"]+)"', match.group(1)))
+
+
+CHECKS_SH_EXEMPT_PINS: Final = _checks_sh_exempt_pins()
 
 
 def _bash() -> str:
@@ -213,7 +243,32 @@ def test_uninstalled_pin_reports_not_installed(repo: Path) -> None:
     assert "definitely-not-a-real-package" in result.stdout
 
 
-@pytest.mark.parametrize("distribution", ["python", "hatchling", "pip", "gitleaks", "shellcheck"])
+def test_the_scripts_exempt_set_matches_checks_sh_preflight_exempt_pins() -> None:
+    """The script's own comment claims it mirrors ``PREFLIGHT_EXEMPT_PINS``. Prove it.
+
+    This is the durable half of the fix. The two lists were hand-kept copies and
+    one drifted: ``terraform`` was added to ``ci/checks.sh`` (it is a pinned
+    container image, so ``tool_version()`` has no probe for it) and not to the
+    script, so every single session start printed
+
+        terraform: not installed (pinned 1.15.8)
+
+    with a ``pip install -e ".[dev]"`` remedy that can never fix it — terraform
+    is not a Python distribution, so no pip install will ever make
+    ``importlib.metadata`` find it. A false alarm on every session is worse than
+    no alarm: it trains the reader to ignore the block that also carries the
+    real drift.
+
+    Both sides are read from their files, so this fails whichever copy moves.
+    """
+    assert _script_exempt_pins() == CHECKS_SH_EXEMPT_PINS, (
+        f"session_start_check.sh EXEMPT={sorted(_script_exempt_pins())} but "
+        f"ci/checks.sh PREFLIGHT_EXEMPT_PINS={sorted(CHECKS_SH_EXEMPT_PINS)}; "
+        "the script's comment claims these mirror each other"
+    )
+
+
+@pytest.mark.parametrize("distribution", sorted(CHECKS_SH_EXEMPT_PINS))
 def test_exempt_pins_are_never_checked(repo: Path, distribution: str) -> None:
     """These are pinned but not `python -m`-importable (build-time or
     container-run tools); checking them would always report false drift."""

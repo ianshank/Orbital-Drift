@@ -66,8 +66,19 @@ READONLY_FORMS: Final[tuple[tuple[str, ...], ...]] = (
     ("terraform", "init"),
 )
 
-#: Flags that make an otherwise-permitted read-only form unsafe.
-FORBIDDEN_FLAGS: Final[dict[tuple[str, ...], tuple[str, ...]]] = {
+#: Flags that MUST be present for this form to stay read-only. Absent any one
+#: of them, the form is NOT read-only and blocks.
+#:
+#: The name matters here. This was called ``FORBIDDEN_FLAGS``, which says the
+#: exact opposite of what the values are: ``-backend=false`` is the flag that
+#: makes ``terraform init`` safe, not the flag that makes it dangerous. Its own
+#: consumer in :func:`_readonly_prefix` already had to name the local
+#: ``required`` to read correctly. A future editor trusting the old name would
+#: "fix" the consumer to block WHEN the flag is present — silently permitting a
+#: bare ``terraform init``, which initializes a real backend against real
+#: credentials, i.e. the precise Constitution I / charter C-1 violation this
+#: whole module exists to make impossible.
+REQUIRED_SAFETY_FLAGS: Final[dict[tuple[str, ...], tuple[str, ...]]] = {
     # `terraform init` without -backend=false initializes a real backend.
     ("terraform", "init"): ("-backend=false",),
 }
@@ -249,7 +260,7 @@ def _readonly_prefix(argv: list[str]) -> tuple[str, ...] | None:
     """The enumerated read-only form this argv matches, if any.
 
     Matching is on the argv PREFIX (command + subcommand), so arguments are
-    free-form — but a form listed in :data:`FORBIDDEN_FLAGS` additionally
+    free-form — but a form listed in :data:`REQUIRED_SAFETY_FLAGS` additionally
     requires its safety flag to be present, which is what keeps
     ``terraform init`` (initializes a real backend) from riding in on
     ``terraform init -backend=false``'s permission.
@@ -260,7 +271,7 @@ def _readonly_prefix(argv: list[str]) -> tuple[str, ...] | None:
         candidate = (_basename(argv[0]), *argv[1 : len(form)])
         if candidate != form:
             continue
-        required = FORBIDDEN_FLAGS.get(form)
+        required = REQUIRED_SAFETY_FLAGS.get(form)
         if required and not any(flag in argv for flag in required):
             return None
         return form

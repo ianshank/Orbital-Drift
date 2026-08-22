@@ -68,17 +68,20 @@ def test_main_exit_codes(tmp_path: Path) -> None:
     assert denied == 1
 
 
-def test_main_fails_closed_on_missing_allowlist(tmp_path: Path) -> None:
-    assert (
-        remotes.main(["--check-url", "https://x/y.git", "--allowlist", str(tmp_path / "nope.txt")])
-        == 2
-    )
-
-
 def test_missing_allowlist_returns_the_error_code(tmp_path: Path) -> None:
     """Exit 2 (error), distinct from exit 1 (not allowlisted): callers render
     the two differently and a conflation blamed the allowlist for a broken
-    venv."""
+    venv.
+
+    This absorbed a byte-for-byte twin (``test_main_fails_closed_on_missing_
+    allowlist``) that differed only in the name of the file it did not create —
+    same argv shape, same assertion, same line of ``remotes.py``. Two names for
+    one case is not defence in depth: it inflates the count while adding no
+    input class, and the next reader has to diff them to find that out. The
+    genuinely different input classes are kept and are immediately below:
+    a path that is a DIRECTORY (the ``is_file()`` guard) and a read that raises
+    ``OSError`` (the ``except`` branch).
+    """
     assert (
         remotes.main(["--check-url", "https://x/y.git", "--allowlist", str(tmp_path / "no.txt")])
         == 2

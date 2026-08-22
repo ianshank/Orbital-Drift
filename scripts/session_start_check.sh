@@ -49,7 +49,16 @@ from importlib import metadata
 # added to versions.env is checked BY DEFAULT. The first version listed the
 # checked tools instead and was already stale the day it shipped - pytest-cov
 # was pinned by the same change and never checked.
-EXEMPT = {"python", "hatchling", "pip", "gitleaks", "shellcheck"}
+#
+# LOCKSTEP, mechanically enforced. This set and ci/checks.sh's
+# PREFLIGHT_EXEMPT_PINS must contain the same names; tests/governance/
+# test_session_start_check.py reads BOTH literals out of their files and fails
+# if they disagree. Claiming to mirror was not enough: terraform was added
+# there and not here, so every session start printed a false
+# "terraform: not installed" whose pip-install remedy could never fix it (a
+# digest-pinned container image is not a Python distribution). Add a name here
+# ONLY together with the one in ci/checks.sh - see .claude/skills/pin-a-tool.
+EXEMPT = {"python", "hatchling", "pip", "gitleaks", "shellcheck", "terraform"}
 pins = {
     key.lower().removesuffix("_version").replace("_", "-"): value
     for key, value in re.findall(

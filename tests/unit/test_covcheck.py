@@ -66,8 +66,20 @@ def test_zero_statement_modules_are_skipped_not_failed(tmp_path: Path) -> None:
 
 
 def test_a_report_of_only_zero_statement_modules_is_vacuous(tmp_path: Path) -> None:
+    """The ``measured == 0`` branch: files ARE present, none has statements.
+
+    This and ``test_empty_files_map_is_vacuous`` drive two different guards
+    that produce two different messages, and both used to assert only that
+    the word "vacuous" appeared somewhere. That is satisfied by EITHER branch,
+    so deleting one guard entirely left both tests green while a genuinely
+    vacuous report sailed through — the exact failure mode a vacuity check
+    exists to prevent, reproduced in the check's own tests. Assert the
+    distinguishing phrase.
+    """
     path = _report(tmp_path, {"src/orbital_drift/__init__.py": (0, 0.0)})
-    assert any("vacuous" in problem for problem in covcheck.check(path))
+    assert covcheck.check(path) == [
+        f"{path.name} reported no measurable files — the check would be vacuous"
+    ]
 
 
 def test_missing_report_is_reported(tmp_path: Path) -> None:
@@ -81,9 +93,16 @@ def test_unparseable_report_is_reported(tmp_path: Path) -> None:
 
 
 def test_empty_files_map_is_vacuous(tmp_path: Path) -> None:
+    """The ``not files`` branch: the report has no files map at all.
+
+    Distinct from ``test_a_report_of_only_zero_statement_modules_is_vacuous``
+    above, which reaches the LATER ``measured == 0`` guard with a populated
+    files map. See that test's docstring for why "vacuous" alone was not
+    enough to tell them apart.
+    """
     path = tmp_path / "coverage.json"
     path.write_text(json.dumps({"files": {}}), encoding="utf-8")
-    assert any("vacuous" in problem for problem in covcheck.check(path))
+    assert covcheck.check(path) == [f"{path.name} reported no files — the check would be vacuous"]
 
 
 def test_exempt_file_is_skipped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

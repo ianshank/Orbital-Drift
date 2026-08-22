@@ -1,7 +1,7 @@
 """Governance meta-tests — tests that watch the PROCESS, not the product.
 
 The donor kit's core insight: every hand-maintained governance artifact rots
-unless a test fails when it does (adopt-governance-kit design.md). Seven rot
+unless a test fails when it does (adopt-governance-kit design.md). Five rot
 vectors are covered here and in test_zero_skip_guard.py:
 
 1. Makefile/checks.sh divergence (this file, design D1 — direction inverted
@@ -10,16 +10,14 @@ vectors are covered here and in test_zero_skip_guard.py:
 2. A stale governance-skill decision summary (this file).
 3. A tracked file neither governed nor explicitly public (this file).
 4. A zero-skip guard nobody has watched fire (test_zero_skip_guard.py).
-5. An entry quoting a decision-log rule the log never states (this file).
-6. An in-code decision-log citation left behind by the record it points at
-   (this file).
-7. An entry's file:line citation that no longer resolves to the text it claims
-   (this file).
+5. A decision log that has stopped reading in chronological order, making
+   "the last entry is the latest decision" false (this file).
 """
 
 from __future__ import annotations
 
 import fnmatch
+import itertools
 import re
 import shutil
 import subprocess
@@ -188,325 +186,185 @@ def test_matcher_is_not_vacuous() -> None:
     assert not _matches_any("some-new-root-file.xyz", patterns)
 
 
-# ── 4. No entry quotes a log rule the log does not state ─────────────────────
-# Rot vector: an entry attributes its reasoning to "the log's rule '<quote>'",
-# the quote is nowhere in the RULES block above the entries, and a later session
-# enforces — or is refused under — a rule that never existed. MEASURED instance:
-# RB-008c cited "change not one character of any entry's text" as a log rule; a
-# repo-wide git grep for that phrase returned that citation and nothing else.
-# The constraint is one-directional: an entry may STATE a new rule (the RULES
-# block is amended in the same change), but it may not quote the block for text
-# the block does not contain.
-
-#: Straight AND curly quote marks, written as escapes so this source stays
-#: ASCII — ruff RUF001 rejects a literal curly quote inside a string.
-_QUOTE_MARKS: Final = "'\"\u2018\u2019\u201c\u201d"
-#: `rules?[ ,]+` and IGNORECASE because `RULE 'x'`, `rules 'x'` and `rule, 'x'`
-#: are the same claim as `rule 'x'`. MEASURED at 7ec4e1c before keeping the
-#: widening: over the whole log — entries AND rules block — the widened form
-#: extracts exactly as much as the narrow one did (nothing), so it introduces no
-#: false positive on prose like `namespace rule (design D7)` or `per rule 4
-#: (decide, then execute)`. Number tolerance (`rule 2, 'x'`) is deliberately NOT
-#: attempted: `rule <n>` runs straight into the log's live `rule 2 (file:line)`
-#: citations, which check 6 resolves rather than matches.
-_QUOTED_RULE = re.compile(
-    f"rules?[ ,]+[{_QUOTE_MARKS}]([^{_QUOTE_MARKS}]{{4,}})[{_QUOTE_MARKS}]", re.IGNORECASE
-)
+# ── 5. The decision log reads in chronological order ─────────────────────────
+# Rot vector: entries get appended wherever the editing agent's cursor happened
+# to be, and "the last line is the latest decision" — the way every human and
+# every skill describes this file — quietly becomes false. It HAD become false:
+# RB-006 (08-21) sat below RB-007/RB-008/RB-007a (08-22), which three separate
+# reviewers flagged independently, because reading the tail of the file gave
+# the wrong answer about what was decided most recently. A log whose order
+# cannot be trusted has to be read in full to be read at all.
+#
+# Note what the freshness check in section 2 does NOT do: it presence-checks
+# IDs, so it stayed green throughout. Ordering needs its own assertion.
+#
+# Non-DECREASING, not strictly increasing: several decisions are legitimately
+# logged on the same day, and rule 6 ("owner approval given BEFORE work starts
+# may be logged after") means same-day clusters are expected, not a smell.
 
 
-def _normalise(text: str) -> str:
-    """Fold the markdown the RULES block carries but a quotation would not."""
-    return " ".join(text.replace("*", "").replace("`", "").split()).lower()
+def _chronology_regressions(entries: list[tuple[str, str]]) -> list[str]:
+    """``(date, id)`` pairs where the date goes backwards, described in prose.
 
+    ONE implementation, called by both the real check and its negative control.
+    The control used to re-implement this comparison over a hardcoded list,
+    which meant it guarded a copy rather than the logic: a regression in the
+    real comparison, or in ``_ENTRY``, left it green.
 
-def _quoted_rule_citations(text: str) -> list[str]:
-    """Every ``rule '<quote>'`` fragment in ``text``, normalised for comparison."""
-    return [_normalise(match) for match in _QUOTED_RULE.findall(text)]
-
-
-def _rules_block(log_text: str) -> str:
-    """The blockquoted RULES preamble: every line starting with ``>``. Entries
-    never do, so this cannot accidentally include an entry's own prose."""
-    lines = [line[1:] for line in log_text.splitlines() if line.startswith(">")]
-    assert lines, "docs/decision-log.md lost its blockquoted RULES block"
-    return _normalise("\n".join(lines))
-
-
-def test_quoted_rule_citation_parser_has_positive_and_negative_controls() -> None:
-    """The invariant below can only bite if the parser SEES a fabricated quote
-    and IGNORES the log's ordinary prose. Both directions, on synthetic text."""
-    assert _quoted_rule_citations("the log's rule 'change not one character' applies") == [
-        "change not one character"
-    ]
-    assert _quoted_rule_citations('per the rule "decide, then execute" above') == [
-        "decide, then execute"
-    ]
-    # A citation is not always lowercase, singular, or space-separated, and the
-    # invariant is about what an entry CLAIMS, not about its typography.
-    for evasion, quoted in (
-        ("the log's RULE 'change not one character' applies", "change not one character"),
-        ("per the rules 'never spoof a gate' above", "never spoof a gate"),
-        ("the rule, 'decide, then execute' is clear", "decide, then execute"),
-    ):
-        assert _quoted_rule_citations(evasion) == [quoted], evasion
-
-    for benign in (
-        "logged after per rule 6, landing with the commits it authorizes",
-        "the operator's disposition was 'record honestly', NOT 'widen the glob'",
-        "namespace rule (design D7) - this file owns DEC-/RB-/G- IDs only",
-        "logged BEFORE execution per rule 4 (decide, then execute)",
-    ):
-        assert _quoted_rule_citations(benign) == [], benign
-
-    # The `quote in rules` branch of the invariant below is never exercised by
-    # the real log (no entry quotes a rule today), so nothing else notices if
-    # _rules_block stops finding the block — and a _rules_block that returns the
-    # wrong text turns every future LEGITIMATE citation into a false BLOCK.
-    assert "decide, then execute" in _rules_block(DECISION_LOG.read_text(encoding="utf-8")), (
-        "_rules_block no longer returns the log's rule 4 — the invariant below would "
-        "BLOCK a legitimate citation, and nothing else would notice"
-    )
-
-
-def test_no_entry_quotes_a_log_rule_the_log_does_not_state() -> None:
-    log_text = DECISION_LOG.read_text(encoding="utf-8")
-    rules = _rules_block(log_text)
-    entries = "\n".join(line for line in log_text.splitlines() if _ENTRY.match(line))
-    assert entries, "decision log parsed to zero entries — the check would be vacuous"
-
-    fabricated = [quote for quote in _quoted_rule_citations(entries) if quote not in rules]
-    assert fabricated == [], (
-        f"decision-log entries quote rules the RULES block does not state: {fabricated} — "
-        "cite a rule that exists (by number), or amend the RULES block in the same change"
-    )
-
-
-# ── 5. An in-code decision citation resolves to an entry about that file ─────
-# Rot vector: a record moves from one entry to another, the in-code back-
-# reference does not move with it, and the comment sends its reader to an entry
-# that says nothing about the code it annotates. MEASURED instance: ci/checks.sh
-# cited RB-008b for the multi-argument dispatch defect, while RB-008b records a
-# workflow `schedule:` move and two covcheck.py edits; the defect is recorded by
-# RB-008c(c). Scoped to ci/checks.sh on purpose — scripts/*.sh cite the DONOR
-# kit's RB numbers ("donor kit RB-023"), which this log does not own (D7).
-
-_CITED_ENTRY = re.compile(r"\bRB-\d+[a-z]?\b")
-
-
-def _entry_line(log_text: str, entry_id: str) -> str:
-    for line in log_text.splitlines():
-        match = _ENTRY.match(line)
-        if match and match.group(2) == entry_id:
-            return line
-    raise AssertionError(f"{entry_id} is cited in ci/checks.sh but is not in the decision log")
-
-
-def _ids_cited_in_comments(source: str) -> set[str]:
-    return {
-        entry_id
-        for line in source.splitlines()
-        if line.lstrip().startswith("#")
-        for entry_id in _CITED_ENTRY.findall(line)
-    }
-
-
-def test_every_decision_id_cited_in_checks_sh_names_that_file() -> None:
-    log_text = DECISION_LOG.read_text(encoding="utf-8")
-    cited = _ids_cited_in_comments(CHECKS.read_text(encoding="utf-8"))
-    assert cited, "no decision-log citation found in ci/checks.sh — the check would be vacuous"
-
-    dangling = sorted(
-        entry_id for entry_id in cited if "ci/checks.sh" not in _entry_line(log_text, entry_id)
-    )
-    assert dangling == [], (
-        f"ci/checks.sh cites {dangling}, whose log entries never mention this file — "
-        "cite the entry that records the item (a record that moves between entries takes "
-        "its in-code back-reference with it)"
-    )
-
-
-def test_citation_check_discriminates() -> None:
-    """Negative control: "the entry mentions ci/checks.sh" must not be true of
-    every entry, or the invariant above is satisfied by a lookup bug."""
-    log_text = DECISION_LOG.read_text(encoding="utf-8")
-    assert "ci/checks.sh" not in _entry_line(log_text, "RB-009")
-
-
-# ── 6. Every file:line citation in an entry resolves to what it claims ───────
-# Rot vector: an entry backs its reasoning with a `file.md:12-14` pointer, the
-# cited file is renamed or its lines shift, and the citation sends its reader to
-# unrelated text — or to nothing at all. Check 4 above cannot see this class: it
-# matches `rule '<quote>'` and nothing else, while the log's live citations are
-# written `rule 2 (decision-log.md:14-15)` (no quote mark) and as a file:line
-# followed by a quotation (no preceding word "rule"). MEASURED at 7ec4e1c: over
-# 18 entries containing 12 occurrences of "rule(s)", check 4 extracted ZERO
-# quotes and opened ZERO files, so it passed by finding nothing to look at. This
-# form needs range RESOLUTION, not a wider regex — a wider regex still opens no
-# file — so this check opens each cited file and reads the cited lines.
-
-#: A `path.md:12` or `path.md:12-14` pointer, as the log writes them.
-_CITATION = re.compile(r"(?P<path>[\w./-]+\.md):(?P<start>\d+)(?:-(?P<end>\d+))?")
-
-#: A quotation, matched by pairing each opening mark with ITS OWN closing mark
-#: rather than with any mark: RB-008c quotes single-quoted text that CONTAINS
-#: double quotes, and check 4's `[marks](...)[marks]` character-class shape
-#: would cut that at the first inner `"`. The word look-arounds stop a
-#: word-internal apostrophe ("the operator's disposition") opening a quotation.
-#: Curly marks are escapes, not literals, so this source stays ASCII (RUF001).
-_QUOTED_FRAGMENT = re.compile(
-    r"(?<!\w)'([^']{4,})'(?!\w)"
-    r'|(?<!\w)"([^"]{4,})"(?!\w)'
-    "|\u2018([^\u2019]{4,})\u2019"
-    "|\u201c([^\u201d]{4,})\u201d"
-)
-
-#: End of the clause a citation lives in. A quotation beyond one of these is
-#: attributed to no citation. Under-attributing is the safe direction: it can
-#: only weaken this check, never manufacture a false BLOCK against an entry
-#: whose quotation was never a claim about the cited lines.
-_CLAUSE_END = re.compile(r"[.;] ")
-
-
-class _Citation(NamedTuple):
-    """One file:line pointer plus the quotation attached to it, if any."""
-
-    entry: str
-    text: str
-    path: str
-    start: int
-    end: int
-    quote: str | None
-
-
-def _entry_id(line: str) -> str:
-    match = _ENTRY.match(line)
-    return match.group(2) if match else "(line)"
-
-
-def _resolve_cited_path(raw: str) -> Path | None:
-    """Resolve a cited path. THE RULE, stated so that it is not an accident:
-    repository root FIRST, then relative to the CITING file's own directory
-    (``docs/``, the directory of docs/decision-log.md). Both forms are live in
-    the log — `.claude/skills/log-decision/SKILL.md:42-44` is repo-root
-    relative, while `decision-log.md:14-15` is a same-directory reference
-    written without its `docs/` prefix. Root first, so a sibling name can never
-    shadow a repo-root file of the same name. A path that escapes the
-    repository is not a citation this log can make: refused, not resolved.
+    ISO-8601 dates compare lexicographically, so this is a plain string
+    comparison — no date parsing, nothing to get wrong about time zones.
     """
-    for candidate in (REPO_ROOT / raw, DECISION_LOG.parent / raw):
-        resolved = candidate.resolve()
-        if resolved.is_file() and resolved.is_relative_to(REPO_ROOT):
-            return resolved
-    return None
+    return [
+        f"{previous_id} ({previous_date}) is followed by {entry_id} ({date})"
+        for (previous_date, previous_id), (date, entry_id) in itertools.pairwise(entries)
+        if date < previous_date
+    ]
 
 
-def _attached_quote(span: str) -> str | None:
-    """The quotation a citation vouches for: the first one in ``span`` (the text
-    between the citation and the next citation), provided no clause end
-    separates them."""
-    match = _QUOTED_FRAGMENT.search(span)
-    if match is None or _CLAUSE_END.search(span[: match.start()]):
-        return None
-    return next(group for group in match.groups() if group is not None)
+def test_decision_log_entries_are_in_chronological_order() -> None:
+    entries = _ENTRY.findall(DECISION_LOG.read_text(encoding="utf-8"))
+    assert entries, "decision log parsed to zero entries — the ordering check is vacuous"
 
-
-def _file_line_citations(text: str) -> list[_Citation]:
-    """Every citation in ``text``, each carrying the quotation that follows it
-    before the next citation on the same line."""
-    citations: list[_Citation] = []
-    for line in text.splitlines():
-        matches = list(_CITATION.finditer(line))
-        for index, match in enumerate(matches):
-            stop = matches[index + 1].start() if index + 1 < len(matches) else len(line)
-            start = int(match.group("start"))
-            citations.append(
-                _Citation(
-                    entry=_entry_id(line),
-                    text=match.group(0),
-                    path=match.group("path"),
-                    start=start,
-                    end=int(match.group("end") or start),
-                    quote=_attached_quote(line[match.end() : stop]),
-                )
-            )
-    return citations
-
-
-def _citation_defects(text: str) -> list[str]:
-    """One line per citation that does not resolve to what it claims — a missing
-    file, a range outside the file, or a quotation the cited lines do not say."""
-    defects: list[str] = []
-    for cite in _file_line_citations(text):
-        where = f"{cite.entry} cites {cite.text}"
-        target = _resolve_cited_path(cite.path)
-        if target is None:
-            defects.append(f"{where}: no such file at the repo root or beside the log")
-            continue
-        if cite.start < 1 or cite.start > cite.end:
-            defects.append(f"{where}: line range is empty or starts below 1")
-            continue
-        lines = target.read_text(encoding="utf-8").splitlines()
-        if cite.end > len(lines):
-            defects.append(f"{where}: range ends past EOF ({len(lines)} lines)")
-            continue
-        if cite.quote is None:
-            continue
-        if _normalise(cite.quote) not in _normalise("\n".join(lines[cite.start - 1 : cite.end])):
-            defects.append(f"{where}: the cited lines do not say {cite.quote!r}")
-    return defects
-
-
-def test_every_file_line_citation_in_the_log_resolves_to_what_it_claims() -> None:
-    log_text = DECISION_LOG.read_text(encoding="utf-8")
-    entries = "\n".join(line for line in log_text.splitlines() if _ENTRY.match(line))
-    citations = _file_line_citations(entries)
-    assert citations, (
-        "no file:line citation found in decision-log entries — the check would be vacuous, "
-        "which is the defect it exists to end: a green result that opened no file"
-    )
-
-    defects = _citation_defects(entries)
-    assert defects == [], (
-        "decision-log entries carry file:line citations that do not resolve: "
-        + "; ".join(defects)
-        + " — a citation moves with the text it points at; quote what the lines say"
+    regressions = _chronology_regressions(entries)
+    assert regressions == [], (
+        "docs/decision-log.md is not in chronological order, so 'the last entry is the "
+        f"latest decision' is false: {regressions}. Move the line, and change not one "
+        "character of any entry's text — the text is the decision."
     )
 
 
-def test_citation_resolver_has_positive_and_negative_controls(tmp_path: Path) -> None:
-    """Both directions on synthetic text. The live citation forms resolve, and
-    each way a citation can be wrong is reported FOR ITS OWN REASON — otherwise
-    the invariant above is satisfied by a parser that resolves nothing."""
-    outside = tmp_path / "outside.md"
-    outside.write_text("not part of this repository\n", encoding="utf-8")
-    assert _resolve_cited_path(str(outside)) is None, "a citation may not escape the repo"
-
-    live = "rule 2 (decision-log.md:14-15) and .claude/skills/log-decision/SKILL.md:42-44 agree"
-    assert _file_line_citations(live) != []
-    assert _citation_defects(live) == []
-    assert _citation_defects("decision-log.md:23-24 says 'Decide, then execute.'") == []
-
-    for text, reason in (
-        ("cited no-such-document.md:1-2 here", "no such file"),
-        ("decision-log.md:9000-9001 says so", "past EOF"),
-        ("decision-log.md:24-23 says so", "range is empty"),
-        ("decision-log.md:0-2 says so", "range is empty"),
-        ("decision-log.md:23-24 says 'no rule of that description'", "do not say"),
-    ):
-        defects = _citation_defects(text)
-        assert len(defects) == 1, (text, defects)
-        assert reason in defects[0], (text, defects)
+#: The governance skill's summary bullets: ``- **RB-008a** (08-22): ...``. The
+#: date is MM-DD there, not ISO — fine for ordering WITHIN a year, which is all
+#: this list has ever spanned; a January entry under a December one would be a
+#: false positive, and the fix then is to put the year in the bullet.
+_SKILL_BULLET = re.compile(r"^- \*\*(DEC-\d+|RB-\d+[a-z]?|G-\d+)\*\* \((\d{2}-\d{2})\):", re.M)
 
 
-def test_attached_quote_pairs_marks_and_respects_clause_ends() -> None:
-    """The nesting RB-008c's live citation has (single-quoted text CONTAINING
-    double quotes) survives extraction; ordinary prose does not become a claim
-    about the cited lines."""
-    inner = 'Never bundle "we decided X" and "X is done" into one entry.'
-    assert _attached_quote(f" — '{inner}'") == inner, "a quotation was cut at an inner quote mark"
-    assert _attached_quote(" the operator's disposition was recorded") is None, (
-        "a word-internal apostrophe opened a quotation"
+def test_the_skill_decision_summary_lists_decisions_in_the_logs_order() -> None:
+    """The skill is what agents read FIRST; a stale mirror outranks a fresh log.
+
+    CLAUDE.md step 0 sends every agent to this skill before the log, so an
+    inverted summary is read more often than the thing it summarises. The
+    freshness check in section 2 does not help — it presence-checks IDs, so it
+    stayed green while the skill listed RB-008 ABOVE RB-007a and the log listed
+    them the other way round: the very defect section 5 exists to prevent,
+    reproduced one file over.
+
+    FULL SEQUENCE EQUALITY, not a date-order check. Two weaker properties were
+    tried first and MEASURED useless against the real inversion: non-decreasing
+    dates cannot separate RB-007a from RB-008 (same day), and "last bullet ==
+    last log entry" passes as soon as a newer entry is appended to both. Only
+    comparing the whole sequence catches a reordering in the middle, which is
+    where it happened.
+
+    The skill previously grouped ``G-0`` with the DEC entries rather than at its
+    logged position; that grouping is what made an order check impossible, so it
+    was removed. The summary now mirrors the log line for line, which is the
+    only arrangement in which "read the skill instead" is safe advice.
+
+    ID AND DATE, not the id alone. ``_SKILL_BULLET`` has always captured the
+    bullet's ``MM-DD``; this check used to discard it, and MEASURED 2026-08-22
+    at 11af312 that left a whole class of mirror drift invisible — rewriting
+    ``- **RB-009** (08-22)`` to ``(08-19)`` reddened NOTHING in either
+    governance suite, so the skill could date a decision to a day the log does
+    not and every gate stayed green. A wrong date is the same defect as a wrong
+    order: both answer "what was decided most recently" differently from the
+    log. Comparing the pair costs one slice, because the regex already extracts
+    the date. The log's dates are ISO and the bullets' are ``MM-DD``, hence
+    ``[5:]`` — the same within-one-year assumption ``_SKILL_BULLET``'s own
+    comment documents, with the same fix if it ever breaks (year in the bullet).
+
+    STILL NOT COVERED, deliberately, and in TWO ways rather than one. (i) Drift
+    in the TEXT of a bullet or of a logged entry: word-level agreement between a
+    one-line summary and a paragraph-long entry is not a mechanical property.
+    (ii) The WINDOW: this check and the freshness check above both filter on
+    ``date >= since``, and ``since`` is read out of the audited file's own
+    heading, so the skill sets the scope of its own audit — MEASURED 2026-08-22
+    at 09a16b5 in a scratch copy, a log entry dated BEFORE that heading's date
+    and mirrored nowhere in the skill leaves the governance suite at 149 passed.
+
+    NOT "the log's own rule", which an earlier version of this docstring
+    claimed. MEASURED at 09a16b5: "change not one character of any entry's text"
+    appears NOWHERE in ``docs/decision-log.md`` — its RULES block runs 1-7 and
+    says nothing about entry text. The sentence originates in the assertion
+    MESSAGE of ``test_decision_log_entries_are_in_chronological_order`` above,
+    where it is advice to someone fixing a CHRONOLOGY violation. So the property
+    is not review-enforced GENERALLY: no RULE of the log states it, and the only
+    other written statement of it anywhere is a case-scoped parenthetical at
+    ``docs/decisions/009-program-review-record.md:33`` ("never rewrite the logged
+    one") — attached to the RB-007a taxonomy question and owned by the operator
+    at PR #5 merge, not a rule a reviewer can cite generally. An earlier version
+    of this docstring said there was no written rule to enforce AT ALL, and that
+    the assertion message was the property's only home; 009:33 refutes both.
+    Writing a GENERAL rule (as decision-log rule 8) remains the untaken
+    precondition to mechanizing anything here.
+
+    THE GAP HAS A DURABLE HOME, and it is NOT this docstring and NOT an ADR:
+    ``docs/decision-log.md``'s ``RB-008a`` clause (e) records it as a third
+    deferral with a named owner, which puts it in the file the gates read and
+    mirrors its ID into the governance skill CLAUDE.md step 0 makes every agent
+    read first. ``docs/decisions/010-decision-log-text-drift.md`` carries the
+    reasoning — the two mechanizations that do not work and why, the
+    immutability manifest that would, and its cost — and is cited BY that
+    clause; on its own it is inert, MEASURED at 09a16b5: deleting the file
+    leaves the full suite byte-identical (666 passed / 11 failed). The manifest
+    is written up rather than built because it changes WHO MAY EDIT WHAT — a
+    legitimate correction to a logged entry would then cost a manifest update
+    plus an authorizing entry — so it needs its own RB entry before execution.
+    Do not build it from this comment; read RB-008a(e), then D-010.
+    """
+    bullets = _SKILL_BULLET.findall(SKILL.read_text(encoding="utf-8"))
+    assert len(bullets) > 5, f"parsed only {len(bullets)} skill bullets — the check is vacuous"
+
+    skill_text = SKILL.read_text(encoding="utf-8")
+    since_match = re.search(r"## Decisions since (\d{4}-\d{2}-\d{2})", skill_text)
+    assert since_match, "skill lost its 'Decisions since <date>' section"
+    since = since_match.group(1)
+
+    logged = [
+        (entry_id, date[5:])
+        for date, entry_id in _ENTRY.findall(DECISION_LOG.read_text(encoding="utf-8"))
+        if date >= since
+    ]
+    assert logged, "decision log parsed to zero in-range entries"
+
+    assert bullets == logged, (
+        "the governance skill's decision summary does not match the decision log's "
+        f"(id, date) sequence.\n  skill: {bullets}\n  log:   {logged}\n"
+        "Agents read the skill first (CLAUDE.md step 0), so a divergent order — or a "
+        "bullet dated to a day the log does not — answers 'what was decided most "
+        "recently' differently from the log."
     )
-    assert _attached_quote(" ends here. Then 'an unrelated quotation'") is None, (
-        "a quotation past the citation's clause was attributed to the citation"
+
+
+def test_the_chronology_check_can_actually_fail() -> None:
+    """Negative control for the check above — through the SAME code path.
+
+    Drives ``_ENTRY`` and ``_chronology_regressions``, the two things the real
+    check is made of, over a synthetic two-line log in the file's own format.
+    That is what makes it a control: if ``_ENTRY`` stops capturing the date
+    group every comparison silently becomes ``"" < ""`` and the real check
+    passes on any file at all, and this test is what notices. An earlier
+    version hardcoded the parsed pairs and re-implemented the comparison
+    inline, so it could not have noticed either failure.
+    """
+    out_of_order = (
+        "2026-08-22 | RB-008 | a later decision | agent\n"
+        "2026-08-21 | RB-006 | an earlier decision, wrongly placed after it | agent\n"
+    )
+    entries = _ENTRY.findall(out_of_order)
+    assert len(entries) == 2, (
+        f"_ENTRY no longer parses the decision log's own line format: {entries}"
+    )
+    assert _chronology_regressions(entries) == [
+        "RB-008 (2026-08-22) is followed by RB-006 (2026-08-21)"
+    ]
+
+    in_order = (
+        "2026-08-21 | RB-006 | an earlier decision | agent\n"
+        "2026-08-22 | RB-008 | a later decision | agent\n"
+    )
+    assert _chronology_regressions(_ENTRY.findall(in_order)) == [], (
+        "the correctly-ordered case must produce no regressions, or the check "
+        "would fail on every log including a valid one"
     )

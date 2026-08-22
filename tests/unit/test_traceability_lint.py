@@ -4,6 +4,8 @@ orbital_drift.traceability."""
 
 from __future__ import annotations
 
+import dataclasses
+import re
 from pathlib import Path
 
 import pytest
@@ -140,7 +142,44 @@ def test_malformed_row_is_reported_not_silently_dropped(
         "| FR-900 | uses `a|b` pipe | `src/x.py` | `tests/unit/test_x.py` "
         "| M1 | TOTALLY-BOGUS | - |\n",
     )
-    assert any("cells, expected 7" in problem for problem in problems), problems
+    assert any(
+        f"cells, expected {traceability.CELLS_PER_ROW}" in problem for problem in problems
+    ), problems
+
+
+def test_the_expected_cell_count_is_derived_from_the_row_dataclass() -> None:
+    """The arity must come from ``Row``, not from three hand-typed ``7``s.
+
+    ``_parse_rows`` wrote ``7`` three times — the skip check, the malformed-row
+    check, and the operator-facing message — while ``Row`` right above it
+    declared exactly those columns plus ``line``. Adding an eighth matrix column
+    therefore meant finding all three (and this test's own literal, a fourth) or
+    getting a linter that rejects every correct row while reporting "expected 7"
+    about a 8-column table. ``line`` is excluded because it is the file position
+    the parser supplies, not a cell it reads.
+
+    RE-COMPUTING THE DERIVATION IS NOT CHECKING IT. The first assertion below
+    evaluates ``len(fields(Row)) - 1`` here and compares it to the module's
+    value — which is satisfied by ``CELLS_PER_ROW: Final = 7`` just as happily,
+    because 7 is what the derivation currently yields. Measured: that
+    substitution left this file at 20 passed. Same defect class as
+    ``projections.LABEL_COLUMNS`` and small-int interning: a value check cannot
+    detect a hardcoded value that happens to be right. Only reading the source
+    can, so the source check below is the one that actually holds the property.
+    """
+    assert len(dataclasses.fields(traceability.Row)) - 1 == traceability.CELLS_PER_ROW
+    assert "line" in {field.name for field in dataclasses.fields(traceability.Row)}, (
+        "the -1 above subtracts the non-cell `line` field; if Row loses it, "
+        "the derivation is off by one"
+    )
+
+    source = Path(traceability.__file__).read_text(encoding="utf-8")
+    assert re.search(r"^CELLS_PER_ROW.*dataclasses\.fields", source, re.M), (
+        "traceability.py sets CELLS_PER_ROW to something other than a derivation "
+        "from dataclasses.fields(Row). A literal that happens to equal the current "
+        "field count satisfies every value assertion above and silently stops "
+        "tracking Row."
+    )
 
 
 def test_legend_and_separator_rows_are_still_skipped(
