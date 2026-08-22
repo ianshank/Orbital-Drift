@@ -39,12 +39,15 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 CHECKS_SH: Final = REPO_ROOT / "ci" / "checks.sh"
+VERSIONS_ENV: Final = REPO_ROOT / "ci" / "versions.env"
 
 # Environment variables the stubs snapshot on every call. `SKIP` and
 # `PRE_COMMIT_ALLOW_NO_CONFIG` are the two pre-commit escape hatches
@@ -414,9 +417,30 @@ class Stubs:
     pip_audit: str | None = None
 
 
-def _pins() -> dict[str, str]:
+def read_versions_env() -> dict[str, str]:
+    """Parse ``ci/versions.env`` the way ``sh`` would when sourcing it.
+
+    THE ONE HOME for this parser, and shared deliberately. Four other modules
+    carried a byte-identical private copy of these six lines
+    (``test_ci_contract``, ``test_version_pins``, and the gitleaks and
+    terraform-fmt positive controls), which is not four lines of duplication
+    but five independent places a parsing decision can diverge — in the support
+    code for the gate whose whole subject is pins not diverging.
+    ``tests/unit/test_ci_contract.py::test_only_one_module_parses_ci_versions_env``
+    fails on a sixth copy anywhere under ``tests/`` (it sweeps recursively).
+
+    Parsing rules, all four pinned by
+    ``test_read_versions_env_parses_the_file_the_way_sh_would``: blank lines and
+    ``#`` comments are skipped, a line with no ``=`` is skipped rather than
+    raising, key and value are stripped, and only the FIRST ``=`` splits (so a
+    ``repo:tag@sha256:...`` image reference survives intact).
+
+    Returns a FRESH dict on every call, so a caller that mutates its own view
+    (a monkeypatched pin, a test fixture) cannot reach another module's.
+    :data:`PINS` is the shared, genuinely read-only snapshot for the common case.
+    """
     pins: dict[str, str] = {}
-    for raw in (REPO_ROOT / "ci" / "versions.env").read_text(encoding="utf-8").splitlines():
+    for raw in VERSIONS_ENV.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -425,7 +449,14 @@ def _pins() -> dict[str, str]:
     return pins
 
 
-PINS: Final[dict[str, str]] = _pins()
+#: Read-only, and enforced rather than asserted. Four modules import this one
+#: object; a plain dict would let any of them mutate every other module's view
+#: of the pins, in the support code for the gate whose subject is pins not
+#: drifting. ``MappingProxyType`` makes the docstring's "read-only" claim true
+#: instead of aspirational — a stray ``PINS[...] = ...`` is now a TypeError at
+#: the point of the mistake, not a mystery in an unrelated test. Callers
+#: needing a mutable copy call :func:`read_versions_env`, which returns one.
+PINS: Final[Mapping[str, str]] = MappingProxyType(read_versions_env())
 
 
 @dataclass(frozen=True)

@@ -44,17 +44,18 @@ never assume standing.
 - **DEC-002** (08-21): budgets 4 PRs / 16 h per milestone.
 - **DEC-003** (08-21): remote allowlist = origin only (armed at Phase 6).
 - **DEC-004** (08-21): coverage floor 90 over src/orbital_drift; honest-limit note; superseded for the global floor by RB-006 — ratified 85 global + 90 per-file.
-- **G-0** (08-21): T001 verified; Phase-0 authoring tasks unlocked.
 - **RB-001** (08-21): roster change — spec-implementer added; adversarial-reviewer supersedes peer-reviewer (D5).
 - **RB-002** (08-21): settings.json merge — PreToolUse guard + SessionStart check; denies kept; allowlist seeded (DEC-003).
 - **RB-002a** (08-21): execution record — kit tasks 0.1–6.1 done across six gate-green commits; 6.2/6.3 pending.
 - **RB-003** (08-21): governance-hardening PR authorized after a three-dimension audit (guard fail-opens, coverage floors, wiring gaps).
 - **RB-004** (08-21): settings.json hook-path fallback, allow-list for the make-less path, deny-list spelling symmetry.
 - **RB-005** (08-21): documentation/validation hardening batch — CHANGELOG, architecture doc, README refresh, agent/skill structural validation, session-start-check tests.
+- **G-0** (08-21): T001 verified; Phase-0 authoring tasks unlocked.
 - **RB-006** (08-21): reconciled with origin/main's independent PR #3 (infra T007-T010, coverage gate, runbooks) — origin/main's stage_coverage/host-prep.md kept canonical; this branch's per-file covcheck floor and adversarial-reviewer roster change retained.
 - **RB-007** (08-22): Phase-0 completion program — unlock extended to T004a/T001b; DEC-002 M0 budget counter baselined at RB-006 (T004a + T001b-closure + T006 + T011 = 4/4); process batch (status refresh, decision-doc reconciliation, versions re-verify, tasks.md wording) authorized outside the budget; T006 authoring deferred until G-1; unlocks no Phase 1+ task.
-- **RB-008** (08-22): code-hygiene/gate-integrity program after a four-stream audit — three process PRs (gate integrity: specs fail-closed, projections interpreter preflight, main-push concurrency, per-file-floor binding; hygiene/lockstep: the drifted PREFLIGHT_EXEMPT_PINS false warning, action pins, decision-log ordering test, single-home de-duplication; branch-coverage enablement). No gate bar VALUE changes; unlocks no feature task.
 - **RB-007a** (08-22): execution record — guardian scope finding on the process batch resolved: the D-002/D-03 example correction was a named item of the approved program (F-9b); 005/006 follow-ups annotated in lockstep; ratification checklist delivered in PR #5's description; versions.md re-verification explicitly deferred to its own PR; unlocks nothing beyond RB-007.
+- **RB-008** (08-22): code-hygiene/gate-integrity program after a four-stream audit — three process PRs (gate integrity: specs fail-closed, projections interpreter preflight, main-push concurrency, per-file-floor binding; hygiene/lockstep: the drifted PREFLIGHT_EXEMPT_PINS false warning, action pins, decision-log ordering test, single-home de-duplication; branch-coverage enablement). No gate bar VALUE changes; unlocks no feature task.
+- **RB-008a** (08-22): execution record — guardian scope finding on the hygiene/lockstep PR resolved: four unenumerated items (traceability CELLS_PER_ROW, guard_probe.sh's errexit window, the scripts-scoped errexit sweep, PINS becoming a MappingProxyType) stand under the standing 08-22 hygiene request; REPO_ROOT/_relative single-homing DEFERRED to its own PR — measured at THREE copies of REPO_ROOT, so the deferral is on cost/blast-radius, not the rule of three; the weekly `schedule:` trigger and widening the errexit sweep to ci/*.sh both move to the GATE INTEGRITY PR. Unlocks nothing beyond RB-008.
 
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after

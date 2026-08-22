@@ -33,27 +33,23 @@ from typing import Final
 
 import pytest
 
+# The ci/versions.env parser has ONE home (`shell_harness`), not a private copy
+# per module — this file used to carry the fourth of five byte-identical
+# copies. Sharing it does not weaken this gate: `shell_harness` is imported by
+# `test_checks_sh_behaviour` and `test_coverage_positive_control` already, so a
+# broken harness reddens the unit stage regardless of what this file does; what
+# it buys is that the parse this lockstep gate performs is the same parse every
+# other pin assertion in the suite performs, and is itself now under test.
+from shell_harness import VERSIONS_ENV, read_versions_env
+
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 
-VERSIONS_ENV: Final = REPO_ROOT / "ci" / "versions.env"
 PYPROJECT: Final = REPO_ROOT / "pyproject.toml"
 PRE_COMMIT_CONFIG: Final = REPO_ROOT / ".pre-commit-config.yaml"
 WORKFLOW: Final = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 RUFF_PRE_COMMIT: Final = "https://github.com/astral-sh/ruff-pre-commit"
 MYPY_PRE_COMMIT: Final = "https://github.com/pre-commit/mirrors-mypy"
-
-
-def _read_versions_env() -> dict[str, str]:
-    """Parse ``KEY=value`` lines the same way ``sh`` would when sourcing them."""
-    pins: dict[str, str] = {}
-    for raw_line in VERSIONS_ENV.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        pins[key.strip()] = value.strip()
-    return pins
 
 
 def _read_pyproject() -> dict[str, object]:
@@ -96,7 +92,7 @@ def _read_hook_revs() -> dict[str, str]:
     return {match.group("repo"): match.group("rev") for match in pattern.finditer(text)}
 
 
-VERSIONS: Final = _read_versions_env()
+VERSIONS: Final = read_versions_env()
 DEV_EXTRAS: Final = _read_dev_extras()
 HOOK_REVS: Final = _read_hook_revs()
 PRE_COMMIT_TEXT: Final = PRE_COMMIT_CONFIG.read_text(encoding="utf-8")

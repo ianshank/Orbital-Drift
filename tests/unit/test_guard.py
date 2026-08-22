@@ -299,7 +299,51 @@ def test_main_passes_the_effective_remote_through(
 
 
 def test_segment_queue_has_a_work_ceiling(allowlist: Path) -> None:
-    """A pathological input must terminate rather than spin."""
+    """A pathological input must terminate rather than spin — AND still parse.
+
+    Both assertions here used to be unfalsifiable. ``isinstance(..., list)``
+    and ``is not None`` are satisfied by ``[]`` and by any ``Verdict``
+    whatsoever, so the test passed on a run that gave up after one iteration
+    and reported nothing — which is exactly what truncation looks like
+    (measured: at a ceiling of 201 this input yields ``[]``). It also passed
+    with the ceiling raised to 10**9, i.e. with no ceiling at all.
+
+    So assert the two things that actually distinguish those states: 200-deep
+    nesting is fully lifted at the SHIPPED ceiling, and the verdict is the
+    concrete one this input earns.
+    """
     pathological = "$(" * 200 + "echo hi" + ")" * 200
-    assert isinstance(guard.split_segments(pathological), list)
-    assert guard.analyze(pathological, allowlist=allowlist) is not None
+    assert guard.split_segments(pathological) == ["echo hi"], (
+        "200-deep substitution nesting must be fully lifted at the shipped ceiling; "
+        "an empty list here means the work ceiling truncated a legitimate parse"
+    )
+    assert guard.analyze(pathological, allowlist=allowlist) == guard.Verdict(
+        blocked=False, constraint="", reason="", segment=""
+    )
+
+
+def test_the_work_ceiling_is_actually_consulted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guard the guard above: prove ``_MAX_SEGMENTS`` bounds the loop.
+
+    The test above is green whether the ceiling is 512 or absent, because this
+    input needs fewer iterations than 512. Deleting the ``guard_rail <
+    _MAX_SEGMENTS`` condition — the whole termination mechanism — would
+    therefore not redden a thing. Lowering the ceiling under the same input
+    must change the outcome; if it does not, the ceiling is decorative.
+
+    Note what the ceiling is NOT: a bound on the number of segments returned.
+    It counts loop ITERATIONS, and one iteration can split many operator-
+    separated commands out at once (measured: 5000 ``;``-separated commands
+    return 5000 segments under a ceiling of 512). Asserting
+    ``len(segments) <= _MAX_SEGMENTS`` would be asserting something false about
+    the general case and trivially true about this one.
+    """
+    pathological = "$(" * 200 + "echo hi" + ")" * 200
+    lowered = 8
+    monkeypatch.setattr(guard, "_MAX_SEGMENTS", lowered)
+
+    truncated = guard.split_segments(pathological)
+    assert truncated == [], (
+        f"with the ceiling at {lowered} this input must be abandoned unparsed; "
+        f"got {truncated!r}, so the queue is not bounded by _MAX_SEGMENTS at all"
+    )

@@ -32,10 +32,16 @@ import json, os, sys
 sys.stdout.write(json.dumps({"tool_name": "Bash", "tool_input": {"command": os.environ["COMMAND"]}}))
 ')"
 
-set +e
-printf '%s' "${PAYLOAD}" | CLAUDE_PROJECT_DIR="${REPO_ROOT}" bash "${SCRIPT_DIR}/pretooluse_guard.sh"
-RC=$?
-set -e
+# `|| RC=$?`, not a `set +e` / `set -e` window. This script's prologue is
+# `set -u` ALONE (line 12): errexit was never on, so a trailing `set -e` would
+# not restore anything - it would switch errexit ON for the rest of the script,
+# the opposite of what a "restore" reads as, in the one place whose entire job
+# is to report a nonzero exit code rather than die on it. A command on the LEFT
+# of `||` is already exempt from errexit, so this captures the status without
+# ever touching errexit state - the strictly narrower form ci/checks.sh's
+# docker_daemon_or_fail comment argues for.
+RC=0
+printf '%s' "${PAYLOAD}" | CLAUDE_PROJECT_DIR="${REPO_ROOT}" bash "${SCRIPT_DIR}/pretooluse_guard.sh" || RC=$?
 
 if [ "${RC}" -eq 2 ]; then
   echo "verdict: BLOCK (rc=2)"

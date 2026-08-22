@@ -1,7 +1,7 @@
 """Governance meta-tests — tests that watch the PROCESS, not the product.
 
 The donor kit's core insight: every hand-maintained governance artifact rots
-unless a test fails when it does (adopt-governance-kit design.md). Four rot
+unless a test fails when it does (adopt-governance-kit design.md). Five rot
 vectors are covered here and in test_zero_skip_guard.py:
 
 1. Makefile/checks.sh divergence (this file, design D1 — direction inverted
@@ -10,11 +10,14 @@ vectors are covered here and in test_zero_skip_guard.py:
 2. A stale governance-skill decision summary (this file).
 3. A tracked file neither governed nor explicitly public (this file).
 4. A zero-skip guard nobody has watched fire (test_zero_skip_guard.py).
+5. A decision log that has stopped reading in chronological order, making
+   "the last entry is the latest decision" false (this file).
 """
 
 from __future__ import annotations
 
 import fnmatch
+import itertools
 import re
 import shutil
 import subprocess
@@ -181,3 +184,135 @@ def test_matcher_is_not_vacuous() -> None:
     green-with-the-fix-removed failure mode."""
     patterns = [*_governed_globs(), *PUBLIC_CANDIDATE_ALLOWLIST]
     assert not _matches_any("some-new-root-file.xyz", patterns)
+
+
+# ── 5. The decision log reads in chronological order ─────────────────────────
+# Rot vector: entries get appended wherever the editing agent's cursor happened
+# to be, and "the last line is the latest decision" — the way every human and
+# every skill describes this file — quietly becomes false. It HAD become false:
+# RB-006 (08-21) sat below RB-007/RB-008/RB-007a (08-22), which three separate
+# reviewers flagged independently, because reading the tail of the file gave
+# the wrong answer about what was decided most recently. A log whose order
+# cannot be trusted has to be read in full to be read at all.
+#
+# Note what the freshness check in section 2 does NOT do: it presence-checks
+# IDs, so it stayed green throughout. Ordering needs its own assertion.
+#
+# Non-DECREASING, not strictly increasing: several decisions are legitimately
+# logged on the same day, and rule 6 ("owner approval given BEFORE work starts
+# may be logged after") means same-day clusters are expected, not a smell.
+
+
+def _chronology_regressions(entries: list[tuple[str, str]]) -> list[str]:
+    """``(date, id)`` pairs where the date goes backwards, described in prose.
+
+    ONE implementation, called by both the real check and its negative control.
+    The control used to re-implement this comparison over a hardcoded list,
+    which meant it guarded a copy rather than the logic: a regression in the
+    real comparison, or in ``_ENTRY``, left it green.
+
+    ISO-8601 dates compare lexicographically, so this is a plain string
+    comparison — no date parsing, nothing to get wrong about time zones.
+    """
+    return [
+        f"{previous_id} ({previous_date}) is followed by {entry_id} ({date})"
+        for (previous_date, previous_id), (date, entry_id) in itertools.pairwise(entries)
+        if date < previous_date
+    ]
+
+
+def test_decision_log_entries_are_in_chronological_order() -> None:
+    entries = _ENTRY.findall(DECISION_LOG.read_text(encoding="utf-8"))
+    assert entries, "decision log parsed to zero entries — the ordering check is vacuous"
+
+    regressions = _chronology_regressions(entries)
+    assert regressions == [], (
+        "docs/decision-log.md is not in chronological order, so 'the last entry is the "
+        f"latest decision' is false: {regressions}. Move the line, and change not one "
+        "character of any entry's text — the text is the decision."
+    )
+
+
+#: The governance skill's summary bullets: ``- **RB-008a** (08-22): ...``. The
+#: date is MM-DD there, not ISO — fine for ordering WITHIN a year, which is all
+#: this list has ever spanned; a January entry under a December one would be a
+#: false positive, and the fix then is to put the year in the bullet.
+_SKILL_BULLET = re.compile(r"^- \*\*(DEC-\d+|RB-\d+[a-z]?|G-\d+)\*\* \((\d{2}-\d{2})\):", re.M)
+
+
+def test_the_skill_decision_summary_lists_decisions_in_the_logs_order() -> None:
+    """The skill is what agents read FIRST; a stale mirror outranks a fresh log.
+
+    CLAUDE.md step 0 sends every agent to this skill before the log, so an
+    inverted summary is read more often than the thing it summarises. The
+    freshness check in section 2 does not help — it presence-checks IDs, so it
+    stayed green while the skill listed RB-008 ABOVE RB-007a and the log listed
+    them the other way round: the very defect section 5 exists to prevent,
+    reproduced one file over.
+
+    FULL SEQUENCE EQUALITY, not a date-order check. Two weaker properties were
+    tried first and MEASURED useless against the real inversion: non-decreasing
+    dates cannot separate RB-007a from RB-008 (same day), and "last bullet ==
+    last log entry" passes as soon as a newer entry is appended to both. Only
+    comparing the whole sequence catches a reordering in the middle, which is
+    where it happened.
+
+    The skill previously grouped ``G-0`` with the DEC entries rather than at its
+    logged position; that grouping is what made an order check impossible, so it
+    was removed. The summary now mirrors the log line for line, which is the
+    only arrangement in which "read the skill instead" is safe advice.
+    """
+    bullets = [entry_id for entry_id, _ in _SKILL_BULLET.findall(SKILL.read_text(encoding="utf-8"))]
+    assert len(bullets) > 5, f"parsed only {len(bullets)} skill bullets — the check is vacuous"
+
+    skill_text = SKILL.read_text(encoding="utf-8")
+    since_match = re.search(r"## Decisions since (\d{4}-\d{2}-\d{2})", skill_text)
+    assert since_match, "skill lost its 'Decisions since <date>' section"
+    since = since_match.group(1)
+
+    logged = [
+        entry_id
+        for date, entry_id in _ENTRY.findall(DECISION_LOG.read_text(encoding="utf-8"))
+        if date >= since
+    ]
+    assert logged, "decision log parsed to zero in-range entries"
+
+    assert bullets == logged, (
+        "the governance skill's decision summary does not list decisions in the "
+        f"decision log's order.\n  skill: {bullets}\n  log:   {logged}\n"
+        "Agents read the skill first (CLAUDE.md step 0), so a divergent order here "
+        "answers 'what was decided most recently' differently from the log."
+    )
+
+
+def test_the_chronology_check_can_actually_fail() -> None:
+    """Negative control for the check above — through the SAME code path.
+
+    Drives ``_ENTRY`` and ``_chronology_regressions``, the two things the real
+    check is made of, over a synthetic two-line log in the file's own format.
+    That is what makes it a control: if ``_ENTRY`` stops capturing the date
+    group every comparison silently becomes ``"" < ""`` and the real check
+    passes on any file at all, and this test is what notices. An earlier
+    version hardcoded the parsed pairs and re-implemented the comparison
+    inline, so it could not have noticed either failure.
+    """
+    out_of_order = (
+        "2026-08-22 | RB-008 | a later decision | agent\n"
+        "2026-08-21 | RB-006 | an earlier decision, wrongly placed after it | agent\n"
+    )
+    entries = _ENTRY.findall(out_of_order)
+    assert len(entries) == 2, (
+        f"_ENTRY no longer parses the decision log's own line format: {entries}"
+    )
+    assert _chronology_regressions(entries) == [
+        "RB-008 (2026-08-22) is followed by RB-006 (2026-08-21)"
+    ]
+
+    in_order = (
+        "2026-08-21 | RB-006 | an earlier decision | agent\n"
+        "2026-08-22 | RB-008 | a later decision | agent\n"
+    )
+    assert _chronology_regressions(_ENTRY.findall(in_order)) == [], (
+        "the correctly-ordered case must produce no regressions, or the check "
+        "would fail on every log including a valid one"
+    )
