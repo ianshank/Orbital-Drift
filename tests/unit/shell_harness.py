@@ -323,7 +323,28 @@ case "$*" in
     exit "$(_od_seq_next PYTEST_RUN_RC '@PYTEST_RUN_RC@')" ;;
   "-m vulture --version")    printf 'vulture %s\n' "$(_od_seq_next VULTURE '@VULTURE@')" ;;
   "-m pip_audit --version")  printf 'pip-audit %s\n' "$(_od_seq_next PIP_AUDIT '@PIP_AUDIT@')" ;;
-  "-m orbital_drift.covcheck")
+  "-m orbital_drift.covcheck" | "-m orbital_drift.covcheck "*)
+    # BOTH SPELLINGS, and the second is the live one: stage_coverage passes
+    # `--floor "${COVERAGE_PER_FILE_MIN_PERCENT}"` (RB-008 F4). An exact-match
+    # arm stops matching the moment that flag is added, so the invocation falls
+    # through to the bare `exit @PYTHON_RC@` at the bottom and the `covcheck_rc`
+    # knob controls nothing.
+    #
+    # WHICH TEST THAT ACTUALLY SILENCED, attributed precisely — an earlier
+    # version of this comment blamed the wrong change. With the exact-match arm
+    # AND `--floor` present, `test_a_covcheck_failure_after_a_passing_global_
+    # floor_reddens_the_stage` FAILS loudly: it asserts a non-zero exit the
+    # neutered stub no longer produces. The VACUOUS pass belonged to the
+    # `_covcheck_calls` conversion — under the old equality filter,
+    # `test_covcheck_does_not_run_when_the_global_floor_already_failed` asserts
+    # an EMPTY list, which an unmatched argv satisfies for entirely the wrong
+    # reason, making "covcheck ran" and "covcheck did not run" indistinguishable.
+    # Both sides are fixed: the glob here, the prefix matcher there.
+    #
+    # The bare form is kept so a future stage edit that DROPS the flag is still
+    # recorded and driveable rather than falling through to that same bare exit
+    # — not for an operator's hand-run, which never reaches this stub at all: it
+    # only ever sees what ci/checks.sh invokes via ${PYTHON}.
     exit "$(_od_seq_next COVCHECK_RC '@COVCHECK_RC@')" ;;
 esac
 exit @PYTHON_RC@
