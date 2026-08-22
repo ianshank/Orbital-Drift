@@ -16,6 +16,54 @@ inputs. The report is self-generated and therefore not attacker-controlled, but
 the choice between "add defusedxml as a dependency for a file we produce
 ourselves" and "read the JSON coverage.py also emits" is not close: JSON has no
 entity-expansion surface at all, and it costs no new pin.
+
+WHAT THIS FLOOR MEASURES (RB-008 part 3) — READ BEFORE COMPARING NUMBERS
+-----------------------------------------------------------------------
+``ci/checks.sh``'s ``stage_coverage`` passes ``--cov-branch``, asserted by
+``test_the_coverage_stage_measures_branches_not_only_statements``. With branch
+measurement on, coverage.py's ``summary.percent_covered`` — the field
+:func:`check` compares against the floor — is the COMBINED statement+branch
+rate::
+
+    (covered_lines + covered_branches) / (num_statements + num_branches)
+
+not the statement rate it was before. The floor's VALUE is unchanged at 90
+(RB-008 forbids moving any gate bar); the QUANTITY it compares is now strictly
+harder for every file whose arcs are less covered than its statements.
+Measured 2026-08-22 at 9de5a0e, statement-only -> combined: guard.py
+97.81 -> 96.55, remotes.py 97.22 -> 95.45, projections.py 98.85 -> 98.29,
+covcheck.py 98.15 -> 97.30, traceability.py 90.74 -> 91.45 (up, because that
+file's arcs are better covered than its statements), global 96.81 -> 96.18.
+**A global number that fell is this flag working, not a regression.**
+
+DECISION: ONE COMBINED BAR, NOT A SEPARATE BRANCH BAR. coverage.py 7.15.4 also
+emits ``percent_statements_covered`` and ``percent_branches_covered`` per file,
+so splitting the floor in two is available and was considered and rejected:
+
+1. A second bar needs a second THRESHOLD VALUE, and RB-008's explicit limit is
+   that no gate bar value changes anywhere in that batch — introducing one is
+   as much a bar change as moving one. That alone settles it; the rest is why
+   the answer would not differ without the constraint.
+2. The combined rate at 90 is already strictly harder than the statement rate
+   at 90 for the four files above, so the gate tightened with no threshold edit
+   — which is the whole point of the change.
+3. A branch-only bar is VACUOUS on exactly the file it would most need to
+   judge: coverage.py reports ``percent_branches_covered = 100.0`` when
+   ``num_branches == 0`` (measured 2026-08-22 against coverage 7.15.4 with a
+   purpose-built branchless module), so a file with no arcs passes a branch
+   floor by having nothing to fail. The combined rate degrades gracefully to
+   the statement rate in that same case.
+4. It needs no new machinery here — zero lines change — so there is no new
+   code path to test and none to rot.
+
+THE COST, NAMED: a breach message reports a blended percentage and does not say
+whether statements or arcs caused it. That is tolerable only because the split
+is already on the operator's screen — ``stage_coverage`` prints its
+``--cov-report=term-missing`` table (``Branch``, ``BrPart``, and the exact
+missing arcs, e.g. ``214->220``) before it runs this module, never after. If a
+future decision does want two bars, ``percent_statements_covered`` and
+``percent_branches_covered`` are already in the report; the reversal costs a
+DEC/RB entry for the new value, not a redesign.
 """
 
 from __future__ import annotations

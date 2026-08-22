@@ -113,3 +113,106 @@ def test_floor_is_configurable_for_the_check_not_the_gate(tmp_path: Path) -> Non
     path = _report(tmp_path, {"src/orbital_drift/a.py": (10, 50.0)})
     assert covcheck.check(path, floor=40.0) == []
     assert covcheck.check(path, floor=60.0) != []
+
+
+# =============================================================================
+# RB-008 part 3 — what the per-file floor MEASURES once ci/checks.sh passes
+# --cov-branch. The bar's VALUE does not move; the quantity it compares does.
+# =============================================================================
+
+
+def _branch_report(
+    tmp_path: Path,
+    *,
+    statements: int,
+    covered_statements: int,
+    branches: int,
+    covered_branches: int,
+) -> tuple[Path, float]:
+    """A one-file report in the EXACT shape coverage.py 7.15.4 emits with
+    ``--cov-branch``, plus the combined rate it puts in ``percent_covered``.
+
+    Every key below was copied from a real report — measured 2026-08-22 at
+    9de5a0e by running the gate's own invocation and reading
+    ``coverage.json``. The point of reproducing the whole summary rather than
+    the two keys ``check()`` happens to read is that the statement-only and
+    branch-only rates ARE present in the real file: choosing ``percent_covered``
+    over them is a decision, and a fixture that omitted them would hide it.
+    """
+    combined = 100.0 * (covered_statements + covered_branches) / (statements + branches)
+    payload: dict[str, Any] = {
+        "meta": {"version": "7.15.4", "format": 3, "branch_coverage": True},
+        "files": {
+            "src/orbital_drift/a.py": {
+                "summary": {
+                    "covered_lines": covered_statements,
+                    "num_statements": statements,
+                    "percent_covered": combined,
+                    "missing_lines": statements - covered_statements,
+                    "excluded_lines": 0,
+                    "percent_statements_covered": 100.0 * covered_statements / statements,
+                    "num_branches": branches,
+                    "num_partial_branches": branches - covered_branches,
+                    "covered_branches": covered_branches,
+                    "missing_branches": branches - covered_branches,
+                    "percent_branches_covered": (
+                        100.0 * covered_branches / branches if branches else 100.0
+                    ),
+                }
+            }
+        },
+    }
+    path = tmp_path / "coverage.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path, combined
+
+
+def test_the_per_file_floor_reads_the_combined_rate_not_the_statement_rate(
+    tmp_path: Path,
+) -> None:
+    """A file with every statement executed and half its arcs never taken FAILS.
+
+    This is the whole reason ``--cov-branch`` was worth turning on. Statement
+    coverage cannot see an untaken arc: ``if x: return BLOCK`` reports both
+    lines executed as soon as any test runs the ``if`` with a falsey ``x``, and
+    the BLOCK is never proved. Here the file is at 100% statements — it would
+    clear the 90 floor outright, and did, before RB-008 — while 40 of its 100
+    arcs were never taken, putting the combined rate at 80%.
+
+    Falsifiable in one edit: point ``check()`` at ``percent_statements_covered``
+    (which this fixture carries, exactly as a real report does) and this goes
+    green while the untested arcs stay untested. Verified by making that edit:
+    the assertion below reddens.
+    """
+    path, combined = _branch_report(
+        tmp_path,
+        statements=100,
+        covered_statements=100,
+        branches=100,
+        covered_branches=60,
+    )
+    assert combined == 80.0, f"fixture arithmetic drifted: {combined}"
+
+    failures = covcheck.check(path, floor=90.0)
+    assert len(failures) == 1, (
+        "a file whose statements are fully covered but whose arcs are not was not "
+        f"caught by the per-file floor: {failures!r}"
+    )
+    assert "80.0%" in failures[0], (
+        "the per-file floor did not compare the COMBINED statement+branch rate. "
+        f"Reading percent_statements_covered instead would report 100%: {failures[0]!r}"
+    )
+
+
+def test_the_bar_the_combined_rate_replaces_is_strictly_easier(tmp_path: Path) -> None:
+    """The control, and the reason no floor VALUE had to change (RB-008 limit).
+
+    Same file, same 90 floor, branches NOT measured: coverage.py's
+    ``percent_covered`` is then the statement rate, the file reports 100%, and
+    the floor passes. One flag, no threshold edit, and the gate got strictly
+    harder for exactly the files whose arcs are under-tested — measured across
+    this tree at 9de5a0e: guard.py 97.81 -> 96.55, remotes.py 97.22 -> 95.45,
+    projections.py 98.85 -> 98.29, covcheck.py 98.15 -> 97.30.
+    """
+    statement_only = _report(tmp_path, {"src/orbital_drift/a.py": (100, 100.0)})
+    assert covcheck.check(statement_only, floor=90.0) == []
