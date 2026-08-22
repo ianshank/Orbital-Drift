@@ -9,7 +9,7 @@ description: Operating rules for all work in Orbital-Drift. Consult before ANY i
 | Phase | Allowed when |
 |---|---|
 | adopt-governance-kit tasks (openspec/changes/adopt-governance-kit/tasks.md) | ONLY if `docs/decision-log.md` contains a DEC-001 entry. |
-| Feature Phase-0 authoring (T002, T004, T006–T011) | ONLY if the log contains a G-0 entry. T006 additionally requires re-review against T003/T005 verification blocks before T011 may cite it (tasks.md AUTHORED-PROVISIONAL note). |
+| Feature Phase-0 authoring (T002, T004, T006–T011; extended to T001b and T004a by RB-007) | ONLY if the log contains a G-0 entry (T001b/T004a additionally require RB-007). T006 additionally requires re-review against T003/T005 verification blocks before T011 may cite it (tasks.md AUTHORED-PROVISIONAL note); per RB-007 its authoring is deferred until G-1 exists. |
 | Any `[HUMAN]` task (T003, T005, T012, T022, T029, T032, T040, T045, T049–T052) | NEVER executed by an agent (Constitution I). STOP, hand off the paired runbook, wait; the operator logs the matching G-x entry on completion. |
 | Feature Phase 1+ tasks (T013+) | ONLY if the log contains the G-x entry for the preceding phase gate (G-1 = T003 done, G-2 = T005 done, G-3 = T012 done, then per plan.md phase gates). |
 | Process/docs-track PRs | ONLY via a logged RB entry naming the PR batch. NEVER via urgency, and never as a side effect of engineering work. |
@@ -43,7 +43,7 @@ never assume standing.
 - **DEC-001** (08-21): governance kit adopted; Constitution v1.1.0 amendment.
 - **DEC-002** (08-21): budgets 4 PRs / 16 h per milestone.
 - **DEC-003** (08-21): remote allowlist = origin only (armed at Phase 6).
-- **DEC-004** (08-21): coverage floor 90 over src/orbital_drift; honest-limit note.
+- **DEC-004** (08-21): coverage floor 90 over src/orbital_drift; honest-limit note; superseded for the global floor by RB-006 — ratified 85 global + 90 per-file.
 - **G-0** (08-21): T001 verified; Phase-0 authoring tasks unlocked.
 - **RB-001** (08-21): roster change — spec-implementer added; adversarial-reviewer supersedes peer-reviewer (D5).
 - **RB-002** (08-21): settings.json merge — PreToolUse guard + SessionStart check; denies kept; allowlist seeded (DEC-003).
@@ -52,6 +52,8 @@ never assume standing.
 - **RB-004** (08-21): settings.json hook-path fallback, allow-list for the make-less path, deny-list spelling symmetry.
 - **RB-005** (08-21): documentation/validation hardening batch — CHANGELOG, architecture doc, README refresh, agent/skill structural validation, session-start-check tests.
 - **RB-006** (08-21): reconciled with origin/main's independent PR #3 (infra T007-T010, coverage gate, runbooks) — origin/main's stage_coverage/host-prep.md kept canonical; this branch's per-file covcheck floor and adversarial-reviewer roster change retained.
+- **RB-007** (08-22): Phase-0 completion program — unlock extended to T004a/T001b; DEC-002 M0 budget counter baselined at RB-006 (T004a + T001b-closure + T006 + T011 = 4/4); process batch (status refresh, decision-doc reconciliation, versions re-verify, tasks.md wording) authorized outside the budget; T006 authoring deferred until G-1; unlocks no Phase 1+ task.
+- **RB-007a** (08-22): execution record — guardian scope finding on the process batch resolved: the D-002/D-03 example correction was a named item of the approved program (F-9b); 005/006 follow-ups annotated in lockstep; ratification checklist delivered in PR #5's description; versions.md re-verification explicitly deferred to its own PR; unlocks nothing beyond RB-007.
 
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after

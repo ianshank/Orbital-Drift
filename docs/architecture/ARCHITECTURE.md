@@ -1,7 +1,8 @@
 # Orbital-Drift Architecture (C4 Model)
 
 **Audience:** operator + reviewing agents. **Status as measured at commit
-`4ba5774` (2026-08-21):** Phase 0 of 6, task T002 of 52 complete (see
+`7c4d0d9` (2026-08-22):** Phase 0 of 6; 8 of 55 task checkboxes complete
+(T001, T001a, T002, T004, T007–T010; see
 `specs/001-orbital-drift-ct/tasks.md` for the authoritative, live task state —
 this document does not restate task-level detail, and where the two disagree
 the tasks file wins).
@@ -57,7 +58,7 @@ C4Container
         Container(traceability, "src/orbital_drift/traceability.py", "Python", "Requirement-traceability matrix linter")
         Container(projections, "src/orbital_drift/projections.py", "Python", "Generates planning/roadmap.md + jira-import.csv from roadmap_data.py")
         Container(covcheck, "src/orbital_drift/covcheck.py", "Python", "Per-file coverage floor, run after the global floor")
-        Container(tests, "tests/{unit,governance}/*", "pytest", "563 tests: harness behaviour, guard regression corpus, meta-tests")
+        Container(tests, "tests/{unit,governance}/*", "pytest", "627 tests (collected at commit 7c4d0d9): harness behaviour, guard regression corpus, meta-tests")
     }
 
     System_Ext(ci, "GitHub Actions", "Thin caller: sh ci/checks.sh <stage> per matrix entry")
