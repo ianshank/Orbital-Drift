@@ -134,6 +134,12 @@ PRE_COMMIT_TEXT: Final = PRE_COMMIT_CONFIG.read_text(encoding="utf-8")
 #   GITLEAKS    runs as a pinned container, not a Python distribution.
 #   SHELLCHECK  same.
 #   TERRAFORM   same: a digest-pinned container, not a Python distribution.
+#
+# Note this set does NOT need to name VULTURE or PIP_AUDIT: both are plain
+# pip-installable distributions pinned in pyproject [dev] (vulture==2.16,
+# pip-audit==2.10.1 — adopt-governance-kit design D3), so the derivation below
+# picks them up automatically like any other pin; they were only ever
+# hand-listed in an earlier, now-replaced version of this test.
 NOT_A_DEV_EXTRA: Final = frozenset(
     {"PYTHON", "PIP", "HATCHLING", "GITLEAKS", "SHELLCHECK", "TERRAFORM"}
 )

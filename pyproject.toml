@@ -40,6 +40,10 @@ dev = [
   "pytest-cov==7.1.0",
   "coverage==7.15.4",
   "pre-commit==4.6.1",
+  # adopt-governance-kit gate tools (design D3); mirrored in ci/versions.env
+  # with provenance URLs, asserted by tests/unit/test_version_pins.py.
+  "vulture==2.16",
+  "pip-audit==2.10.1",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -84,6 +88,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+# roadmap_data.py is a record-per-line data module (design D9): each Epic/Story
+# literal stays on one line so a backlog change is a one-line diff, and its
+# strings are CSV-projected DATA, not code. Wrapping them to 100 columns would
+# trade diffability for nothing — E501 is ignored here and nowhere else in src.
+"src/orbital_drift/planning/roadmap_data.py" = ["E501"]
 "tests/**/*.py" = [
   "S101",  # assert is the point of a test
   # The behavioural tests RUN ci/checks.sh (with git/docker/python stubbed on
@@ -119,6 +128,60 @@ pretty = true
 # in Phase 1+ with an explicit [[tool.mypy.overrides]] block and a reason,
 # never globally.
 ignore_missing_imports = false
+
+# NOTE: there is deliberately NO [tool.coverage.*] section here. The FR-011a
+# global coverage floor is owned entirely by ci/checks.sh's stage_coverage,
+# which passes `--cov=src/orbital_drift --cov-fail-under=${COVERAGE_MIN_PERCENT}`
+# (ci/versions.env) explicitly on its pytest command line — nothing here can
+# silently redefine what that gate measures.
+# tests/unit/test_ci_contract.py::
+# test_no_coverage_config_silently_redefines_what_the_gate_measures hard-fails
+# if any `[tool.coverage]` key reappears; see docs/decisions/001-coverage-gate.md.
+# The per-file floor (charter C-6, DEC-004) is a separate, additive check —
+# orbital_drift.covcheck, run by stage_coverage immediately after the global
+# floor passes — with its own PER_FILE_FLOOR constant, not a pyproject knob.
+
+# -----------------------------------------------------------------------------
+# vulture — dead-code scan (adopt-governance-kit design D3)
+# -----------------------------------------------------------------------------
+[tool.vulture]
+# src AND tests. The original comment claimed the test suite produced "too many
+# confident-looking false positives to gate on"; measured at this floor it
+# produces exactly zero, and tests/ is where dead scaffolding actually
+# accumulates (shell_harness.py alone is 560+ lines). A justification that
+# measurement contradicts is worse than no justification.
+#
+# scripts/ is out of scope for a real reason: those are .sh files, linted by
+# the pinned shellcheck container instead (.pre-commit-config.yaml).
+paths = ["src", "tests"]
+min_confidence = 80
+
+# -----------------------------------------------------------------------------
+# Governance (adopt-governance-kit): the governed-path globs are read by BOTH
+# tests/governance/test_governance_meta.py and scripts/pre_push_scan.sh — one
+# home, so the test and the hook cannot hold different invariants.
+# -----------------------------------------------------------------------------
+[tool.orbital_drift.governance]
+governed_path_globs = [
+  "src/**",
+  "dags/**",
+  "workflows/**",
+  "infra/**",
+  "ci/**",
+  "scripts/**",
+  ".github/**",
+  ".claude/**",
+  ".specify/**",
+  "dashboards/**",
+  "docs/runbooks/**",
+  "docs/decision-log.md",
+  "charter/**",
+  "openspec/**",
+  "specs/**",
+  "traceability/**",
+  "planning/**",
+  "tests/**",
+]
 
 # -----------------------------------------------------------------------------
 # pytest

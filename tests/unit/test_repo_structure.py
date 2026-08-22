@@ -31,6 +31,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_DIRECTORIES: tuple[str, ...] = (
     ".specify/memory",
     ".claude/agents",
+    ".claude/skills/orbital-drift-governance",
+    "charter",
     "ci",
     "dags",
     "dashboards",
@@ -41,8 +43,14 @@ REQUIRED_DIRECTORIES: tuple[str, ...] = (
     "infra/helm-values",
     "infra/k3s",
     "infra/terraform",
+    "openspec/changes/adopt-governance-kit",
     "specs/001-orbital-drift-ct",
+    "tests/governance",
+    "planning",
+    "scripts",
     "src/orbital_drift",
+    "traceability",
+    "docs/architecture",
     "tests/contract",
     "tests/smoke",
     "tests/unit",
@@ -98,6 +106,43 @@ REQUIRED_FILES: tuple[str, ...] = (
     "ci/versions.env",
     "pyproject.toml",
     ".specify/memory/constitution.md",
+    # adopt-governance-kit control plane (change design D6-D8); each later import
+    # phase appends its own paths here in the PR that creates them.
+    ".claude/skills/orbital-drift-governance/SKILL.md",
+    ".claude/skills/run-the-gate/SKILL.md",
+    ".claude/skills/log-decision/SKILL.md",
+    "CHANGELOG.md",
+    "docs/architecture/ARCHITECTURE.md",
+    "tests/governance/test_agents_and_skills.py",
+    "tests/governance/test_session_start_check.py",
+    "charter/PROJECT-CHARTER.md",
+    "docs/decision-log.md",
+    "openspec/changes/adopt-governance-kit/proposal.md",
+    "openspec/changes/adopt-governance-kit/design.md",
+    "openspec/changes/adopt-governance-kit/tasks.md",
+    "openspec/changes/adopt-governance-kit/specs/governance-harness/spec.md",
+    "Makefile",
+    "ci/validate_specs.sh",
+    "tests/conftest.py",
+    "tests/governance/test_zero_skip_guard.py",
+    "tests/governance/test_governance_meta.py",
+    "tests/governance/test_pretooluse_guard.py",
+    "traceability/REQUIREMENT-TRACEABILITY.md",
+    "src/orbital_drift/traceability.py",
+    ".claude/allowed-remotes.txt",
+    "scripts/_lib.sh",
+    "scripts/guard_probe.sh",
+    "scripts/pretooluse_guard.sh",
+    "scripts/pre_push_scan.sh",
+    "scripts/install_hooks.sh",
+    "scripts/session_start_check.sh",
+    "src/orbital_drift/remotes.py",
+    "src/orbital_drift/projections.py",
+    "src/orbital_drift/guard.py",
+    "src/orbital_drift/covcheck.py",
+    "src/orbital_drift/planning/roadmap_data.py",
+    "planning/roadmap.md",
+    "planning/jira-import.csv",
 )
 
 
@@ -110,14 +155,20 @@ def test_required_directory_exists(relative_path: str) -> None:
 
 @pytest.mark.parametrize("relative_path", DIRECTORIES_NEEDING_GITKEEP)
 def test_empty_directory_is_preserved_by_gitkeep(relative_path: str) -> None:
-    """An intentionally-empty directory keeps a .gitkeep so git preserves it."""
+    """An intentionally-empty directory keeps a .gitkeep so git preserves it.
+
+    Once the directory gains real content the .gitkeep becomes optional — a
+    single always-asserting statement, NOT a skip (the zero-skip guard bans
+    parked skips) and NOT a bare early return (the harness's own doctrine calls
+    a conditional body-``return`` "the dangerous one: reports as an ordinary
+    PASS while executing zero assertions" — see test_checks_sh_behaviour's
+    round-9b notes).
+    """
     target = REPO_ROOT / relative_path
     has_tracked_content = any(
         child.name != ".gitkeep" and not child.name.startswith(".") for child in target.iterdir()
     )
-    if has_tracked_content:
-        pytest.skip(f"{relative_path} now has real content; .gitkeep no longer required")
-    assert (target / ".gitkeep").is_file(), (
+    assert has_tracked_content or (target / ".gitkeep").is_file(), (
         f"{relative_path} is empty and has no .gitkeep — it will not survive a clone"
     )
 

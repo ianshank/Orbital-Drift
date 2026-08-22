@@ -296,6 +296,7 @@ case "$*" in
   *'version_info[:2]'*)   printf '%s\n' "$(_od_seq_next PY_MINOR '@PY_MINOR@')" ;;
   "-m ruff --version")    printf 'ruff %s\n' "$(_od_seq_next RUFF '@RUFF@')" ;;
   "-m mypy --version")    printf 'mypy %s (compiled: yes)\n' "$(_od_seq_next MYPY '@MYPY@')" ;;
+  *'import pytest_cov'*)  printf '%s\n' "$(_od_seq_next PYTEST_COV '@PYTEST_COV@')" ;;
   *'import pytest'*)      printf '%s\n' "$(_od_seq_next PYTEST '@PYTEST@')" ;;
   *'pytest-cov'*)         printf '%s\n' "$(_od_seq_next PYTEST_COV '@PYTEST_COV@')" ;;
   *'"coverage"'*)         printf '%s\n' "$(_od_seq_next COVERAGE '@COVERAGE@')" ;;
@@ -317,6 +318,10 @@ case "$*" in
       cat "@PYTEST_RUN_STDOUT_FILE@"
     fi
     exit "$(_od_seq_next PYTEST_RUN_RC '@PYTEST_RUN_RC@')" ;;
+  "-m vulture --version")    printf 'vulture %s\n' "$(_od_seq_next VULTURE '@VULTURE@')" ;;
+  "-m pip_audit --version")  printf 'pip-audit %s\n' "$(_od_seq_next PIP_AUDIT '@PIP_AUDIT@')" ;;
+  "-m orbital_drift.covcheck")
+    exit "$(_od_seq_next COVCHECK_RC '@COVCHECK_RC@')" ;;
 esac
 exit @PYTHON_RC@
 """
@@ -384,6 +389,11 @@ class Stubs:
     python_rc: int = 0
     pytest_collect_rc: int | None = None
     pytest_run_rc: int | None = None
+    # Charter C-6's per-file coverage floor: stage_coverage runs
+    # `orbital_drift.covcheck` after the global floor passes. `None` -> resolves
+    # to `python_rc`, same "unless overridden, mirror the interpreter's own exit
+    # status" default as the two pytest knobs above.
+    covcheck_rc: int | None = None
     pytest_collect_stdout: str = ""
     # File-based (see PYTHON_STUB), so this one MAY contain newlines — a real
     # combined-suite pytest report is multi-line, and stage_coverage's diagnosis
@@ -400,6 +410,8 @@ class Stubs:
     pytest_cov: str | None = None
     coverage: str | None = None
     pre_commit: str | None = None
+    vulture: str | None = None
+    pip_audit: str | None = None
 
 
 def _pins() -> dict[str, str]:
@@ -440,6 +452,7 @@ class _ResolvedStubs:
     python_rc: int
     pytest_collect_rc: int
     pytest_run_rc: int
+    covcheck_rc: int
     pytest_collect_stdout: str
     pytest_run_stdout: str
     gitleaks_reports: str
@@ -453,6 +466,8 @@ class _ResolvedStubs:
     pytest_cov: str
     coverage: str
     pre_commit: str
+    vulture: str
+    pip_audit: str
 
 
 def _defaults(stubs: Stubs) -> _ResolvedStubs:
@@ -482,6 +497,7 @@ def _defaults(stubs: Stubs) -> _ResolvedStubs:
             stubs.python_rc if stubs.pytest_collect_rc is None else stubs.pytest_collect_rc
         ),
         pytest_run_rc=(stubs.python_rc if stubs.pytest_run_rc is None else stubs.pytest_run_rc),
+        covcheck_rc=(stubs.python_rc if stubs.covcheck_rc is None else stubs.covcheck_rc),
         pytest_collect_stdout=stubs.pytest_collect_stdout,
         pytest_run_stdout=stubs.pytest_run_stdout,
         gitleaks_reports=(
@@ -512,6 +528,8 @@ def _defaults(stubs: Stubs) -> _ResolvedStubs:
         ),
         coverage=(PINS.get("COVERAGE_VERSION", "") if stubs.coverage is None else stubs.coverage),
         pre_commit=(PINS["PRE_COMMIT_VERSION"] if stubs.pre_commit is None else stubs.pre_commit),
+        vulture=(PINS["VULTURE_VERSION"] if stubs.vulture is None else stubs.vulture),
+        pip_audit=(PINS["PIP_AUDIT_VERSION"] if stubs.pip_audit is None else stubs.pip_audit),
     )
 
 
@@ -647,9 +665,12 @@ def run_checks(
                 "@PYTEST_COV@": resolved.pytest_cov,
                 "@COVERAGE@": resolved.coverage,
                 "@PRE_COMMIT@": resolved.pre_commit,
+                "@VULTURE@": resolved.vulture,
+                "@PIP_AUDIT@": resolved.pip_audit,
                 "@PYTHON_RC@": str(resolved.python_rc),
                 "@PYTEST_COLLECT_RC@": str(resolved.pytest_collect_rc),
                 "@PYTEST_RUN_RC@": str(resolved.pytest_run_rc),
+                "@COVCHECK_RC@": str(resolved.covcheck_rc),
                 "@PYTEST_COLLECT_STDOUT@": resolved.pytest_collect_stdout,
                 "@PYTEST_RUN_STDOUT_FILE@": pytest_run_stdout_file.as_posix(),
             },

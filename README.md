@@ -65,6 +65,12 @@ sh ci/checks.sh smoke       # pytest tests/smoke
 sh ci/checks.sh coverage    # pytest tests --cov=src/orbital_drift
 sh ci/checks.sh gitleaks    # secret scan: working tree AND full git history
 sh ci/checks.sh hooks       # pre-commit run --all-files
+sh ci/checks.sh dead        # vulture dead-code scan (adopt-governance-kit)
+sh ci/checks.sh audit       # pip-audit dependency vulnerability scan
+sh ci/checks.sh specs       # OpenSpec structural validation
+sh ci/checks.sh traceability  # requirement-traceability matrix lint
+sh ci/checks.sh projections   # generated planning/ byte-drift check
+sh ci/checks.sh governance    # tests/governance/: guard corpus, meta-tests
 ```
 
 `lint`, `typecheck`, `unit`, `contract`, `smoke` and `gitleaks` are FR-011's six
@@ -81,7 +87,10 @@ gates. The other two are not, and each has its own requirement:
   to the number. That is a dated deferral, not an oversight: see D-09 in
   `docs/decisions/001-coverage-gate.md`. The stage also unsets `PYTEST_ADDOPTS`
   (and says so) — `--no-cov` set there would otherwise turn the gate green over a
-  run that measured nothing.
+  run that measured nothing. Once the global floor passes, the same stage also
+  runs `orbital_drift.covcheck` over the `coverage.json` that run produced — a
+  per-file floor (charter C-6, DEC-004) that catches a single untested module
+  hiding behind a healthy aggregate, which a global average alone cannot.
 * `hooks` exists so the pre-commit config is enforced in CI rather than only on
   machines where somebody remembered to install it.
 
@@ -93,6 +102,19 @@ and once under measurement — which roughly doubles the dominant local term. Th
 is accepted rather than optimised away; every cheaper arrangement weakens a gate,
 and D-06 of the decision doc records which one each of them breaks. In CI the two
 runs are parallel matrix jobs, so wall-clock is largely unchanged.
+
+The remaining `dead`, `audit`, `specs`, `traceability`, `projections` and
+`governance` stages are not part of FR-011's six either; they extend the same
+contract under the adopt-governance-kit change (see
+`charter/PROJECT-CHARTER.md` and `openspec/changes/adopt-governance-kit/`). Run
+`sh ci/checks.sh` with an unrecognized stage name to print the current,
+authoritative stage list — it is generated from `STAGE_LABELS` inside the
+script, never hand-copied, so this README cannot silently disagree with what
+actually dispatches. A thin `Makefile` fronts every stage (`make lint` =
+`sh ci/checks.sh lint`, `make pre-pr` = `sh ci/checks.sh all`) for boxes with
+GNU make — on Windows, call `sh ci/checks.sh <stage>` directly (GNU make is not
+installed on the authoring machine, and every target delegates, so nothing is
+lost by skipping it).
 
 If the `python` on your `PATH` is not 3.12, point the script at the right
 interpreter instead of changing your `PATH`:
@@ -108,9 +130,15 @@ PYTHON=/path/to/python3.12 sh ci/checks.sh all
 | `lint` | Python 3.12 + the pinned `ruff` |
 | `typecheck` | Python 3.12 + the pinned `mypy` |
 | `unit` / `contract` / `smoke` | Python 3.12 + the pinned `pytest` (`unit` additionally drives Docker, git and `pre-commit`: its positive-control tests exercise the pinned gitleaks container over real git repositories it builds itself, plus the merged pre-commit hook set) |
-| `coverage` | Python 3.12 + the pinned `pytest`, `pytest-cov` and `coverage`, **plus Docker and git** — it re-runs `tests/unit`, so it inherits that suite's real dependencies. Both are asserted before pytest starts: a control that skipped instead of running would inflate the number this stage reports, which is a fail-open, not a missing test |
+| `coverage` | Python 3.12 + the pinned `pytest`, `pytest-cov` and `coverage`, **plus Docker and git** — it re-runs `tests/unit`, so it inherits that suite's real dependencies. Both are asserted before pytest starts: a control that skipped instead of running would inflate the number this stage reports, which is a fail-open, not a missing test. After the global floor passes it also runs `orbital_drift.covcheck` over the `coverage.json` the same pytest invocation produced — no extra pin, since covcheck is pure stdlib |
 | `gitleaks` | **Docker and git only** |
 | `hooks` | Python 3.12 + the pinned `pre-commit`, Docker, git |
+| `dead` | Python 3.12 + the pinned `vulture` |
+| `audit` | Python 3.12 + the pinned `pip-audit` (network to pypi.org; behind a TLS-intercepting proxy/AV set `REQUESTS_CA_BUNDLE` to a bundle containing its root) |
+| `specs` | POSIX sh + awk only |
+| `traceability` | Python 3.12 + the pinned `pytest` (shells out to `--collect-only`) |
+| `projections` | Python 3.12, no external tool |
+| `governance` | Python 3.12 + the pinned `pytest`, git (the meta-tests enumerate tracked paths) |
 
 Before a gate runs, a preflight asserts the interpreter and the pins **that
 stage executes** — not the whole toolchain. That scoping is deliberate: the
@@ -189,6 +217,56 @@ response is a `stopwords` entry on the `[[rules.allowlists]]` of the rule that
 fired. Never `--no-verify`, never `SKIP=gitleaks`, and never a `paths` key on a
 global `[[allowlists]]`. The full procedure, with the reasoning and the exact
 TOML to write, is at the top of [`ci/gitleaks.toml`](ci/gitleaks.toml).
+
+## Governance
+
+The repo runs under the adopt-governance-kit change (Constitution v1.1.0;
+`openspec/changes/adopt-governance-kit/` holds the proposal, design decisions
+D1–D14, spec deltas, and task record):
+
+- **Gates.** `ci/checks.sh` is the canonical runner for all fourteen stages;
+  the `Makefile` is a thin front-end (`make pre-pr` = `sh ci/checks.sh all`),
+  and on a box without GNU make you call checks.sh directly — Linux CI is
+  authoritative. The zero-skip conftest escalates any parked skip; the
+  coverage floors (global + per-file, both inside the `coverage` stage),
+  vulture, pip-audit, spec validation, traceability lint, and projection
+  drift checks are all stages, and `tests/governance/` — the guard regression
+  corpus and the meta-tests that watch the process — runs under its own
+  `governance` stage rather than being attributed to a red `coverage` job
+  whose bare `pytest tests` invocation happens to collect it too.
+- **Control plane.** `charter/PROJECT-CHARTER.md` (constraints C-1…C-6,
+  subordinate to the constitution) + `docs/decision-log.md` (the mechanical
+  gate ledger — gates presence-check IDs there; prose unlocks nothing) +
+  three skills: `orbital-drift-governance` (the gate table, staleness-checked
+  against the log), `run-the-gate` (the machine-specific invocation — CA
+  bundle, interpreter, Docker preflight), and `log-decision` (the two-file
+  coupling the freshness check enforces).
+- **Guards.** `.claude/settings.json` deny-list + PreToolUse guard
+  (`scripts/pretooluse_guard.sh`, classification logic in
+  `src/orbital_drift/guard.py`) enforce Constitution I at the harness layer;
+  the native pre-push hook (`bash scripts/install_hooks.sh` on every fresh
+  clone) enforces the remote allowlist (`.claude/allowed-remotes.txt`) via
+  `scripts/pre_push_scan.sh`, the authoritative C-5 gate. Probe either
+  without GNU make: `bash scripts/guard_probe.sh '<command>'`.
+- **Planning.** `planning/roadmap.md` and `planning/jira-import.csv` are
+  generated projections of `src/orbital_drift/planning/roadmap_data.py` —
+  never hand-edit; regenerate with
+  `python -m orbital_drift.projections --write`.
+- **Architecture & history.** `docs/architecture/ARCHITECTURE.md` (C4 context
+  + container, built-vs-planned) and `CHANGELOG.md` (chronological, cites the
+  commit for every claim) — both updated in the same PR that changes the
+  shape they describe.
+
+## Current status
+
+Snapshot at commit `4ba5774` (2026-08-21) — **the live source is
+`specs/001-orbital-drift-ct/tasks.md`; if this disagrees with it, the tasks
+file wins.** Phase 0 of 6 (`specs/001-orbital-drift-ct/plan.md`), task T002 of
+52 complete. **Next: T003 `[HUMAN]`** — the operator executes
+`docs/runbooks/00-host-prep.md` on node A and logs `G-1` in
+`docs/decision-log.md`, which is what unlocks the T006 AUTHORED-PROVISIONAL
+re-review. See `CHANGELOG.md` for what has shipped and
+`docs/architecture/ARCHITECTURE.md` for what is built versus planned.
 
 ## Local configuration
 

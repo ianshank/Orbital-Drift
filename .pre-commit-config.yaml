@@ -140,6 +140,26 @@ repos:
           koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
           --shell=sh --severity=style -x
         types: [shell]
+        # scripts/ is deliberately OUT of this hook's scope: those files are
+        # bash by contract (adopt-governance-kit RB-002) — the PreToolUse hook
+        # invokes them as `bash "$CLAUDE_PROJECT_DIR/scripts/..."`, and git
+        # executes the installed pre-push hook via its bash shebang — so
+        # linting them as dash reports SC3xxx findings about a dialect they
+        # never run under. The shellcheck-bash hook below lints them in their
+        # real dialect at the same severity and with the same pinned container.
+        exclude: ^scripts/
+
+      - id: shellcheck-bash
+        name: shellcheck (pinned container, bash dialect, scripts/)
+        description: >-
+          Lint the adopt-governance-kit bash scripts (guard, pre-push hook,
+          installer, session check) as bash — the dialect they are invoked
+          under — with the same pinned shellcheck container and severity.
+        language: docker_image
+        entry: >-
+          koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+          --shell=bash --severity=style -x
+        files: ^scripts/.*\.sh$
 
   # ---------------------------------------------------------------------------
   # terraform fmt -check — canonical HCL formatting for the real .tf files

@@ -1,0 +1,3 @@
+# Charter C-5 / DEC-003: the ONLY remotes agents may push to. One URL per line.
+# Additions require a reviewed commit plus a decision-log entry.
+https://github.com/ianshank/Orbital-Drift.git

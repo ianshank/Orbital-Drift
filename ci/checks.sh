@@ -53,7 +53,10 @@
 # mixed-line-ending). A failing `all` can therefore leave the tree modified and
 # pass on a second run. See README.md, "Running the gates".
 #
-# Usage:  sh ci/checks.sh <lint|typecheck|unit|contract|smoke|coverage|gitleaks|hooks|all>
+# Usage:  sh ci/checks.sh <stage>          (an unrecognised value prints the
+#         authoritative list, generated from STAGE_LABELS below rather than
+#         hand-kept here — a hand-kept copy has already drifted from the real
+#         dispatch case once)
 #         PYTHON=/path/to/python3.12 sh ci/checks.sh all
 #         DEBUG=1 sh ci/checks.sh gitleaks      # dump the generated overlay
 # =============================================================================
@@ -157,7 +160,7 @@ PYTHON="${PYTHON:-python}"
 # the pin-coverage self-check below can iterate them without re-parsing the
 # case, and so tests/unit/test_ci_contract.py can assert this list, the dispatch
 # and .github/workflows/ci.yml all describe the same set of stages.
-STAGE_LABELS='lint typecheck unit contract smoke coverage gitleaks hooks all'
+STAGE_LABELS='lint typecheck unit contract smoke coverage gitleaks hooks dead audit specs traceability projections governance all'
 
 log() { printf '\n\033[1m>>> %s\033[0m\n' "$*"; }
 
@@ -309,12 +312,18 @@ stage_python_pins() {
     coverage)            printf 'pytest\npytest-cov\ncoverage\n' ;;
     hooks)               printf 'pre-commit\n' ;;
     gitleaks)            ;;
+    dead)                printf 'vulture\n' ;;
+    audit)               printf 'pip-audit\n' ;;
+    specs)               ;;
+    traceability)        printf 'pytest\n' ;;
+    projections)         ;;
+    governance)          printf 'pytest\n' ;;
     # `all` must list the UNION of every arm above. Not cosmetic: preflight()
     # prints its banner when a stage needs a tool not yet logged, so omitting
     # the two coverage pins here makes `all` print a second banner when
     # stage_coverage's preflight meets them for the first time — which
     # test_all_run_prints_the_preflight_banner_once_not_once_per_stage catches.
-    all)                 printf 'ruff\nmypy\npytest\npytest-cov\ncoverage\npre-commit\n' ;;
+    all)                 printf 'ruff\nmypy\npytest\npytest-cov\ncoverage\npre-commit\nvulture\npip-audit\n' ;;
     *)
       printf 'internal error: no pin set declared for stage %s\n' "$1" >&2
       return 1
@@ -397,6 +406,8 @@ tool_version() {
     pytest-cov) "${PYTHON}" -c 'import importlib.metadata as m;print(m.version("pytest-cov"))' 2>/dev/null | tr -d '\r' ;;
     coverage)   "${PYTHON}" -c 'import importlib.metadata as m;print(m.version("coverage"))' 2>/dev/null | tr -d '\r' ;;
     pre-commit) "${PYTHON}" -m pre_commit --version 2>/dev/null | awk 'NR==1{print $NF}' | tr -d '\r' ;;
+    vulture)    "${PYTHON}" -m vulture --version 2>/dev/null | awk 'NR==1{print $2}' | tr -d '\r' ;;
+    pip-audit)  "${PYTHON}" -m pip_audit --version 2>/dev/null | awk 'NR==1{print $2}' | tr -d '\r' ;;
     *)
       printf 'internal error: no version probe defined for %s\n' "$1" >&2
       return 1
@@ -957,12 +968,21 @@ stage_coverage() {
   # the capture out of that window. Widening the guard to suit one call site
   # would trade a real protection for a cosmetic one.
   set +e
-  cov_output=$("${PYTHON}" -m pytest tests --cov=src/orbital_drift --cov-report=term-missing --cov-fail-under="${COVERAGE_MIN_PERCENT}" 2>&1)
+  cov_output=$("${PYTHON}" -m pytest tests --cov=src/orbital_drift --cov-report=term-missing --cov-report=json --cov-fail-under="${COVERAGE_MIN_PERCENT}" 2>&1)
   cov_rc=$?
   set -e
 
   printf '%s\n' "${cov_output}"
-  [ "${cov_rc}" -eq 0 ] && return 0
+  if [ "${cov_rc}" -eq 0 ]; then
+    # Charter C-6's per-file floor. The global average above can pass while a
+    # single untested module hides behind a healthy aggregate (a global bar
+    # asks "is the average acceptable"; this asks "is anything unwatched").
+    # Run ONLY after the global floor has already passed, over the
+    # coverage.json --cov-report=json just produced, and propagate its exit
+    # code as this stage's own so a per-file breach still reddens `coverage`.
+    "${PYTHON}" -m orbital_drift.covcheck
+    return $?
+  fi
 
   # THREE structurally distinct causes, not two, and the order they are checked
   # in is load-bearing (D-12).
@@ -2042,6 +2062,86 @@ EOF
   "${PYTHON}" -m pre_commit run --hook-stage manual --files "$@"
 }
 
+# -----------------------------------------------------------------------------
+# Stage: dead  (vulture dead-code scan; adopt-governance-kit design D3)
+#
+# Scope and confidence floor live in pyproject [tool.vulture] — the config,
+# like every other gate bar, has exactly one home.
+# -----------------------------------------------------------------------------
+stage_dead() {
+  preflight dead
+  log "dead-code — vulture ${VULTURE_VERSION}"
+  "${PYTHON}" -m vulture
+}
+
+# -----------------------------------------------------------------------------
+# Stage: audit  (pip-audit dependency vulnerability scan; design D3)
+#
+# Ignoring an advisory requires a named `--ignore-vuln ID` argument added HERE
+# with a comment citing the advisory and the reason — never a blanket flag.
+# -----------------------------------------------------------------------------
+stage_audit() {
+  preflight audit
+  log "audit — pip-audit ${PIP_AUDIT_VERSION}"
+  "${PYTHON}" -m pip_audit
+}
+
+# -----------------------------------------------------------------------------
+# Stage: specs  (OpenSpec structural validation; design D13)
+#
+# ci/validate_specs.sh is the SOLE implementation — deterministic, identical
+# locally and in CI, no optional-CLI branch. It needs no Python, so this stage
+# declares no pins (same rationale as gitleaks).
+# -----------------------------------------------------------------------------
+stage_specs() {
+  preflight specs
+  log "specs — OpenSpec structural validation (ci/validate_specs.sh)"
+  sh "${SCRIPT_DIR}/validate_specs.sh"
+}
+
+# -----------------------------------------------------------------------------
+# Stage: governance  (the meta-tests that watch the PROCESS)
+#
+# stage_coverage's bare `pytest tests` already collects tests/governance/ as
+# part of the whole-tree run its coverage number is measured over, but that
+# gives a governance regression no dedicated job of its own: an operator
+# reading a red `coverage` job reasonably assumes the FR-011a threshold, not
+# the PreToolUse guard verdicts, the zero-skip guard or the skill-freshness
+# check. This stage runs the same directory again, on its own, so a
+# guard/meta-test regression reddens a job actually named `governance`.
+# -----------------------------------------------------------------------------
+stage_governance() {
+  preflight governance
+  log "governance — pytest ${PYTEST_VERSION} (tests/governance)"
+  git_or_fail "the governance meta-tests enumerate tracked paths via git ls-files"
+  pytest_suite tests/governance "governance suite"
+}
+
+# -----------------------------------------------------------------------------
+# Stage: traceability  (requirement-traceability matrix lint; design D3)
+#
+# Claims the pytest pin because the linter shells out to
+# `pytest --collect-only` to verify Green rows' node ids really collect.
+# -----------------------------------------------------------------------------
+stage_traceability() {
+  preflight traceability
+  log "traceability — orbital_drift.traceability (matrix lint)"
+  "${PYTHON}" -m orbital_drift.traceability --json
+}
+
+# -----------------------------------------------------------------------------
+# Stage: projections  (generated-planning drift check; design D3/D9)
+#
+# planning/roadmap.md and planning/jira-import.csv must byte-match what
+# orbital_drift.projections emits from roadmap_data.py. Pure-stdlib module, so
+# no pinned tool to claim (same rationale as specs).
+# -----------------------------------------------------------------------------
+stage_projections() {
+  preflight projections
+  log "projections — orbital_drift.projections --check (byte-drift vs roadmap_data.py)"
+  "${PYTHON}" -m orbital_drift.projections --check --json
+}
+
 stage_all() {
   preflight all
   # The six FR-011 gates, in order...
@@ -2056,6 +2156,14 @@ stage_all() {
   # tests/unit a second time — accepted, docs/decisions/001-coverage-gate.md D-06.
   stage_coverage
   stage_gitleaks
+  # ...the adopt-governance-kit gates (design D3; not part of FR-011's six,
+  # they extend the same contract)...
+  stage_dead
+  stage_audit
+  stage_specs
+  stage_traceability
+  stage_projections
+  stage_governance
   # ...then the hook enforcement stage. Last, because pre-commit hooks may
   # rewrite files (end-of-file-fixer, trailing-whitespace, ruff --fix) and must
   # not be able to influence a gate that already ran. That rewriting is also why
@@ -2078,10 +2186,16 @@ case "${1:-all}" in
   coverage)  stage_coverage ;;
   gitleaks)  stage_gitleaks ;;
   hooks)     stage_hooks ;;
+  dead)      stage_dead ;;
+  audit)     stage_audit ;;
+  specs)     stage_specs ;;
+  traceability) stage_traceability ;;
+  projections)  stage_projections ;;
+  governance)   stage_governance ;;
   all)       stage_all ;;
   *)
     printf 'unknown stage: %s\n' "$1" >&2
-    printf 'usage: sh ci/checks.sh <lint|typecheck|unit|contract|smoke|coverage|gitleaks|hooks|all>\n' >&2
+    printf 'usage: sh ci/checks.sh <%s>\n' "$(printf '%s' "${STAGE_LABELS}" | tr ' ' '|')" >&2
     exit 2
     ;;
 esac

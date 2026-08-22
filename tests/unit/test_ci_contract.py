@@ -2219,10 +2219,12 @@ def test_unit_stage_requires_git_for_its_own_named_reason() -> None:
 _DOCKER_OR_FAIL_REASON_RE: Final = re.compile(r'docker_or_fail\s+"([^"]+)"')
 
 
-# Every stage that guards on Docker/git. ONE list, consumed by all four tests
-# below, and cross-checked against ci/checks.sh itself by the test immediately
-# after it — so a stage that grows a `docker_or_fail` call cannot quietly escape
-# the distinctness check by nobody remembering to extend four literal lists.
+# Every stage that guards on BOTH Docker and git. ONE list, consumed by the
+# docker-specific tests below plus (via `_GIT_OR_FAIL_STAGES` immediately
+# after it) the git-specific ones, and cross-checked against ci/checks.sh
+# itself by the test immediately after that — so a stage that grows a
+# `docker_or_fail` or `git_or_fail` call cannot quietly escape the
+# distinctness check by nobody remembering to extend a literal list.
 # (These were four separate hardcoded lists until the `coverage` stage was added
 # and had to be pasted into all of them. Same failure shape as the hand-written
 # parametrize in test_version_pins.py: the guard that does not extend itself is
@@ -2234,25 +2236,42 @@ _OR_FAIL_STAGES: Final[tuple[str, ...]] = (
     "stage_coverage",
 )
 
+# stage_governance calls `git_or_fail` (its meta-tests enumerate tracked paths
+# via `git ls-files`) but NOT `docker_or_fail` — it runs no container, unlike
+# every stage in ``_OR_FAIL_STAGES`` above, which calls both. Kept as a
+# separate tuple rather than folded into ``_OR_FAIL_STAGES`` so the
+# docker-specific tests below (which assume every listed stage calls BOTH
+# guards) are not asked to find a ``docker_or_fail`` call that does not exist.
+_GIT_ONLY_STAGES: Final[tuple[str, ...]] = ("stage_governance",)
+_GIT_OR_FAIL_STAGES: Final[tuple[str, ...]] = _OR_FAIL_STAGES + _GIT_ONLY_STAGES
+
 
 def test_the_or_fail_stage_list_matches_the_script() -> None:
-    """``_OR_FAIL_STAGES`` must name exactly the stages that really guard.
+    """``_OR_FAIL_STAGES``/``_GIT_OR_FAIL_STAGES`` must name exactly the stages
+    that really guard.
 
     Derived from ci/checks.sh rather than trusted, so adding a stage with a
     Docker or git dependency fails here until it is listed — at which point the
-    distinctness tests below start covering it automatically.
+    distinctness tests below start covering it automatically. The two guards
+    are checked against DIFFERENT expected sets, not one shared set: every
+    ``_OR_FAIL_STAGES`` entry calls both, but ``stage_governance`` calls only
+    ``git_or_fail`` (see ``_GIT_ONLY_STAGES`` above), so a single shared
+    ``expected`` set cannot be right for both calls at once.
     """
-    expected = set(_OR_FAIL_STAGES)
-    assert expected, "_OR_FAIL_STAGES is empty, so every assertion below is vacuous"
+    docker_expected = set(_OR_FAIL_STAGES)
+    git_expected = set(_GIT_OR_FAIL_STAGES)
+    assert docker_expected, "_OR_FAIL_STAGES is empty, so every assertion below is vacuous"
+    assert git_expected, "_GIT_OR_FAIL_STAGES is empty, so every assertion below is vacuous"
 
-    for call in ("docker_or_fail", "git_or_fail"):
+    for call, expected in (("docker_or_fail", docker_expected), ("git_or_fail", git_expected)):
         actual = {
             name for name, body in FUNCTIONS.items() if name.startswith("stage_") and call in body
         }
         assert actual == expected, (
-            f"stages calling {call} are {sorted(actual)}, but _OR_FAIL_STAGES says "
-            f"{sorted(expected)}. Update the list so the distinctness tests cover the "
-            "new stage, or remove the guard that should not be there."
+            f"stages calling {call} are {sorted(actual)}, but the expected set says "
+            f"{sorted(expected)}. Update _OR_FAIL_STAGES/_GIT_ONLY_STAGES so the "
+            "distinctness tests cover the new stage, or remove the guard that should "
+            "not be there."
         )
 
 
@@ -2282,9 +2301,14 @@ def test_the_docker_or_fail_reasons_are_all_distinct() -> None:
     )
 
 
-@pytest.mark.parametrize("stage_function", _OR_FAIL_STAGES)
+@pytest.mark.parametrize("stage_function", _GIT_OR_FAIL_STAGES)
 def test_every_git_or_fail_reason_is_a_literal_string(stage_function: str) -> None:
-    """ROUND 6 / MAJOR 2: the git analogue of the docker parser guard above."""
+    """ROUND 6 / MAJOR 2: the git analogue of the docker parser guard above.
+
+    Parametrized over ``_GIT_OR_FAIL_STAGES``, not ``_OR_FAIL_STAGES``: this
+    call exists in ``stage_governance`` too, which calls no ``docker_or_fail``
+    at all.
+    """
     assert _GIT_OR_FAIL_REASON_RE.search(FUNCTIONS[stage_function]), (
         f"{stage_function} calls git_or_fail without a single literal-string reason "
         "argument the parser above can extract"
@@ -2297,13 +2321,14 @@ def test_the_git_or_fail_reasons_are_all_distinct() -> None:
     ``git_or_fail`` used to take no reason at all (a single generic message
     shared by ``stage_gitleaks`` and ``stage_hooks``); round 6 gave it the
     same required-reason contract as ``docker_or_fail`` when ``stage_unit``
-    gained its own call, so this is now checkable the same way.
+    gained its own call, so this is now checkable the same way. Iterates
+    ``_GIT_OR_FAIL_STAGES``, the superset that also covers ``stage_governance``.
     """
     reasons = {
         stage: _GIT_OR_FAIL_REASON_RE.search(FUNCTIONS[stage]).group(1)  # type: ignore[union-attr]
-        for stage in _OR_FAIL_STAGES
+        for stage in _GIT_OR_FAIL_STAGES
     }
-    assert len(set(reasons.values())) == len(_OR_FAIL_STAGES), (
+    assert len(set(reasons.values())) == len(_GIT_OR_FAIL_STAGES), (
         f"two git_or_fail reasons are identical: {reasons}"
     )
 
@@ -2852,4 +2877,32 @@ def test_versions_env_negation_is_anchored() -> None:
     )
     assert "!versions.env" not in lines, (
         ".gitignore carries the unanchored `!versions.env` negation again"
+    )
+
+
+def test_stage_all_invokes_every_dispatch_label() -> None:
+    """`stage_all` membership was the one axis nothing asserted.
+
+    A stage added to STAGE_LABELS, the dispatch case and the CI matrix but
+    omitted from `stage_all` makes `sh ci/checks.sh all` — the documented
+    pre-PR command — silently WEAKER than CI, which is the inverse of the
+    guarantee the workflow header claims.
+    """
+    match = re.search(r"^stage_all\(\) \{\n(.*?)^\}", CHECKS_SRC, re.S | re.M)
+    assert match, "could not parse stage_all out of ci/checks.sh"
+    called = set(re.findall(r"^\s*stage_([a-z_]+)\s*$", match.group(1), re.M))
+    expected = set(DISPATCH) - {"all"}
+    assert called == expected, (
+        f"stage_all runs {sorted(called)} but the dispatch accepts {sorted(expected)}; "
+        f"missing from stage_all: {sorted(expected - called)}"
+    )
+
+
+def test_the_usage_string_is_derived_from_stage_labels() -> None:
+    """The usage text was one of the hand-kept copies of the stage list and had
+    already rotted (the header comment named eight stages while thirteen
+    dispatched). It must be generated, not typed."""
+    assert "tr ' ' '|'" in CHECKS_SRC or 'STAGE_LABELS}" | tr' in CHECKS_SRC, (
+        "the unknown-stage usage message should render STAGE_LABELS rather than "
+        "repeat the stage list as a literal"
     )
