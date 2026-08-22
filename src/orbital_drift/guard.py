@@ -102,6 +102,11 @@ _MAX_DEPTH: Final = 4
 #: or malformed, and the caller blocks either way.
 _MAX_SEGMENTS: Final = 512
 
+#: How much of a command a diagnostic may quote. The inputs that reach the
+#: truncation block are kilobytes of `$(`, and this text lands on an operator's
+#: stderr: enough to recognize the command, never the whole payload.
+_EXCERPT_CHARS: Final = 120
+
 
 @dataclass(frozen=True)
 class Verdict:
@@ -118,13 +123,22 @@ class Verdict:
         return f"BLOCKED ({self.constraint}): {self.reason}"
 
 
-def split_segments(command: str) -> list[str]:
-    """Split a command line into independently-judged segments.
+def _split_segments(command: str) -> tuple[list[str], bool]:
+    """Split a command line into segments, reporting ceiling truncation.
 
-    Splits on shell operators AND lifts the contents of every command
-    substitution into its own segment, recursively — ``$( )`` and backticks are
-    where the measured bypasses hid. Parameter expansions (``${VAR}``) are
-    dropped rather than lifted: they expand to data, not commands.
+    Returns ``(segments, truncated)``. ``truncated`` is True iff
+    :data:`_MAX_SEGMENTS` stopped the loop with work still queued, which means
+    the list is INCOMPLETE: some part of the command was never unwrapped, and
+    nothing in the list says which part. Policy callers must read that as
+    "could not analyse" and fail closed.
+
+    This is the checked form because the unchecked one shipped a fail-open
+    (RB-009). Each nesting level costs two iterations of the queue below (the
+    lifted body is queued AND the stripped remainder is re-queued), and the
+    queue is LIFO, so the body lifted first is popped last: 256 nested
+    substitutions exhausted the 512-iteration ceiling before the innermost
+    command was ever examined, the split came back EMPTY, and
+    :func:`analyze` read an empty list as nothing to object to.
     """
     segments: list[str] = []
     pending = [command]
@@ -156,7 +170,38 @@ def split_segments(command: str) -> list[str]:
         for operator in _OPERATORS:
             parts = [piece for part in parts for piece in part.split(operator)]
         segments.extend(part.strip() for part in parts if part.strip())
+    # Anything still queued is work the ceiling cut short, not work that came
+    # back clean. The loop can also exit exactly at the ceiling with the queue
+    # drained — that split IS complete, so the flag is the queue, not the count.
+    return segments, bool(pending)
+
+
+def split_segments(command: str) -> list[str]:
+    """Split a command line into independently-judged segments.
+
+    Splits on shell operators AND lifts the contents of every command
+    substitution into its own segment, recursively — ``$( )`` and backticks are
+    where the measured bypasses hid. Parameter expansions (``${VAR}``) are
+    dropped rather than lifted: they expand to data, not commands.
+
+    TRUNCATION IS INVISIBLE IN THIS RETURN SHAPE, and that is load-bearing: at
+    :data:`_MAX_SEGMENTS` the list simply comes back short — possibly EMPTY —
+    with nothing to distinguish "this command contains nothing to object to"
+    from "most of this command was never read". A caller that loops over the
+    result cannot tell the two apart, which is precisely how a denied command
+    wrapped in 256 substitutions won an ALLOW verdict (RB-009). Use this form
+    for display and diagnostics only; every POLICY caller must use
+    :func:`_split_segments` and block when ``truncated`` is True.
+    """
+    segments, _ = _split_segments(command)
     return segments
+
+
+def _excerpt(command: str) -> str:
+    """A bounded, quotable slice of a command for a verdict or a trace."""
+    if len(command) <= _EXCERPT_CHARS:
+        return command
+    return f"{command[:_EXCERPT_CHARS]}... (+{len(command) - _EXCERPT_CHARS} more characters)"
 
 
 def _argv(segment: str) -> list[str] | None:
@@ -244,7 +289,27 @@ def analyze(
     """Judge one command string. Every uncertain path returns a BLOCK."""
     if _depth > _MAX_DEPTH:
         return Verdict(True, "C-1", "command nests interpreters too deeply to analyze")
-    segments = split_segments(command)
+    segments, truncated = _split_segments(command)
+    if truncated:
+        # The segmenter ran out of budget with the command half-unwrapped, so
+        # the list below is not evidence of anything. Refuse, exactly as the
+        # depth ceiling above does — an unread command is not a safe one.
+        # No single segment is to blame, so name the COMMAND instead — bounded,
+        # because these payloads run to kilobytes. It goes into the REASON as
+        # well as the segment field: `Verdict.render()` formats the constraint
+        # and the reason and nothing else, which is why every other block
+        # interpolates its segment there too (`...; segment: {segment}`). A
+        # field nothing renders would leave this the only block on the
+        # operator's stderr that identifies nothing at all.
+        excerpt = _excerpt(command)
+        return Verdict(
+            True,
+            "C-1",
+            f"command exceeds the {_MAX_SEGMENTS}-segment work ceiling; "
+            f"refusing to analyze a command that could not be fully split; "
+            f"command: {excerpt}",
+            excerpt,
+        )
     for segment in segments:
         argv = _argv(segment)
         if argv is None:
@@ -363,8 +428,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if debug:
-        for segment in split_segments(command):
+        # The CHECKED form, deliberately: tracing through the public one meant
+        # a truncated payload printed no segment lines and no explanation for
+        # their absence — a block with no visible evidence, in the one case
+        # where the operator most needs to see why (RB-009).
+        traced, traced_truncated = _split_segments(command)
+        for segment in traced:
             sys.stderr.write(f"guard: segment={segment!r}\n")
+        if traced_truncated:
+            sys.stderr.write(
+                f"guard: TRUNCATED after {len(traced)} segments at the "
+                f"{_MAX_SEGMENTS}-segment ceiling; the rest was never read: "
+                f"{_excerpt(command)!r}\n"
+            )
 
     verdict = analyze(command, allowlist=allowlist, effective_remote=effective_remote)
     if verdict.blocked:
