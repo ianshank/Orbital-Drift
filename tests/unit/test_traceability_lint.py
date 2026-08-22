@@ -201,8 +201,165 @@ def test_header_only_matrix_is_vacuous(tmp_path: Path, monkeypatch: pytest.Monke
     assert any("vacuous" in problem for problem in problems)
 
 
-def test_unreadable_matrix_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A directory where a file is expected: an OSError must become a named
-    violation, not a traceback out of a CI stage."""
+def test_a_missing_matrix_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No matrix where one is required must be a named violation, not a traceback.
+
+    ``MATRIX`` is pointed at a directory, so ``lint``'s first branch
+    (``traceability.py:150`` ``if not MATRIX.is_file()``) returns the "is
+    missing" violation. It therefore never reaches the ``OSError`` handler at
+    :155-156 — this test's earlier name and docstring claimed it exercised that
+    handler, and RB-008 part 3's branch measurement is what showed otherwise.
+    Renamed and restated to say what it actually covers.
+
+    The assertion stays as-is deliberately: strengthening it to name the
+    violation is RB-008 part (2)'s "unfalsifiable tests removed or
+    strengthened", a different PR, and this change alters no assertion.
+    """
     monkeypatch.setattr(traceability, "MATRIX", tmp_path)
     assert traceability.lint() != []
+
+
+# --- the collection paths, which `--cov-branch` showed were never taken ----
+#
+# RB-008 part 3. This module CARRIED, at 18330d4, the thinnest per-file margin
+# in the tree (91.45% combined against the 90 floor) — past tense deliberately:
+# after 8d12321 closed the eleven exposed arcs, every module measures 100% with
+# 0 partial (D-14 in docs/decisions/001-coverage-gate.md), so the margin these
+# tests were written to widen is no longer the thinnest, or thin at all. The
+# arcs below are why it was: `_collected_node_ids` has three failure exits and the
+# suite exercised none of them, while `lint`'s early return on a collection
+# error was likewise unproved. These are not theoretical — a Green row citing
+# an uncollectable node id took CI red on PR #6. Each test names the one-line
+# production mutation that reddens it.
+
+
+def _broken_collection_root(tmp_path: Path) -> Path:
+    """A directory pytest CANNOT collect: one test module with a bad import.
+
+    A real subprocess against a real broken tree, not a stubbed
+    ``subprocess.run``. Cheap — measured at 0.11s — because the tree holds one
+    file, and honest, because the exit code being classified is the one pytest
+    actually produces (2, ``Interrupted: 1 error during collection``) rather
+    than one a fixture asserted into existence.
+    """
+    root = tmp_path / "uncollectable"
+    root.mkdir()
+    (root / "test_broken.py").write_text(
+        "import a_module_that_is_definitely_not_installed_xyz\n", encoding="utf-8"
+    )
+    return root
+
+
+def test_a_failed_collection_is_reported_as_an_error_not_an_empty_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Closes traceability.py:141->142 (and the 142-144 statements with it).
+
+    The distinction this arc protects is the reason the function returns a pair
+    at all: an empty node-id set and a failed collection are indistinguishable
+    downstream and mean OPPOSITE things. Empty-because-broken reported as
+    empty-because-collected makes every Green row in the matrix report "cites a
+    test that does not collect", pointing the operator at the matrix when the
+    fault is a broken import under tests/.
+
+    THE MUTATION THAT REDDENS THIS: widen the classifier at traceability.py:141
+    from `if proc.returncode not in (0, 5):` to `... not in (0, 2, 5):`. A
+    collection error is exit 2, so the error string becomes None and the
+    assertions below fail — exactly the misclassification the arc prevents.
+    """
+    monkeypatch.setattr(traceability, "REPO_ROOT", _broken_collection_root(tmp_path))
+
+    node_ids, error = traceability._collected_node_ids()
+
+    assert node_ids == frozenset(), f"a broken tree still yielded node ids: {node_ids!r}"
+    assert error is not None, "a collection error was reported as a successful empty collection"
+    assert "collect-only failed (exit 2)" in error, error
+    # The diagnostic must carry pytest's own last line, or the operator learns
+    # only that something failed.
+    assert "no output" not in error, error
+
+
+def test_a_hung_collection_is_named_as_a_hang_not_as_a_matrix_defect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Closes the `subprocess.TimeoutExpired` handler (traceability.py:135-136).
+
+    Driven by shrinking the module's own ceiling rather than by stubbing
+    `subprocess.run`, so a REAL `subprocess.run` raises a REAL `TimeoutExpired`
+    against a real (and really killed) child. `COLLECT_TIMEOUT` exists because
+    a hung collection would otherwise hang the `traceability` CI stage until
+    the job's 20-minute timeout with no stage-level diagnosis; this is the only
+    test that has ever watched it fire.
+
+    THE MUTATION THAT REDDENS THIS: change the handler body at
+    traceability.py:136-139 to `return frozenset(), None`. A hang then reads as
+    a clean empty collection and the `error is not None` assertion fails.
+    """
+    monkeypatch.setattr(traceability, "COLLECT_TIMEOUT", 0.001)
+
+    node_ids, error = traceability._collected_node_ids()
+
+    assert node_ids == frozenset()
+    assert error is not None, "a timed-out collection was reported as a successful one"
+    assert "did not finish within" in error, error
+    assert "not a matrix defect" in error, error
+
+
+def test_a_collection_failure_is_reported_instead_of_blaming_every_green_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Closes traceability.py:197->198 and the 198-199 statements: `lint`'s
+    early return when collection failed.
+
+    This is the arc above, seen at the level the operator reads. With
+    collection broken, the report must contain the collection diagnosis and
+    must NOT contain a single "does not collect" complaint — otherwise a broken
+    import under tests/ is rendered as a matrix full of lying Green rows, and
+    the operator edits the matrix to fix a problem that is not in it.
+
+    THE MUTATION THAT REDDENS THIS: change traceability.py:197 from
+    `if collect_error is not None:` to `if collect_error is None:`. Both
+    assertions below then fail together — the diagnosis vanishes from the
+    report and the Green row is blamed instead.
+    """
+    monkeypatch.setattr(traceability, "REPO_ROOT", _broken_collection_root(tmp_path))
+
+    problems = _lint_text(
+        tmp_path,
+        monkeypatch,
+        "| FR-900 | thing | `src/x.py` | tests/unit/test_x.py::test_y | M1 | Green | - |\n",
+    )
+
+    assert any("collect-only failed" in problem for problem in problems), problems
+    assert not any("does not collect" in problem for problem in problems), (
+        "a broken collection was rendered as a matrix defect: the operator is "
+        f"pointed at the Green row instead of at the broken import. {problems!r}"
+    )
+
+
+def test_a_matrix_that_is_not_valid_utf8_is_a_named_violation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Closes traceability.py:155-156, the `OSError`/`UnicodeDecodeError` guard
+    around reading the matrix.
+
+    `test_a_missing_matrix_is_reported` above does NOT reach this handler: it
+    points `MATRIX` at a directory, and `MATRIX.is_file()` returns the "is
+    missing" violation before `read_text` is ever called — which is why that
+    test was renamed off the word "unreadable". A file that
+    exists and cannot be DECODED is the shape that actually gets here, and it
+    is uid-independent, unlike a chmod-000 file under a root test runner.
+
+    THE MUTATION THAT REDDENS THIS: change the handler at traceability.py:156
+    to `return []`. The undecodable matrix then lints clean and the first
+    assertion below fails.
+    """
+    matrix = tmp_path / "REQUIREMENT-TRACEABILITY.md"
+    matrix.write_bytes(b"| FR-900 | \xff\xfe not valid utf-8 | x |\n")
+    monkeypatch.setattr(traceability, "MATRIX", matrix)
+    monkeypatch.setattr(traceability, "REPO_ROOT", tmp_path)
+
+    problems = traceability.lint()
+
+    assert any("could not be read" in problem for problem in problems), problems
+    assert any("REQUIREMENT-TRACEABILITY.md" in problem for problem in problems), problems
