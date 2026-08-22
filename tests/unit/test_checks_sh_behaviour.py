@@ -2428,6 +2428,57 @@ def test_the_coverage_stage_asserts_the_threshold_from_the_pin_file(tmp_path: Pa
     )
 
 
+def test_the_coverage_stage_measures_branches_not_only_statements(tmp_path: Path) -> None:
+    """``--cov-branch`` reaches the gate from the COMMAND LINE (RB-008 part 3).
+
+    Statement coverage alone cannot see a branch that is never taken: a
+    ``if x: return BLOCK`` whose body no test reaches still counts both of its
+    lines as executed the moment any test runs the ``if``. Eleven such arcs were
+    measured on this tree at 9de5a0e — four in ``orbital_drift.guard``, five
+    ``if __name__ == "__main__"`` entry points, two in
+    ``orbital_drift.traceability`` — one of them a C-1 BLOCK path in
+    ``orbital_drift.guard``. ``ci/checks.sh``'s comment at the invocation this
+    test reads states the same eleven; an earlier draft of this docstring said
+    five, and a justification that measurement contradicts is worse than no
+    justification (pyproject.toml:150-153).
+
+    WHAT THIS TEST CANNOT SHOW, AND WHERE THAT IS SHOWN. ``run_checks`` drives
+    ``ci/checks.sh`` with a STUBBED python, so the only claim available here is
+    that the flag reaches argv — it would stay green if ``--cov-branch`` became
+    a no-op. The engine-side positive controls required alongside it live in
+    ``tests/unit/test_coverage_positive_control.py``
+    (``test_cov_branch_is_what_turns_an_untaken_arc_into_a_failing_build`` and
+    the two ``percent_covered``/``percent_branches_covered`` controls), which
+    run the real pytest-cov.
+
+    Asserted on the CLI, because the other place coverage.py takes this setting
+    — a ``[tool.coverage]`` section — is forbidden outright by
+    ``test_no_coverage_config_silently_redefines_what_the_gate_measures`` in
+    tests/unit/test_ci_contract.py. That leaves exactly one home for it, and
+    this is the assertion that keeps it occupied.
+
+    CONSEQUENCE THE READER MUST NOT MISS: with this flag, coverage.py's
+    ``summary.percent_covered`` — both in the terminal TOTAL that
+    ``--cov-fail-under`` tests and in the coverage.json that
+    ``orbital_drift.covcheck`` reads — becomes the COMBINED statement+branch
+    rate. Neither floor's value moves (RB-008 forbids that); the quantity each
+    one compares does. See ``orbital_drift.covcheck``'s module docstring.
+    """
+    recording = run_checks("coverage", tmp_path)
+    assert recording.returncode == 0, recording.output
+
+    runs = [call for call in recording.of("python") if "-m pytest" in call.joined]
+    assert len(runs) == 1, (
+        f"expected exactly one pytest invocation from the coverage stage, got "
+        f"{[call.argv for call in runs]!r}"
+    )
+    assert "--cov-branch" in runs[0].argv, (
+        "the coverage stage does not pass --cov-branch, so an untaken branch inside "
+        "an executed statement is invisible to both the global floor and the "
+        f"per-file floor; argv was {runs[0].argv!r}"
+    )
+
+
 @pytest.mark.parametrize("hatch", ["--no-cov", "--collect-only", "--no-cov -p no:cacheprovider"])
 def test_pytest_addopts_does_not_survive_into_the_coverage_run(tmp_path: Path, hatch: str) -> None:
     """The gate has no opt-out, and `PYTEST_ADDOPTS` is the one that nearly worked.

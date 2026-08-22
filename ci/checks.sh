@@ -947,7 +947,7 @@ stage_smoke() {
 }
 
 # -----------------------------------------------------------------------------
-# Stage: coverage  (FR-011a — minimum measured statement coverage of src/)
+# Stage: coverage  (FR-011a — minimum measured statement+branch coverage of src/)
 #
 # NOT one of FR-011's six gates. It exists because FR-011a asks for it, which is
 # the only thing that makes it conformant: the `hooks` stage is NOT a precedent
@@ -1040,8 +1040,35 @@ stage_coverage() {
   # `rc=$?` capture inside it. Wrapping this invocation for readability pushed
   # the capture out of that window. Widening the guard to suit one call site
   # would trade a real protection for a cosmetic one.
+  #
+  # `--cov-branch` (RB-008 part 3) measures ARCS, not only statements. Without
+  # it a branch that is never taken still reports as covered whenever its `if`
+  # line executes — measured at 9de5a0e: eleven such arcs, including a C-1
+  # BLOCK return in orbital_drift.guard that no test reached. It is on the
+  # COMMAND LINE and not in a [tool.coverage] section because
+  # test_no_coverage_config_silently_redefines_what_the_gate_measures forbids
+  # that section outright; the CLI is the only home left, and
+  # test_the_coverage_stage_measures_branches_not_only_statements asserts this
+  # argv carries the flag.
+  #
+  # WHAT THAT CHANGES, AND WHAT IT DOES NOT (state this before a reader reads
+  # the number as a regression). With branches on, coverage.py's
+  # `percent_covered` — the terminal TOTAL --cov-fail-under tests, AND the
+  # per-file `summary.percent_covered` orbital_drift.covcheck reads out of the
+  # --cov-report=json below — becomes the COMBINED statement+branch rate:
+  # (covered statements + covered arcs) / (statements + arcs). Neither floor's
+  # VALUE moves; RB-008 forbids that. The QUANTITY each floor compares gets
+  # strictly harder. Measured at 9de5a0e: global 96.81% -> 96.18% against the
+  # 85 floor (11.18 pts of headroom), per-file minimum 90.74% -> 91.45% against
+  # the 90 floor. The global number falling is the flag working, not a
+  # regression.
+  #
+  # WHY ONE COMBINED BAR RATHER THAN A SEPARATE BRANCH BAR, with the four
+  # rejected alternatives and the measurements behind them: D-14. That is the
+  # same document the breach message below sends a breaching operator to, and
+  # FR-011a now says "statement and branch" because of it.
   set +e
-  cov_output=$("${PYTHON}" -m pytest tests --cov=src/orbital_drift --cov-report=term-missing --cov-report=json --cov-fail-under="${COVERAGE_MIN_PERCENT}" 2>&1)
+  cov_output=$("${PYTHON}" -m pytest tests --cov=src/orbital_drift --cov-branch --cov-report=term-missing --cov-report=json --cov-fail-under="${COVERAGE_MIN_PERCENT}" 2>&1)
   cov_rc=$?
   set -e
 
