@@ -22,10 +22,13 @@
 #
 # NON-NEGOTIABLE: no `|| true`, no `set +e` around a gate, no `continue-on-error`
 # in the caller. A gate that cannot fail is not a gate (Constitution V, FR-011).
-# (`set +e` appears twice below, both times to CAPTURE a diagnostic before
-# re-raising the failure. Neither swallows a non-zero result, and
+# (`set +e` appears three times below — in pytest_suite, stage_coverage and
+# require_pinned_image — always to CAPTURE a diagnostic before re-raising the
+# failure. None of them swallows a non-zero result, and
 # tests/unit/test_ci_contract.py enforces that scope per function rather than
-# merely counting the directives.)
+# merely counting the directives. This paragraph said "twice" while the file had
+# three, which is how stage_coverage's window went unparametrized in that test's
+# own coverage; the count is now mechanically checked too — RB-008 F5.)
 #
 # BOOTSTRAP: Python ${PYTHON_VERSION} + `python -m pip install -e ".[dev]"`.
 # See README.md. That is also the exact command .github/workflows/ci.yml runs,
@@ -331,6 +334,42 @@ stage_python_pins() {
   esac
 }
 
+# Does this stage EXECUTE Python at all? Answered SEPARATELY from
+# stage_python_pins above, because the two questions are genuinely different and
+# conflating them opened a hole (RB-008).
+#
+# An empty pin set means "this stage runs no PINNED DISTRIBUTION". It does not
+# mean "this stage runs no Python": `projections` declares no pins — the module
+# is pure stdlib, so there is no distribution to assert — and then runs
+# `"${PYTHON}" -m orbital_drift.projections`. preflight() below returned on the
+# empty pin set BEFORE require_python_interpreter, so that module executed on
+# whatever ${PYTHON} happened to be, under a stage header announcing the pinned
+# version. That is precisely the failure this file's own header forbids: "the
+# version a stage header PRINTS is the version that stage RUNS" (see WHAT THE
+# PREFLIGHT ACTUALLY GUARANTEES, above).
+#
+# Exempt by NAME, not by "has no pins", so adding a stage cannot silently join
+# the exempt set:
+#   gitleaks  runs a pinned container and git; `sh ci/checks.sh gitleaks` must
+#             work on a fresh clone with Docker and git and NO Python at all,
+#             which is the whole point of the stage with the fewest
+#             prerequisites in the repository.
+#   specs     runs ci/validate_specs.sh, POSIX sh plus awk by design (D13).
+# Both claims are pinned behaviourally by tests/unit/test_checks_sh_behaviour.py
+# (test_the_secrets_gate_consults_no_python_at_all and its specs counterpart),
+# so an exemption that stops being true fails the suite. The LIST ITSELF is
+# cross-checked against this file's own call graph — a name may sit here only if
+# its stage never reaches "${PYTHON}" — by test_ci_contract.py's
+# test_the_python_free_stage_exemptions_are_derived_from_the_source, so it is
+# not a hand-kept list that can quietly rot the way PREFLIGHT_EXEMPT_PINS would
+# without require_pin_coverage().
+stage_runs_python() {
+  case "$1" in
+    gitleaks|specs) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
 fail_pin() {
   fp_tool="$1"
   fp_expected="$2"
@@ -556,7 +595,18 @@ preflight() {
   require_pin_coverage
 
   pf_pins=$(stage_python_pins "${pf_stage}")
-  if [ -z "${pf_pins}" ]; then
+  # THE SHORT-CIRCUIT IS NARROWER THAN "NO PINS" (RB-008). It used to be
+  # `if [ -z "${pf_pins}" ]; then return 0; fi`, which skipped
+  # require_python_interpreter for every stage declaring no pinned distribution
+  # — including `projections`, which then executed
+  # `python -m orbital_drift.projections` on an unverified interpreter. Only a
+  # stage that runs no Python at all may return here; see stage_runs_python.
+  #
+  # Everything below is reached with an EMPTY pf_pins for such a stage, and that
+  # is deliberate: the banner logic reads the same, and `for pf_tool in
+  # ${pf_pins}` simply iterates zero times, so the interpreter is verified
+  # without inventing a second code path that could drift from this one.
+  if [ -z "${pf_pins}" ] && ! stage_runs_python "${pf_stage}"; then
     return 0
   fi
 
@@ -980,7 +1030,15 @@ stage_coverage() {
     # Run ONLY after the global floor has already passed, over the
     # coverage.json --cov-report=json just produced, and propagate its exit
     # code as this stage's own so a per-file breach still reddens `coverage`.
-    "${PYTHON}" -m orbital_drift.covcheck
+    #
+    # --floor IS PASSED EXPLICITLY, for the same Constitution III reason
+    # --cov-fail-under is above. This invocation carried no floor, so
+    # covcheck.PER_FILE_FLOOR's default silently WAS this gate's bar: a
+    # threshold living in application code, where an edit to a src/ module
+    # changes a gate and no pin file or test says a word (measured — lowering
+    # that default to 11.0 left the whole suite green). RB-008 F4 moved its home
+    # to ci/versions.env and left the number alone.
+    "${PYTHON}" -m orbital_drift.covcheck --floor "${COVERAGE_PER_FILE_MIN_PERCENT}"
     return $?
   fi
 
@@ -1229,11 +1287,11 @@ docker_or_fail() {
 # FIX line in docker_error_cause() already tells the operator to run, so
 # "reproduce it in isolation" is literally true, and it is one API round trip.
 #
-# `|| dd_rc=$?` rather than the `set +e` / `rc=$?` / `set -e` window used twice
-# elsewhere in this file: a command on the LEFT of `||` is already exempt from
-# errexit, so the status is captured without ever disarming errexit. Strictly
-# narrower than a disarmed window, and it keeps the number of places in this
-# file where errexit is off at two.
+# `|| dd_rc=$?` rather than the `set +e` / `rc=$?` / `set -e` window used three
+# times elsewhere in this file: a command on the LEFT of `||` is already exempt
+# from errexit, so the status is captured without ever disarming errexit.
+# Strictly narrower than a disarmed window, and it keeps this file down to three
+# places where errexit is off.
 docker_daemon_or_fail() {
   dd_reason="$1"
   docker_probe_errfile

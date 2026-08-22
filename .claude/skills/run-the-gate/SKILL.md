@@ -66,7 +66,7 @@ fixed things. Always `git status` after a red run and look at what changed.
 | `unit` / `hooks` / `gitleaks` / `coverage` | Is the daemon up? (above) |
 | `contract` / `smoke` | Declared-empty until T013/T020 land a test module — a red here before then means the suite directory itself is missing, not a test failure. |
 | `audit` | Network/TLS (the CA bundle) before assuming a real CVE. It queries PyPI live, so it can go red with an unchanged tree. |
-| `coverage` | Two bars: the global floor (`COVERAGE_MIN_PERCENT` in `ci/versions.env`), then `orbital_drift.covcheck`'s per-file floor, run only after the first passes. The second names the module. |
+| `coverage` | Two bars, both pinned in `ci/versions.env`: the global floor (`COVERAGE_MIN_PERCENT`), then `orbital_drift.covcheck`'s per-file floor (`COVERAGE_PER_FILE_MIN_PERCENT`, passed as `--floor`), run only after the first passes. The second names the module. |
 | `specs` | A change package is missing proposal/design/tasks, or a requirement has no WHEN/THEN scenario. |
 | `traceability` | A `Green` row cites a pytest node id that does not collect — or collection itself failed, which the linter now reports separately. |
 | `projections` | `planning/` was hand-edited. Regenerate: `python -m orbital_drift.projections --write`. |
