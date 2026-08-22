@@ -1,0 +1,73 @@
+# infra/k3s/config-v3.toml.tmpl — containerd config-v3 template for k3s (T004a)
+#
+# SCOPE (runbook 01 Step 2 sends the operator here — read before proceeding):
+#   k3s regenerates /var/lib/rancher/k3s/agent/etc/containerd/config.toml on
+#   EVERY server start and silently discards hand-edits (D-000/D-02b). This
+#   file is the only supported persistence mechanism: when deployed next to
+#   the generated config (same directory, this exact filename), k3s renders
+#   its containerd config THROUGH this template instead of its built-in one.
+#   Deployment mechanism: docs/decisions/008-config-v3-deployment.md (D-03).
+#   Deploy onto node A only per the ratified status of that doc — its
+#   Status header (rewritten at ratification, required before T005) is the
+#   live source of truth; this comment deliberately does not restate it.
+#
+# FORM: base-extension, not a full static config. The first line delegates to
+#   k3s's built-in v3 base template ("compiled_template" gets a "base"
+#   associated template via templates.ParseTemplateFromConfig — verified at
+#   tag v1.35.7+k3s1, pkg/agent/templates/templates.go). A full static copy
+#   of the base was rejected: it would freeze k3s's own defaults (snapshotter,
+#   cgroup driver, registry mirrors, pause image) at authoring time and turn
+#   every k3s patch release into silent config drift.
+#
+# THE ONE ADDITION: a fallback `nvidia` runtime stanza, rendered ONLY when
+#   k3s's own per-start runtime detection did not register the handler.
+#   k3s prepends /usr/local/nvidia/toolkit to the PATH it scans for runtime
+#   binaries (pkg/agent/containerd/config_linux.go, runtimesPath constant,
+#   verified at tag v1.35.7+k3s1) — exactly where the GPU Operator's toolkit
+#   installs. When detection succeeds, the base template already emits this
+#   same stanza from .ExtraRuntimes and the block below is skipped; rendering
+#   it unconditionally would define the same TOML table twice, which is a
+#   containerd parse error. When detection fails (runbook 01 Step 12's
+#   escalation path), this block forces the handler so the next restart wires
+#   it. Guard subtlety: .ExtraRuntimes is map[string]ContainerdRuntimeConfig
+#   (a struct VALUE type); `index` on a missing key returns a zero struct,
+#   and Go text/template treats every struct as truthy — so the guard tests
+#   the .BinaryName string field: empty on the missing-key zero struct, and
+#   non-empty on detection-populated entries (evidence: the base template
+#   itself branches on `with $v.BinaryName` before emitting the options
+#   table — which shows populated entries carry a non-empty BinaryName, not
+#   that a present-but-empty entry is impossible; that case is a recorded
+#   residual risk, see D-008/D-02).
+#
+# NRI (D-000/D-02): the NRI plugin stays OFF. This template deliberately
+#   configures nothing NRI-related in any direction — the GPU Operator's NRI
+#   path deletes the `nvidia` RuntimeClass that D-000/D-03's UUID pinning
+#   depends on, and k3s's per-start runtimes.yaml re-staging turns that into
+#   flapping. Comments are the only place that word may appear in this file
+#   (enforced by tests/unit/test_k3s_config_template.py).
+#
+# NO HOST-SPECIFIC VALUES (Constitution III / D-000/D-10): no GPU UUIDs, no
+#   IPs, no hostnames. The one absolute path below is a PLATFORM constant,
+#   not a tunable: it must byte-match k3s's hardcoded scan path AND the GPU
+#   Operator's installDir simultaneously (D-000/D-02b calls this coupling
+#   deliberate). Parameterizing it would permit drift from a value that has
+#   exactly one correct spelling.
+#
+# Targets: k3s v1.35.7+k3s1 / containerd v2.2.5-k3s2 (bundled, per the k3s
+#   release notes) / containerd config version 3 (emitted by the base
+#   template). Pins: docs/decisions/versions.md.
+
+{{ template "base" . }}
+
+{{- if not (index .ExtraRuntimes "nvidia").BinaryName }}
+
+# Fallback: k3s runtime detection did not register the nvidia handler on this
+# start (toolkit binaries absent or unreadable at scan time — D-000/D-02b's
+# once-per-start scan hazard). Force the handler per runbook 01 Step 12.
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.'nvidia']
+  runtime_type = "io.containerd.runc.v2"
+
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.'nvidia'.options]
+  BinaryName = "/usr/local/nvidia/toolkit/nvidia-container-runtime"
+  SystemdCgroup = {{ .SystemdCgroup }}
+{{- end }}
