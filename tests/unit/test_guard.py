@@ -366,9 +366,51 @@ def test_segment_queue_has_a_work_ceiling(allowlist: Path) -> None:
     10**9, and they held while this very input was being ALLOWED. The payload
     is deliberately BENIGN — refusing to analyse *is* the verdict, so the
     accepted false positive is pinned here rather than met in an incident.
+
+    A THIRD unfalsifiable assertion lived here until now, and it is the reason
+    the two below are EXACT-STATE rather than a bound. MEASURED 2026-08-22 at
+    11af312, in a scratch COPY of this tree: ``len(split_segments(payload)) <=
+    _MAX_SEGMENTS`` evaluates True with the ceiling deleted outright (1
+    segment), with the split hard-wired to return nothing (0), and with a junk
+    segment appended on every drain (256). It compares the wrong two
+    quantities: ``_MAX_SEGMENTS`` bounds queue ITERATIONS, not segments, and
+    for a nested payload the segment count never comes near it. The comparison
+    is not even conservatively true: the ``;``-chain test below returns
+    ``_MAX_SEGMENTS + 1`` segments from a command the guard read in FULL. So it
+    is a bound that neither holds in general nor can fail on this payload.
+
+    EXACT STATE EITHER SIDE OF THE BOUNDARY is what carries the property, and
+    both depths are derived from ``_MAX_SEGMENTS`` rather than chosen, so the
+    pair keeps straddling the boundary if the ceiling moves. Same three
+    mutations, same scratch copy: deleting the ceiling makes the truncating
+    depth split to ``["echo hi"]`` (the second assertion reddens); discarding
+    the segments empties the readable depth (the first reddens); appending junk
+    reddens both. NEITHER is redundant with the verdict assertion that follows
+    — under the discard and junk mutations the split is still reported
+    truncated, so the C-1 BLOCK below still arrives and this test would stay
+    green on the strength of a segmenter returning pure garbage.
+
+    The PUBLIC ``split_segments`` is used deliberately, not the checked
+    ``_split_segments`` that
+    ``test_split_segments_reports_truncation_to_policy_callers`` drives: this
+    is the return shape whose invisible truncation caused RB-009, so what it
+    returns at each side of the ceiling is worth pinning in its own right.
     """
+    readable = _nested("echo hi", _LAST_ANALYZABLE_DEPTH)
     pathological = _nested("echo hi", _TRUNCATING_DEPTH)
-    assert len(guard.split_segments(pathological)) <= guard._MAX_SEGMENTS
+
+    assert guard.split_segments(readable) == ["echo hi"], (
+        f"at depth {_LAST_ANALYZABLE_DEPTH} the split is complete and must unwrap to "
+        "exactly the innermost command; anything else means the segmenter is losing or "
+        "inventing segments below the ceiling"
+    )
+    assert guard.split_segments(pathological) == [], (
+        f"at depth {_TRUNCATING_DEPTH} the ceiling stops the queue before the innermost "
+        "body is ever popped, so nothing should have drained; a non-empty result here "
+        "means this payload is no longer truncating and the test has stopped testing "
+        "the ceiling"
+    )
+
     verdict = guard.analyze(pathological, allowlist=allowlist)
     assert verdict.blocked and verdict.constraint == "C-1", verdict
 

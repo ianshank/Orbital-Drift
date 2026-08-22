@@ -261,8 +261,26 @@ def test_the_skill_decision_summary_lists_decisions_in_the_logs_order() -> None:
     logged position; that grouping is what made an order check impossible, so it
     was removed. The summary now mirrors the log line for line, which is the
     only arrangement in which "read the skill instead" is safe advice.
+
+    ID AND DATE, not the id alone. ``_SKILL_BULLET`` has always captured the
+    bullet's ``MM-DD``; this check used to discard it, and MEASURED 2026-08-22
+    at 11af312 that left a whole class of mirror drift invisible — rewriting
+    ``- **RB-009** (08-22)`` to ``(08-19)`` reddened NOTHING in either
+    governance suite, so the skill could date a decision to a day the log does
+    not and every gate stayed green. A wrong date is the same defect as a wrong
+    order: both answer "what was decided most recently" differently from the
+    log. Comparing the pair costs one slice, because the regex already extracts
+    the date. The log's dates are ISO and the bullets' are ``MM-DD``, hence
+    ``[5:]`` — the same within-one-year assumption ``_SKILL_BULLET``'s own
+    comment documents, with the same fix if it ever breaks (year in the bullet).
+
+    STILL NOT COVERED, deliberately: drift in the TEXT of a bullet or of a
+    logged entry. Word-level agreement between a one-line summary and a
+    paragraph-long entry is not a mechanical property, and the log's own rule
+    ("change not one character of any entry's text") is review-enforced. That
+    gap is real; it is not this check's shape.
     """
-    bullets = [entry_id for entry_id, _ in _SKILL_BULLET.findall(SKILL.read_text(encoding="utf-8"))]
+    bullets = _SKILL_BULLET.findall(SKILL.read_text(encoding="utf-8"))
     assert len(bullets) > 5, f"parsed only {len(bullets)} skill bullets — the check is vacuous"
 
     skill_text = SKILL.read_text(encoding="utf-8")
@@ -271,17 +289,18 @@ def test_the_skill_decision_summary_lists_decisions_in_the_logs_order() -> None:
     since = since_match.group(1)
 
     logged = [
-        entry_id
+        (entry_id, date[5:])
         for date, entry_id in _ENTRY.findall(DECISION_LOG.read_text(encoding="utf-8"))
         if date >= since
     ]
     assert logged, "decision log parsed to zero in-range entries"
 
     assert bullets == logged, (
-        "the governance skill's decision summary does not list decisions in the "
-        f"decision log's order.\n  skill: {bullets}\n  log:   {logged}\n"
-        "Agents read the skill first (CLAUDE.md step 0), so a divergent order here "
-        "answers 'what was decided most recently' differently from the log."
+        "the governance skill's decision summary does not match the decision log's "
+        f"(id, date) sequence.\n  skill: {bullets}\n  log:   {logged}\n"
+        "Agents read the skill first (CLAUDE.md step 0), so a divergent order — or a "
+        "bullet dated to a day the log does not — answers 'what was decided most "
+        "recently' differently from the log."
     )
 
 

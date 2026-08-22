@@ -149,6 +149,29 @@ NESTED_PAST_CEILING: Final = (
     "$(" * CEILING_NESTING_DEPTH + "kubectl delete ns prod" + ")" * CEILING_NESTING_DEPTH
 )
 
+#: Deepest nesting the segmenter still reads IN FULL — the ALLOW half of
+#: RB-009's contract ("the ceiling SHALL NOT become a blanket refusal"), which
+#: until now was pinned in-process only.
+#:
+#: DERIVED from `CEILING_NESTING_DEPTH`, not chosen: that constant is the FIRST
+#: depth at which the split truncates, so one level below it is the last that
+#: does not. Measured 2026-08-22 at 11af312 against the shipped ceiling of 512
+#: (`2 * 255 + 1 = 511 <= 512` reads in full; `2 * 256 + 1 = 513` does not).
+#: The MEASURED gap this closes: the rest of the ALLOWED corpus nests at most
+#: one level deep, so a guard mutated to refuse anything past ~50 queue
+#: iterations — a blanket refusal of exactly the deep band the ceiling governs
+#: — leaves this whole boundary suite green. Should the ceiling ever be
+#: LOWERED past this depth, this entry reddens as a BLOCK; that failure is the
+#: intended loud one, and its fix is here, not in the guard.
+DEEP_BUT_READABLE_DEPTH: Final = CEILING_NESTING_DEPTH - 1
+
+#: A BENIGN command at that depth. Benign is the point: `NESTED_PAST_CEILING`
+#: proves an unreadable command is refused, and only a readable one can prove
+#: the refusal is aimed rather than blanket.
+NESTED_BELOW_CEILING: Final = (
+    "$(" * DEEP_BUT_READABLE_DEPTH + "echo hi" + ")" * DEEP_BUT_READABLE_DEPTH
+)
+
 #: How many `;`-separated commands the benign ALLOW control chains together.
 #: Deliberately MORE than the queue budget the block above is about: a chain is
 #: split in one pass, so segment count and queue budget are different
@@ -258,6 +281,12 @@ ALLOWED: Final[tuple[str, ...]] = (
     "echo $(git rev-parse HEAD)",
     "cd $(git rev-parse --show-toplevel) && pytest -q",
     "make pre-pr 2>&1 | tee /tmp/`date +%s`.log",
+    # ...INCLUDING DEEP ONES, right up to the last depth the segmenter reads in
+    # full. The three entries above nest ONE level, so they cannot tell an
+    # aimed refusal from a blanket one anywhere past that: the spec delta's
+    # "the ceiling SHALL NOT become a blanket refusal" is a claim about the
+    # DEEP band, and this is the only entry in the corpus standing in it.
+    NESTED_BELOW_CEILING,
     # MANY SEGMENTS IS NOT TRUNCATION. A `;`-chain is split in a single pass,
     # so it costs one queue iteration however long it runs; this one yields
     # more segments than the ceiling itself and must still be allowed. It is
