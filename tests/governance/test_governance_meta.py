@@ -289,8 +289,14 @@ def test_the_skill_decision_summary_lists_decisions_in_the_logs_order() -> None:
     says nothing about entry text. The sentence originates in the assertion
     MESSAGE of ``test_decision_log_entries_are_in_chronological_order`` above,
     where it is advice to someone fixing a CHRONOLOGY violation. So the property
-    is not review-enforced either: there is no written rule for a reviewer to
-    enforce, and writing one (as decision-log rule 8) is the untaken
+    is not review-enforced GENERALLY: no RULE of the log states it, and the only
+    other written statement of it anywhere is a case-scoped parenthetical at
+    ``docs/decisions/009-program-review-record.md:33`` ("never rewrite the logged
+    one") — attached to the RB-007a taxonomy question and owned by the operator
+    at PR #5 merge, not a rule a reviewer can cite generally. An earlier version
+    of this docstring said there was no written rule to enforce AT ALL, and that
+    the assertion message was the property's only home; 009:33 refutes both.
+    Writing a GENERAL rule (as decision-log rule 8) remains the untaken
     precondition to mechanizing anything here.
 
     THE GAP HAS A DURABLE HOME, and it is NOT this docstring and NOT an ADR:
