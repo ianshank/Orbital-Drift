@@ -159,12 +159,21 @@ def test_nvidia_runtime_stanza_load_bearing_keys() -> None:
         "(D-008/D-01's byte-verified stanza shape)"
     )
 
-    assert re.search(r"""runtime_type\s*=\s*['"]io\.containerd\.runc\.v2['"]""", active), (
-        'nvidia runtime stanza must set runtime_type = "io.containerd.runc.v2"'
+    # Scope the key assertions to the nvidia stanza itself (Copilot review, PR #7):
+    # a global search would pass even if these keys sat in some other table, which
+    # is exactly the silently-dead-handler failure mode this suite exists to block.
+    runtime_region = active[nvidia_table.end() : options_table.start()]
+    assert re.search(r"""runtime_type\s*=\s*['"]io\.containerd\.runc\.v2['"]""", runtime_region), (
+        'the nvidia runtimes table itself must set runtime_type = "io.containerd.runc.v2" '
+        "(between its header and the .options header, not anywhere else in the file)"
     )
 
-    binary_name = re.search(r"""BinaryName\s*=\s*['"]([^'"]+)['"]""", active)
-    assert binary_name, "nvidia runtime options must set BinaryName"
+    options_region = active[options_table.end() :]
+    end_marker = options_region.find("{{- end }}")
+    if end_marker != -1:
+        options_region = options_region[:end_marker]
+    binary_name = re.search(r"""BinaryName\s*=\s*['"]([^'"]+)['"]""", options_region)
+    assert binary_name, "the nvidia .options table itself must set BinaryName"
     assert binary_name.group(1).startswith("/usr/local/nvidia/toolkit/"), (
         "BinaryName must point into /usr/local/nvidia/toolkit/ — the path k3s scans at "
         "highest precedence and the GPU Operator installs to (D-000/D-02b); got "
