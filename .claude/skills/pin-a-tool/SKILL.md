@@ -132,8 +132,8 @@ comments in `ci/checks.sh`:
   what it is — see the `new-decision-doc` skill.
 - Both a stub-based behavioural test of the stage's command line AND a
   **positive control** against the real tool proving the flags do something
-  — see `peer-reviewer.md`'s charter and `tests/unit/test_coverage_positive_control.py`
-  for the pattern. `spec-guardian` and `peer-reviewer` both now check for
+  — see `adversarial-reviewer.md`'s charter and `tests/unit/test_coverage_positive_control.py`
+  for the pattern. `spec-guardian` and `adversarial-reviewer` both now check for
   this explicitly.
 
 ## Verify before calling it done

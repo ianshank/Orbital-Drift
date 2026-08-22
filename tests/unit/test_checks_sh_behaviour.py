@@ -308,7 +308,7 @@ def test_an_unrepresentable_filename_fails_loudly_not_as_a_config_parse_error(
     recording = run_checks("gitleaks", tmp_path, stubs=Stubs(ignored=payload))
 
     if expected_message == "not valid UTF-8" and "iconv is not on PATH" in recording.output:
-        pytest.skip("iconv absent; ci/checks.sh documents and announces this gap")
+        pytest.skip("capability-guard: iconv absent; ci/checks.sh documents and announces this gap")
 
     assert recording.returncode != 0, "an unrepresentable path did not stop the scan"
     assert expected_message in recording.output, recording.output
@@ -434,15 +434,17 @@ def test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it(tmp_path: 
     """The direct instrumented proof the round asked for: count how many times
     the real version-check subprocess runs across one full ``all`` invocation.
 
-    Eight of the nine ``preflight()`` calls a full ``all`` run makes carry a
-    non-empty pin set — ``all`` itself (every tool), then ``lint`` (ruff),
-    ``typecheck`` (mypy), ``unit``/``contract``/``smoke`` (pytest, three
-    times), ``coverage`` (pytest + pytest-cov + coverage) and ``hooks``
-    (pre-commit); ``gitleaks``'s pin set is empty, so it makes no interpreter
-    or tool call at all. If verification were still memoised the pre-round-7
-    way, every count below would be 1 — the tool's version would be probed
-    once, by whichever stage happened to need it first, and every later stage
-    that also needs it would trust the cached result instead of probing again.
+    Twelve of the fifteen ``preflight()`` calls a full ``all`` run makes carry
+    a non-empty pin set — ``all`` itself (all eight tools), then ``lint``
+    (ruff), ``typecheck`` (mypy), ``unit``/``contract``/``smoke`` (pytest,
+    three times), ``coverage`` (pytest + pytest-cov + coverage), ``dead``
+    (vulture), ``audit`` (pip-audit), ``traceability`` (pytest) and
+    ``governance`` (pytest); ``gitleaks``'s, ``specs``'s and ``projections``'s
+    pin sets are all empty, so those three make no interpreter or tool call at
+    all. If verification were still memoised the pre-round-7 way, every count
+    below would be 1 — the tool's version would be probed once, by whichever
+    stage happened to need it first, and every later stage that also needs it
+    would trust the cached result instead of probing again.
     """
     recording = run_checks("all", tmp_path)
     assert recording.returncode == 0, recording.output
@@ -456,28 +458,35 @@ def test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it(tmp_path: 
 
     # The interpreter itself: full + minor version probes, once per
     # preflight() call with a non-empty pin set (all, lint, typecheck, unit,
-    # contract, smoke, coverage, hooks = 8).
+    # contract, smoke, coverage, dead, audit, traceability, governance,
+    # hooks = 12).
     full_probes = _count(contains="version_info[:3]")
     minor_probes = _count(contains="version_info[:2]")
-    assert full_probes == 8, (
-        f"expected 8 python full-version probes (one per non-empty-pin-set "
+    assert full_probes == 12, (
+        f"expected 12 python full-version probes (one per non-empty-pin-set "
         f"preflight() call), found {full_probes}: {[c.joined for c in python_calls]!r}"
     )
-    assert minor_probes == 8, f"expected 8 python minor-version probes, found {minor_probes}"
+    assert minor_probes == 12, f"expected 12 python minor-version probes, found {minor_probes}"
 
     # the ruff pin is needed by `all` and `lint` = 2 calls, not 1.
     assert _count(exact="-m ruff --version") == 2, "ruff --version did not re-probe for `lint`"
     # mypy: needed by `all` and `typecheck` = 2 calls, not 1.
     assert _count(exact="-m mypy --version") == 2, "mypy --version did not re-probe for `typecheck`"
-    # pytest: needed by `all`, `unit`, `contract`, `smoke`, `coverage` = 5, not 1.
+    # pytest: needed by `all`, `unit`, `contract`, `smoke`, `coverage`,
+    # `traceability`, `governance` = 7, not 1.
     #
     # `contains="import pytest"` counts the VERSION PROBE only. It deliberately
     # does not match `-m pytest ...` runs, nor the pytest-cov/coverage probes,
     # which go through importlib.metadata precisely so their argv carries no
     # `import pytest` substring — see tool_version() in ci/checks.sh and the
-    # ordering note in shell_harness.PYTHON_STUB.
-    assert _count(contains="import pytest") == 5, (
-        "the pytest probe did not re-run once each for unit/contract/smoke/coverage"
+    # ordering note in shell_harness.PYTHON_STUB. (tool_version() briefly
+    # carried a second, unreachable `pytest-cov)` arm that probed via
+    # `import pytest_cov` directly — a real `case` never reaches a repeated
+    # label, so it was dead code shadowed by the importlib.metadata arm above
+    # it; removed rather than kept as a second, silently-ignored definition.)
+    assert _count(contains="import pytest") == 7, (
+        "the pytest probe did not re-run once each for "
+        "unit/contract/smoke/coverage/traceability/governance"
     )
     # pytest-cov and coverage: needed by `all` and `coverage` = 2 calls each.
     assert _count(contains='m.version("pytest-cov")') == 2, (
@@ -489,6 +498,14 @@ def test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it(tmp_path: 
     # pre-commit: needed by `all` and `hooks` = 2 calls, not 1.
     assert _count(exact="-m pre_commit --version") == 2, (
         "pre-commit --version did not re-probe for `hooks`"
+    )
+    # vulture: needed by `all` and `dead` = 2 calls, not 1.
+    assert _count(exact="-m vulture --version") == 2, (
+        "vulture --version did not re-probe for `dead`"
+    )
+    # pip-audit: needed by `all` and `audit` = 2 calls, not 1.
+    assert _count(exact="-m pip_audit --version") == 2, (
+        "pip_audit --version did not re-probe for `audit`"
     )
 
 
@@ -706,12 +723,12 @@ def test_sequenced_stub_repeats_the_last_value_once_the_queue_is_exhausted(
     """Exercises the previously-dead clamp branch in ``_od_seq_next``.
 
     A two-value PY_MINOR sequence (both the correct pinned minor version)
-    against a full ``all`` run, which probes PY_MINOR eight times (once per
+    against a full ``all`` run, which probes PY_MINOR twelve times (once per
     non-empty-pin ``preflight()`` call: all, lint, typecheck, unit, contract,
-    smoke, coverage, hooks — the same count
-    ``test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it``
+    smoke, coverage, dead, audit, traceability, governance, hooks — the same
+    count ``test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it``
     measures for an unsequenced run). Calls 1 and 2 consume the two queued
-    values directly; calls 3-8 each ask for an index past the two-line queue
+    values directly; calls 3-12 each ask for an index past the two-line queue
     and must hit ``_od_seq_next``'s
     ``if [ "${_od_idx}" -gt "${_od_total}" ]; then _od_idx="${_od_total}"; fi``
     clamp, repeating line 2's value, for the run to still see the CORRECT
@@ -727,9 +744,9 @@ def test_sequenced_stub_repeats_the_last_value_once_the_queue_is_exhausted(
     assert recording.returncode == 0, recording.output
 
     minor_probes = [call for call in recording.of("python") if "version_info[:2]" in call.joined]
-    assert len(minor_probes) == 8, (
-        "expected 8 interpreter minor-version probes across a full `all` run "
-        "(2 from the queue, 6 past exhaustion via the clamp branch), found "
+    assert len(minor_probes) == 12, (
+        "expected 12 interpreter minor-version probes across a full `all` run "
+        "(2 from the queue, 10 past exhaustion via the clamp branch), found "
         f"{len(minor_probes)}: {[c.joined for c in recording.of('python')]!r}"
     )
 
@@ -1717,7 +1734,10 @@ def test_the_daemon_probe_reruns_for_every_stage_that_needs_docker(tmp_path: Pat
     ``coverage`` is in that list for the same reason ``unit`` is, and it is the
     reason the expected count moved from 3 to 4: it re-runs tests/unit under
     measurement, so the same container-dependent positive controls are in scope
-    and a skipped control would inflate the number it reports.
+    and a skipped control would inflate the number it reports. (The other
+    governance-kit stages — ``dead``, ``audit``, ``specs``, ``traceability``,
+    ``projections``, ``governance`` — call neither ``docker_or_fail`` nor
+    anything that shells out to Docker, so none of them add to this count.)
     """
     recording = run_checks("all", tmp_path)
     probes = _daemon_probes(recording)
@@ -2288,6 +2308,68 @@ def test_the_coverage_stage_measures_every_suite_not_just_one(tmp_path: Path) ->
             f"the coverage stage measures only {narrower}, so coverage from the other "
             f"suites is invisible: {narrower}: {runs[0].argv!r}"
         )
+
+
+# =============================================================================
+# Charter C-6 / DEC-004 — the per-file floor (orbital_drift.covcheck) is wired
+# into stage_coverage, run only after the global floor passes. covcheck's own
+# behaviour (real coverage.json fixtures, real per-file thresholds) is proved
+# in isolation by tests/unit/test_covcheck.py; a stub-only test there would be
+# a BLOCK per the adversarial-reviewer test-adequacy rule, so that suite drives
+# the real module. What is missing without the two tests below is the WIRING
+# claim ci/checks.sh's stage_coverage docstring makes — that a per-file breach
+# still reddens the `coverage` job, and that covcheck runs only inside the
+# success path so it can never mask a real global-floor breach's diagnosis.
+# =============================================================================
+
+
+def test_a_covcheck_failure_after_a_passing_global_floor_reddens_the_stage(
+    tmp_path: Path,
+) -> None:
+    """A per-file breach must propagate even though the global floor passed."""
+    recording = run_checks("coverage", tmp_path, stubs=Stubs(covcheck_rc=1))
+    covcheck_calls = [
+        call for call in recording.of("python") if call.joined == "-m orbital_drift.covcheck"
+    ]
+    assert covcheck_calls, (
+        "the coverage stage did not run `python -m orbital_drift.covcheck` after "
+        f"a passing global floor: {recording.output}"
+    )
+    assert recording.returncode != 0, (
+        "a covcheck failure (per-file floor breach) did not redden the coverage "
+        f"stage: {recording.output}"
+    )
+
+
+def test_covcheck_does_not_run_when_the_global_floor_already_failed(tmp_path: Path) -> None:
+    """covcheck lives INSIDE the success path, not a second, unconditional gate.
+
+    A global-floor breach must still short-circuit with the existing diagnosis
+    unchanged (D-12) — covcheck must never run, and so can never mask it.
+    """
+    recording = run_checks(
+        "coverage",
+        tmp_path,
+        stubs=Stubs(
+            pytest_run_rc=1,
+            pytest_run_stdout=(
+                "TOTAL 4 4 0%\n"
+                "FAIL Required test coverage of 85% not reached. Total coverage: 40.00%\n"
+                "49 passed in 0.15s\n"
+            ),
+            covcheck_rc=1,
+        ),
+    )
+    covcheck_calls = [
+        call for call in recording.of("python") if call.joined == "-m orbital_drift.covcheck"
+    ]
+    assert covcheck_calls == [], (
+        f"covcheck ran even though the global coverage floor had already failed: {recording.output}"
+    )
+    assert recording.returncode != 0, recording.output
+    assert "COVERAGE BREACH" in recording.output, (
+        f"a failed global floor must still be diagnosed as a coverage breach: {recording.output}"
+    )
 
 
 # =============================================================================

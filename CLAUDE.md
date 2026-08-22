@@ -4,7 +4,7 @@ Read `.specify/memory/constitution.md` before any work. It supersedes this file;
 
 ## Prime constraints (restated)
 1. **Never touch the live cluster.** No `kubectl apply`, `helm install/upgrade`, `terraform apply`, or any mutating cluster command — in any agent, ever. Allowed: `--dry-run=client`, `helm template`, `terraform validate`, `terraform fmt -check`, `terraform init -backend=false`, `kubeconform`, linters. **`terraform plan` is NOT allowed** — with the helm/kubernetes providers it initializes providers and refreshes state, which requires live cluster credentials that Principle I forbids agents from holding. **Harness-level reality check:** `.claude/settings.json` denies `kubectl`, `argo`, `argocd`, `k3s`, `k9s`, and `kustomize build` in *every* mode — including the `--dry-run=client` and `lint` forms the constitution permits in principle. Local validation is therefore `helm template` + `kubeconform` + `terraform validate` + `yamllint` only. If you need `argo lint` or `kubectl --dry-run=client`, hand off to the operator rather than assuming the deny is a bug. Tasks tagged `[HUMAN]` in tasks.md: stop, present the paired runbook, wait for the operator to confirm completion before proceeding.
-2. **No imports from prior harnesses.** Any code or metric ported from ianshank/Agents, Edge-DIT, or langfuse-eval-harness fails review (Constitution II).
+2. **No imports from prior harnesses.** Any code, metric, or eval-harness logic ported from ianshank/Agents, Edge-DIT, or langfuse-eval-harness fails review (Constitution II). Governance and process artifacts (charters, decision-log formats, review protocols, CI/hook/guard patterns, planning templates) from those sources are permitted per the Principle II amendment (Constitution v1.1.0).
 3. **Bash usage** (agents that have it): tests, linting, type-checks, local tooling only.
 
 ## Subagent roster & delegation map
@@ -15,19 +15,21 @@ Read `.specify/memory/constitution.md` before any work. It supersedes this file;
 | `[A:ml-engineer]` | ml-engineer | training/eval/registry/serving code, their tests |
 | `[A:drift-engineer]` | drift-engineer | drift metrics/triggers, dashboards, their tests |
 | `[A:runbook-writer]` | runbook-writer | runbooks, incident/soak templates, decision docs |
+| (untagged + governance tasks) | spec-implementer | default implementer; its TDD protocol binds ALL implementers |
 | (every artifact) | spec-guardian | conformance review vs constitution + spec |
-| (every artifact) | peer-reviewer | adversarial technical review |
+| (every artifact) | adversarial-reviewer | adversarial technical review (supersedes peer-reviewer, adopt-governance-kit D5) |
 
 ## Collaboration protocol (default ON)
 Agents collaborate by default. For every task:
-1. Owning agent produces the artifact (tests first where the task says so — observe them fail).
+0. Consult the `orbital-drift-governance` skill's gate table and `docs/decision-log.md`; an unsatisfied gate is a STOP, not a judgment call.
+1. Owning agent produces the artifact following spec-implementer's TDD protocol (failing test first — observe it fail for the right reason).
 2. `spec-guardian` reviews: constitution violations, spec drift, hardcoded values, scope creep, forbidden imports. Blocking.
-3. `peer-reviewer` reviews: correctness, failure modes, edge cases from spec.md, test adequacy. Blocking.
-4. Owning agent addresses findings; only then is the task checked off in tasks.md.
+3. `adversarial-reviewer` reviews: correctness, failure modes, edge cases from spec.md, test adequacy, charter constraints, gate/budget accounting. Blocking; max 2 fix cycles, a third recurrence of the same Major escalates to the operator (charter R-5).
+4. Owning agent addresses findings; updates `traceability/REQUIREMENT-TRACEABILITY.md` if the requirement mapping moved; only then is the task checked off in tasks.md.
 Cross-agent consultation is encouraged (e.g., pipeline-engineer asks infra-scaffolder for the Argo submit contract) — do it via explicit handoff notes in the PR description, not silent assumptions.
 
 ## Working agreements
 - One task (or one `[P]` group) per branch/PR; PR description names task IDs and review outcomes.
-- CI (lint, mypy, unit, contract, smoke, gitleaks) must be green; a red gitleaks halts everything.
+- CI (lint, mypy, unit, contract, smoke, gitleaks + the adopt-governance-kit stages) must be green; a red gitleaks halts everything. Run `make pre-pr` (or `sh ci/checks.sh all`) before every PR — checks.sh is the single gate source (design D1).
 - Unknowns discovered mid-task: write a short note in `docs/decisions/` and surface to the operator; do not improvise architecture.
 - When tasks.md and reality disagree, update tasks.md via PR — the file is the plan of record.

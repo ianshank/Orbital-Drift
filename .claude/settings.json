@@ -1,41 +1,90 @@
 {
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/pretooluse_guard.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/session_start_check.sh\"; exit 0",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
+    "allow": [
+      "Bash(bash scripts/guard_probe.sh:*)",
+      "Bash(git diff:*)",
+      "Bash(git status)",
+      "Bash(make audit)",
+      "Bash(make coverage)",
+      "Bash(make dead)",
+      "Bash(make lint)",
+      "Bash(make pre-pr)",
+      "Bash(make projections)",
+      "Bash(make secrets)",
+      "Bash(make specs)",
+      "Bash(make test)",
+      "Bash(make traceability)",
+      "Bash(make types)",
+      "Bash(sh ci/checks.sh:*)"
+    ],
     "deny": [
-      "mcp__Kubernetes_MCP_Server",
-      "mcp__Kubernetes_MCP_Server__*",
-      "Bash(kubectl:*)",
-      "Bash(kubectl *)",
-      "Bash(k3s:*)",
-      "Bash(k3s *)",
-      "Bash(k9s:*)",
-      "Bash(k9s *)",
-      "Bash(kustomize build:*)",
-      "Bash(argo:*)",
       "Bash(argo *)",
-      "Bash(argocd:*)",
+      "Bash(argo:*)",
       "Bash(argocd *)",
-      "Bash(helm install:*)",
-      "Bash(helm install *)",
-      "Bash(helm upgrade:*)",
-      "Bash(helm upgrade *)",
-      "Bash(helm uninstall:*)",
-      "Bash(helm uninstall *)",
-      "Bash(helm delete:*)",
+      "Bash(argocd:*)",
       "Bash(helm delete *)",
-      "Bash(helm rollback:*)",
+      "Bash(helm delete:*)",
+      "Bash(helm install *)",
+      "Bash(helm install:*)",
       "Bash(helm rollback *)",
-      "Bash(terraform apply:*)",
+      "Bash(helm rollback:*)",
+      "Bash(helm uninstall *)",
+      "Bash(helm uninstall:*)",
+      "Bash(helm upgrade *)",
+      "Bash(helm upgrade:*)",
+      "Bash(k3s *)",
+      "Bash(k3s:*)",
+      "Bash(k9s *)",
+      "Bash(k9s:*)",
+      "Bash(kubectl *)",
+      "Bash(kubectl:*)",
+      "Bash(kustomize build *)",
+      "Bash(kustomize build:*)",
       "Bash(terraform apply *)",
-      "Bash(terraform destroy:*)",
+      "Bash(terraform apply:*)",
       "Bash(terraform destroy *)",
-      "Bash(terraform plan:*)",
-      "Bash(terraform plan *)",
+      "Bash(terraform destroy:*)",
+      "Bash(terraform force-unlock *)",
+      "Bash(terraform force-unlock:*)",
+      "Bash(terraform import *)",
       "Bash(terraform import:*)",
-      "Bash(terraform state:*)",
+      "Bash(terraform plan *)",
+      "Bash(terraform plan:*)",
+      "Bash(terraform refresh *)",
       "Bash(terraform refresh:*)",
+      "Bash(terraform state *)",
+      "Bash(terraform state:*)",
+      "Bash(terraform taint *)",
       "Bash(terraform taint:*)",
+      "Bash(terraform untaint *)",
       "Bash(terraform untaint:*)",
-      "Bash(terraform force-unlock:*)"
+      "mcp__Kubernetes_MCP_Server",
+      "mcp__Kubernetes_MCP_Server__*"
     ]
   }
 }

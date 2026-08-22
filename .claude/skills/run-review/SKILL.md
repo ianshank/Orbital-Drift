@@ -1,6 +1,6 @@
 ---
 name: run-review
-description: Drive CLAUDE.md's collaboration protocol (owning agent produces artifact -> spec-guardian reviews -> peer-reviewer reviews -> owning agent addresses findings -> only then checked off) end to end for one task, so a human doesn't have to remember and manually sequence four steps. Use whenever a task's artifact is ready for review, or when explicitly asked to "run the review protocol" or "review task T0xx".
+description: Drive CLAUDE.md's collaboration protocol (owning agent produces artifact -> spec-guardian reviews -> adversarial-reviewer reviews -> owning agent addresses findings -> only then checked off) end to end for one task, so a human doesn't have to remember and manually sequence four steps. Use whenever a task's artifact is ready for review, or when explicitly asked to "run the review protocol" or "review task T0xx".
 ---
 
 # Run review
@@ -10,7 +10,7 @@ repo's history shows it being invoked as a repeatable sequence — the
 Phase 0 decision docs' "ROUND 6"/"ROUND 10" language reads like ad hoc manual
 iteration by a human orchestrator, not a scripted dispatch. Phase 1 is the
 first time this matters at scale: `pipeline-engineer` writes a DAG,
-`spec-guardian` and `peer-reviewer` both need to run against it in order,
+`spec-guardian` and `adversarial-reviewer` both need to run against it in order,
 findings need addressing, and only then does the task get checked off in
 `tasks.md`. This skill removes the "did I run both reviewers, in order, and
 actually address what they found before checking the box" memory burden.
@@ -30,7 +30,7 @@ to review if no formal task ID applies yet.
    implements its claimed FR/US without inventing scope, whether it's within
    the task's stated boundary, and — if it's a new CI gate — whether it's
    actually required by an FR and ships with a positive control, not just a
-   stub test (see `peer-reviewer.md`/`spec-guardian.md`'s explicit checks for
+   stub test (see `adversarial-reviewer.md`/`spec-guardian.md`'s explicit checks for
    this, added after the coverage-gate work found a gate that shipped
    without one).
 
@@ -45,7 +45,7 @@ to review if no formal task ID applies yet.
    enough that a second pass could catch something new — use judgment, but
    default to re-running rather than assuming your fix was complete.
 
-4. **Dispatch `peer-reviewer`** ONLY after spec-guardian approves (not in
+4. **Dispatch `adversarial-reviewer`** ONLY after spec-guardian approves (not in
    parallel — the protocol is sequential for a reason: an adversarial review
    of scope-creepy or non-conformant code wastes effort on things
    spec-guardian would have blocked anyway). Give it the SAME diff/files,
@@ -83,7 +83,7 @@ to review if no formal task ID applies yet.
 Per CLAUDE.md: "if you are uncertain whether something violates Principle
 II, BLOCK and ask the operator" — that instruction is `spec-guardian`'s, but
 the spirit applies to you as the orchestrator too. If spec-guardian and
-peer-reviewer findings conflict, or a finding requires an architectural
+adversarial-reviewer findings conflict, or a finding requires an architectural
 judgment call rather than a mechanical fix, surface it rather than picking a
 side silently.
 

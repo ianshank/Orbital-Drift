@@ -126,6 +126,7 @@ htmlcov/
 .coverage
 .coverage.*
 coverage.xml
+coverage.json
 *.cover
 .hypothesis/
 

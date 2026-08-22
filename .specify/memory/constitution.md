@@ -10,8 +10,9 @@ Prime directive: this project exists to make the **operator** fluent in MLOps me
 
 ## Principle II — Boring-Standard Stack (NON-NEGOTIABLE)
 - Tooling is fixed to industry defaults: Airflow, Argo Workflows, MLflow, lakeFS, Evidently-style drift metrics, Prometheus/Grafana, FastAPI (KServe as stretch), torchgeo/PyTorch.
-- MUST NOT import, port, or reimplement the operator's prior calibration/eval-harness codebases (ianshank/Agents, Edge-DIT, langfuse-eval-harness) or their bespoke metrics. Drift and eval use standard, widely recognized methods only (PSI, KS, ECE only via off-the-shelf libs, prediction-distribution shift, IoU/F1 for segmentation).
-- Rationale: interview fluency in the tools the employer runs, not another showcase of the operator's own machinery.
+- MUST NOT import, port, or reimplement **code, metrics, or evaluation-harness logic** from the operator's prior calibration/eval-harness codebases (ianshank/Agents, Edge-DIT, langfuse-eval-harness) or their bespoke metrics. Drift and eval use standard, widely recognized methods only (PSI, KS, ECE only via off-the-shelf libs, prediction-distribution shift, IoU/F1 for segmentation).
+- Governance and process artifacts — charters, decision-log formats, review protocols, CI/hook/guard patterns, and planning templates — are explicitly outside this ban and MAY be adopted from the operator's prior work; they carry no ML logic and do not compromise the boring-standard stack.
+- Rationale: interview fluency in the tools the employer runs, not another showcase of the operator's own machinery. The ban protects that fluency at the code and metrics layer; process discipline is tool-agnostic and porting it costs nothing the ban was written to protect.
 
 ## Principle III — No Hardcoded Values
 - AOI geometry, band sets, cloud-cover thresholds, drift thresholds and hysteresis windows, cadences, bucket/repo names, image tags, resource requests: all sourced from Helm values, environment, or `pydantic-settings`. A reviewer finding a magic number in code fails the review.
@@ -34,4 +35,4 @@ Prime directive: this project exists to make the **operator** fluent in MLOps me
 ## Governance
 - Amendments via PR with written rationale; `spec-guardian` reviews every PR against this document and the active spec. Constitution supersedes agent judgment and operator convenience in any conflict, except operator safety.
 
-Version 1.0.0 | Ratified 2026-08-08
+Version 1.1.0 | Ratified 2026-08-08 | Amended 2026-08-20 (Principle II scoped to code/metrics/eval-harness logic; governance and process artifacts exempted)

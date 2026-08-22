@@ -105,7 +105,10 @@ def _tool(name: str) -> str:
             "Constitution VII gate loads ci/gitleaks.toml rather than gitleaks' "
             "embedded defaults; they may not be skipped in CI."
         )
-    pytest.skip(f"{name} is not on PATH; the pinned-container positive controls need it")
+    pytest.skip(
+        f"capability-guard: {name} is not on PATH; the pinned-container positive "
+        "controls need it (never skipped in CI — see the raise above)"
+    )
 
 
 def _run(

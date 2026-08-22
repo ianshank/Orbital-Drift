@@ -55,9 +55,19 @@ orbital-drift/
 ├── tests/{unit,contract,smoke}/
 ├── dashboards/                # Grafana JSON
 ├── docs/{runbooks,incidents,soak-log,decisions}/   # decisions/ per CLAUDE.md + T030
+├── docs/decision-log.md       # mechanical gate ledger (DEC/RB/G ids; adopt-governance-kit D7)
+├── charter/                   # PROJECT-CHARTER.md — constraints C-1..C-6 (adopt-governance-kit D8)
+├── openspec/changes/          # OpenSpec change packages; governance changes (adopt-governance-kit D6)
+├── .claude/skills/            # orbital-drift-governance skill (gate table; staleness-checked)
 ├── ci/                        # gate logic (checks.sh), version pins, gitleaks config
 └── .github/workflows/         # thin caller — invokes `sh ci/checks.sh <stage>`, no gate logic
 ```
+
+Additional paths land incrementally with the adopt-governance-kit change (see
+`openspec/changes/adopt-governance-kit/tasks.md`): `Makefile` + `ci/validate_specs.sh` +
+`tests/governance/` (its Phase 3), `traceability/` (Phase 5), `scripts/` + `planning/` +
+`.claude/allowed-remotes.txt` (Phase 6). Each lands in the same PR that extends
+`tests/unit/test_repo_structure.py` for it.
 
 ## Phases
 - **Phase 0 — Substrate** (operator-heavy): repo + CI + gitleaks; host GPU driver validation; k3s up; GPU operator; SeaweedFS/lakeFS/CloudNativePG/MLflow/Airflow/Argo deployed. Gate: `nvidia-smi` inside a pod; hello-world DAG and hello-world Argo GPU job green.

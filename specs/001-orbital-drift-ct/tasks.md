@@ -5,7 +5,7 @@
 Tag legend:
 - `[P]` — parallelizable with adjacent `[P]` tasks (different files, no dependency)
 - `[HUMAN]` — operator-only. Agents STOP, hand off the paired runbook, and wait. Never executed by an agent (Constitution I).
-- `[A:name]` — owning subagent. Every agent artifact passes `spec-guardian` then `peer-reviewer` before its task is checked off (see CLAUDE.md).
+- `[A:name]` — owning subagent. Every agent artifact passes `spec-guardian` then `adversarial-reviewer` before its task is checked off (see CLAUDE.md).
 
 **Path convention: every path in this file is repo-relative.** An earlier revision mixed the two forms — T016 wrote `src/orbital_drift/ingest/stac_client.py` while T017, T019, T024–T028, T031, T034–T036 and T042 wrote package-relative paths like `data/labels.py`, which a reader could not distinguish from the top-level `dags/` and `workflows/` directories that genuinely sit at the repo root. All are now expanded. `dags/…` and `workflows/…` mean the top-level directories; anything inside the Python package is spelled `src/orbital_drift/…`.
 
