@@ -23,7 +23,7 @@ import shutil
 import subprocess
 import tomllib
 from pathlib import Path
-from typing import Final
+from typing import Final, NamedTuple
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 #: Subprocess ceiling (see test_zero_skip_guard for the rationale).

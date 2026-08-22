@@ -167,6 +167,29 @@ STAGE_LABELS='lint typecheck unit contract smoke coverage gitleaks hooks dead au
 
 log() { printf '\n\033[1m>>> %s\033[0m\n' "$*"; }
 
+# The accepted-invocation line, rendered from STAGE_LABELS rather than typed.
+# ONE home, because there are now two callers (the unknown-stage arm and the
+# too-many-arguments guard, both at the bottom of this file) and the stage list
+# has already rotted once when it was hand-kept — see
+# test_the_usage_string_is_derived_from_stage_labels.
+#
+# `command -p tr`, NOT a bare `tr`, and this is load-bearing rather than style.
+# The dispatch guards below (unknown stage, too many arguments) are the one path
+# through this script that must still speak with no PATH at all — see
+# test_checks_sh_resolves_script_dir_with_no_path_at_all — and both of them print
+# this line. MEASURED under PATH="" in dash AND bash, with a bare `tr`: the
+# substitution yields nothing and the operator gets `tr: not found` followed by
+# `usage: sh ci/checks.sh <>`, i.e. an error about a helper they never invoked
+# plus a usage message naming zero of the fifteen stages, exactly when this
+# message is the only thing still working. `-p` resolves tr from the standard
+# utilities path (`getconf PATH`) instead of PATH, so the list renders either
+# way. Do not "simplify" the `-p` away; pinned by
+# test_the_usage_line_still_names_every_stage_with_no_path_at_all.
+usage() {
+  printf 'usage: sh ci/checks.sh <%s>\n' \
+    "$(printf '%s' "${STAGE_LABELS}" | command -p tr ' ' '|')" >&2
+}
+
 # Read one pin straight out of ci/versions.env by key. Used so the preflight can
 # look a version up from a DERIVED tool name without `eval`.
 pin_value() {
@@ -2257,6 +2280,40 @@ stage_all() {
   log "all stages passed"
 }
 
+# EXACTLY ONE STAGE PER INVOCATION, AND EXTRA ARGUMENTS ARE REFUSED.
+#
+# MEASURED defect (RB-008c(c), round-3 item A4): the dispatch below reads only
+# `$1`, so `sh ci/checks.sh lint typecheck dead audit specs traceability
+# projections governance` printed the preflight and lint blocks and exited 0.
+# Seven of the eight named gates never ran and the exit status said everything
+# passed — the silently-green class RB-008 part (1) exists to close, in the
+# single gate source itself (design D1). An operator (or an agent) reporting
+# "eight stages, rc=0" from that invocation reports something false.
+#
+# Refused rather than looped over: .github/workflows/ci.yml runs one stage per
+# job and `stage_all` already means "run everything", so accepting a list here
+# would add a second, undocumented mode whose semantics differ from CI's. rc=2
+# is this script's own usage exit, shared with the unknown-stage arm below.
+#
+# This runs BEFORE any preflight or stage body, so an ambiguous invocation
+# executes nothing at all and no partial run can be mistaken for the whole one.
+# Behaviourally pinned by tests/unit/test_checks_sh_behaviour.py's
+# test_more_than_one_stage_argument_is_refused_instead_of_silently_ignored.
+if [ "$#" -gt 1 ]; then
+  printf 'too many arguments: %s\n' "$*" >&2
+  printf 'ci/checks.sh takes ONE stage. The dispatch would otherwise read only\n' >&2
+  printf 'the first argument, running that stage alone and exiting 0 as though\n' >&2
+  printf 'every stage named had passed. Use\n' >&2
+  # Double quotes, not backticks: shellcheck reads a backtick inside a
+  # single-quoted string as an unexpanded command substitution (SC2016) and
+  # the pinned-container hook treats that as a failure. The characters are
+  # literal either way, so this costs nothing and keeps the hook honest
+  # rather than suppressed.
+  printf '"sh ci/checks.sh all", or one invocation per stage.\n' >&2
+  usage
+  exit 2
+fi
+
 # The labels below are a contract with .github/workflows/ci.yml: the matrix
 # there plus {gitleaks, hooks, all} must equal this set exactly, or a stage can
 # be added to stage_all and never run in CI. They must also equal STAGE_LABELS,
@@ -2280,7 +2337,7 @@ case "${1:-all}" in
   all)       stage_all ;;
   *)
     printf 'unknown stage: %s\n' "$1" >&2
-    printf 'usage: sh ci/checks.sh <%s>\n' "$(printf '%s' "${STAGE_LABELS}" | tr ' ' '|')" >&2
+    usage
     exit 2
     ;;
 esac
