@@ -2269,7 +2269,12 @@ if [ "$#" -gt 1 ]; then
   printf 'too many arguments: %s\n' "$*" >&2
   printf 'ci/checks.sh takes ONE stage. It reads only the first argument, so a\n' >&2
   printf 'list would run just that stage and exit 0 for all of them. Use\n' >&2
-  printf '`sh ci/checks.sh all`, or one invocation per stage.\n' >&2
+  # Double quotes, not backticks: shellcheck reads a backtick inside a
+  # single-quoted string as an unexpanded command substitution (SC2016) and
+  # the pinned-container hook treats that as a failure. The characters are
+  # literal either way, so this costs nothing and keeps the hook honest
+  # rather than suppressed.
+  printf '"sh ci/checks.sh all", or one invocation per stage.\n' >&2
   usage
   exit 2
 fi
