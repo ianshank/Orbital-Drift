@@ -231,6 +231,8 @@ def test_the_bar_the_combined_rate_replaces_is_strictly_easier(tmp_path: Path) -
     """
     statement_only = _report(tmp_path, {"src/orbital_drift/a.py": (100, 100.0)})
     assert covcheck.check(statement_only, floor=90.0) == []
+
+
 def test_a_fractional_floor_is_reported_exactly_not_rounded(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
