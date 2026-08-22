@@ -10,10 +10,53 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from typing import Final
 
 import pytest
 
 from orbital_drift import guard
+
+#: A command the deny-list forbids in EVERY mode. Used as the payload wherever
+#: a test has to prove the analyzer actually READ what it was asked to judge —
+#: a verdict of "not blocked" means nothing unless the denied verb was in scope.
+_DENIED: Final = "kubectl delete ns prod"
+
+#: Deepest `$( )` nesting `split_segments` can still fully unwrap.
+#:
+#: Each level costs TWO queue iterations: the lifted body is queued AND the
+#: stripped remainder is re-queued (guard.py's `continue`). The queue is LIFO,
+#: so the body lifted on the FIRST pass — the one holding the real command —
+#: lands at the bottom and is popped LAST, on iteration ``2 * depth + 1``. The
+#: split is therefore complete only while ``2 * depth + 1 <= _MAX_SEGMENTS``,
+#: which is where both constants below come from rather than from a literal.
+#:
+#: Measured 2026-08-22 at the ceiling of 512, BEFORE the fail-closed fix
+#: (RB-009): depth 255 -> 1 segment -> BLOCK (C-1); depth 256 -> 0 segments ->
+#: ALLOW, and the wrapper exited 0 for a command denied in every mode.
+_LAST_ANALYZABLE_DEPTH: Final = (guard._MAX_SEGMENTS - 1) // 2
+
+#: First depth at which the ceiling stops the split with work still queued.
+_TRUNCATING_DEPTH: Final = _LAST_ANALYZABLE_DEPTH + 1
+
+#: Well past the boundary, to show the verdict does not depend on landing
+#: exactly on it. Twice the first truncating depth, not an arbitrary offset.
+_WELL_PAST_TRUNCATING_DEPTH: Final = _TRUNCATING_DEPTH * 2
+
+#: Most SIBLING (unnested) substitutions one command line can carry and still
+#: be split completely. A single pass lifts all N bodies and re-queues the
+#: stripped remainder, so the whole split costs ``N + 2`` iterations: one to
+#: lift, one for the remainder, one per body. Complete while
+#: ``N + 2 <= _MAX_SEGMENTS``. Measured 2026-08-22: N=510 -> 512 iterations,
+#: queue drained, 511 segments, NOT truncated; N=511 -> truncated.
+_LAST_COMPLETE_SIBLINGS: Final = guard._MAX_SEGMENTS - 2
+
+#: First sibling count that leaves work queued at the ceiling.
+_TRUNCATING_SIBLINGS: Final = _LAST_COMPLETE_SIBLINGS + 1
+
+
+def _nested(command: str, depth: int) -> str:
+    """``command`` buried under ``depth`` levels of command substitution."""
+    return "$(" * depth + command + ")" * depth
 
 
 @pytest.fixture
@@ -110,6 +153,12 @@ def test_conditional_commands_block_outside_readonly_forms(command: str, allowli
         "pytest -q",
         "git status",
         "ls -la",
+        # Substitutions in ORDINARY use. Without these the suite could not tell
+        # a working analyser from one that refuses every command carrying a
+        # `$( )` at all — the fail-closed fix must not become a blanket ban.
+        "echo $(git rev-parse HEAD)",
+        "cd $(git rev-parse --show-toplevel) && pytest -q",
+        "make pre-pr 2>&1 | tee /tmp/`date +%s`.log",
     ],
 )
 def test_permitted_commands_allow(command: str, allowlist: Path) -> None:
@@ -298,52 +347,205 @@ def test_main_passes_the_effective_remote_through(
     assert allowed == 0
 
 
+# --- the segment work ceiling (RB-009) -------------------------------------
+#
+# `split_segments` stops at _MAX_SEGMENTS. Everything below pins the one thing
+# that matters when it does: a command the segmenter could not finish reading
+# is UNANALYSED, and an unanalysed command must never read as permission.
+# Measured 2026-08-22 before the fix, `analyze` returned ALLOW for a payload
+# whose only content was a command denied in every mode.
+
+
 def test_segment_queue_has_a_work_ceiling(allowlist: Path) -> None:
-    """A pathological input must terminate rather than spin — AND still parse.
+    """A pathological input must terminate rather than spin — and it must come
+    back BLOCKED, because a split that stopped early proves nothing about the
+    part it never read.
 
-    Both assertions here used to be unfalsifiable. ``isinstance(..., list)``
-    and ``is not None`` are satisfied by ``[]`` and by any ``Verdict``
-    whatsoever, so the test passed on a run that gave up after one iteration
-    and reported nothing — which is exactly what truncation looks like
-    (measured: at a ceiling of 201 this input yields ``[]``). It also passed
-    with the ceiling raised to 10**9, i.e. with no ceiling at all.
-
-    So assert the two things that actually distinguish those states: 200-deep
-    nesting is fully lifted at the SHIPPED ceiling, and the verdict is the
-    concrete one this input earns.
+    The two assertions this replaces (``isinstance(..., list)`` and
+    ``is not None``) were unfalsifiable: they held with ``_MAX_SEGMENTS`` at
+    10**9, and they held while this very input was being ALLOWED. The payload
+    is deliberately BENIGN — refusing to analyse *is* the verdict, so the
+    accepted false positive is pinned here rather than met in an incident.
     """
-    pathological = "$(" * 200 + "echo hi" + ")" * 200
-    assert guard.split_segments(pathological) == ["echo hi"], (
-        "200-deep substitution nesting must be fully lifted at the shipped ceiling; "
-        "an empty list here means the work ceiling truncated a legitimate parse"
-    )
-    assert guard.analyze(pathological, allowlist=allowlist) == guard.Verdict(
-        blocked=False, constraint="", reason="", segment=""
-    )
+    pathological = _nested("echo hi", _TRUNCATING_DEPTH)
+    assert len(guard.split_segments(pathological)) <= guard._MAX_SEGMENTS
+    verdict = guard.analyze(pathological, allowlist=allowlist)
+    assert verdict.blocked and verdict.constraint == "C-1", verdict
 
 
-def test_the_work_ceiling_is_actually_consulted(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Guard the guard above: prove ``_MAX_SEGMENTS`` bounds the loop.
-
-    The test above is green whether the ceiling is 512 or absent, because this
-    input needs fewer iterations than 512. Deleting the ``guard_rail <
-    _MAX_SEGMENTS`` condition — the whole termination mechanism — would
-    therefore not redden a thing. Lowering the ceiling under the same input
-    must change the outcome; if it does not, the ceiling is decorative.
-
-    Note what the ceiling is NOT: a bound on the number of segments returned.
-    It counts loop ITERATIONS, and one iteration can split many operator-
-    separated commands out at once (measured: 5000 ``;``-separated commands
-    return 5000 segments under a ceiling of 512). Asserting
-    ``len(segments) <= _MAX_SEGMENTS`` would be asserting something false about
-    the general case and trivially true about this one.
+@pytest.mark.parametrize("depth", [_TRUNCATING_DEPTH, _WELL_PAST_TRUNCATING_DEPTH])
+def test_truncated_analysis_fails_closed(depth: int, allowlist: Path) -> None:
+    """The measured fail-open: the ceiling was reached before the denied verb
+    was ever popped off the queue, so `analyze` iterated an empty list, fell
+    through every check and allowed a command the deny-list forbids outright.
     """
-    pathological = "$(" * 200 + "echo hi" + ")" * 200
-    lowered = 8
-    monkeypatch.setattr(guard, "_MAX_SEGMENTS", lowered)
+    verdict = _blocked(_nested(_DENIED, depth), allowlist)
+    assert verdict.blocked, f"depth {depth} was ALLOWED — the guard failed open"
+    assert verdict.constraint == "C-1", verdict
+    assert "ceiling" in verdict.reason, verdict.reason
 
-    truncated = guard.split_segments(pathological)
-    assert truncated == [], (
-        f"with the ceiling at {lowered} this input must be abandoned unparsed; "
-        f"got {truncated!r}, so the queue is not bounded by _MAX_SEGMENTS at all"
+
+@pytest.mark.parametrize("depth", [1, _LAST_ANALYZABLE_DEPTH])
+def test_below_the_ceiling_the_command_is_still_read(depth: int, allowlist: Path) -> None:
+    """No regression, and no false comfort: under the ceiling the BLOCK must
+    still come from finding the denied verb, not from refusing to look. Without
+    this, a fix that blocked every nested payload outright would look identical
+    to a working analyser.
+    """
+    verdict = _blocked(_nested(_DENIED, depth), allowlist)
+    assert verdict.blocked and verdict.constraint == "C-1", verdict
+    assert "denied in every mode" in verdict.reason, verdict.reason
+    assert "ceiling" not in verdict.reason, verdict.reason
+
+
+def test_wide_substitution_fan_out_also_fails_closed(allowlist: Path) -> None:
+    """Same defect, no nesting at all, and a PARTIAL split rather than an empty
+    one — so a fix keyed on "no segments" would not close it.
+
+    One pass lifts every sibling substitution onto the queue, which is LIFO, so
+    the leftmost body is popped last. Put the denied command first, follow it
+    with enough harmless substitutions to reach `_TRUNCATING_SIBLINGS`, and it
+    is never reached. Measured 2026-08-22 pre-fix: 511 segments, verdict ALLOW.
+    """
+    command = f"echo $({_DENIED}) " + "$(echo x) " * (_TRUNCATING_SIBLINGS - 1)
+    verdict = _blocked(command, allowlist)
+    assert verdict.blocked, "a partially-read command was ALLOWED"
+    assert verdict.constraint == "C-1", verdict
+    assert "ceiling" in verdict.reason, verdict.reason
+
+
+def test_a_benign_command_with_many_segments_is_still_allowed(allowlist: Path) -> None:
+    """SEGMENT COUNT IS NOT THE CEILING — the ceiling counts queue iterations.
+
+    A `;`-chain of N commands is split in a single pass, so it costs one
+    iteration no matter how long it is. This chain yields MORE segments than
+    `_MAX_SEGMENTS` itself and must still be judged on its contents and
+    allowed. Without this the fix could tighten into `len(segments) > k` and
+    nothing would notice: an unread command and a long-but-fully-read one are
+    opposite states, and only one of them is a refusal.
+    """
+    count = guard._MAX_SEGMENTS + 1
+    chain = "; ".join("echo x" for _ in range(count))
+    segments, truncated = guard._split_segments(chain)
+    assert truncated is False, "a fully-split chain was reported truncated"
+    assert len(segments) == count
+    assert not guard.analyze(chain, allowlist=allowlist).blocked
+
+
+def test_split_segments_reports_truncation_to_policy_callers() -> None:
+    """The checked form exists to tell "nothing to object to" apart from "never
+    looked" — the distinction the public list return shape cannot express, and
+    the reason the fail-open survived review.
+    """
+    segments, truncated = guard._split_segments("echo a && echo b")
+    assert truncated is False
+    assert set(segments) == {"echo a", "echo b"}
+
+    partial, truncated = guard._split_segments(_nested(_DENIED, _TRUNCATING_DEPTH))
+    assert truncated is True
+    assert partial == [], f"the denied body should never have been reached: {partial}"
+
+    # THE EXACT-DRAIN CASE, which is the whole reason the flag is the QUEUE and
+    # not the iteration count. `_LAST_COMPLETE_SIBLINGS` bodies consume the
+    # ceiling to the last iteration and leave nothing queued: the split IS
+    # complete, so reporting it truncated would refuse a command the guard read
+    # in full. A count-based flag (`guard_rail >= _MAX_SEGMENTS`) passes every
+    # other assertion in this file and fails only here.
+    drained, truncated = guard._split_segments("echo " + "$(echo x) " * _LAST_COMPLETE_SIBLINGS)
+    assert truncated is False, "a complete split that used the last iteration was called truncated"
+    assert drained == ["echo"] + ["echo x"] * _LAST_COMPLETE_SIBLINGS
+
+
+def test_the_ceiling_is_read_from_the_constant_not_a_literal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bound is ``_MAX_SEGMENTS`` itself, not a same-valued literal.
+
+    Every other test above derives its depths FROM ``guard._MAX_SEGMENTS``, so
+    all of them describe the ceiling's current value and none of them describe
+    where the loop gets it. MEASURED 2026-08-22: rewriting the loop condition to
+    ``guard_rail < 512`` — the identical value, hand-copied — leaves this whole
+    file green (76 passed), because nothing changes at the shipped ceiling. That
+    is the single-home defect RB-008 exists to catch, and it is the one mutation
+    this test adds: lower the constant and the same payload must change verdict.
+
+    ``_LAST_ANALYZABLE_DEPTH`` is chosen deliberately —
+    ``test_below_the_ceiling_the_command_is_still_read`` already pins that this
+    exact depth is read IN FULL at the shipped ceiling, so a truncated result
+    here can only be the lowered constant taking effect.
+    """
+    payload = _nested("echo hi", _LAST_ANALYZABLE_DEPTH)
+    monkeypatch.setattr(guard, "_MAX_SEGMENTS", 8)
+
+    segments, truncated = guard._split_segments(payload)
+    assert truncated is True, (
+        "with the ceiling lowered to 8 this payload must come back truncated; "
+        "it did not, so the loop is not bounded by _MAX_SEGMENTS at all"
     )
+    assert segments == [], f"the queue was cut short, so nothing should have drained: {segments}"
+
+
+def test_excerpt_is_lossless_below_the_bound_and_says_so_above_it() -> None:
+    """A diagnostic must not quietly shorten a command that fits.
+
+    In practice only huge commands reach the truncation block — the shortest
+    input that can truncate is ~775 characters — so the short branch is
+    defensive. Pinned anyway: the day this helper is reused for a segment or a
+    push destination, silently dropping the tail would be a real defect.
+    """
+    short = "echo hi"
+    assert guard._excerpt(short) == short
+
+    long_command = "x" * (guard._EXCERPT_CHARS + 500)
+    rendered = guard._excerpt(long_command)
+    assert rendered.startswith("x" * guard._EXCERPT_CHARS)
+    assert len(rendered) < len(long_command)
+    assert "500 more characters" in rendered, rendered
+
+
+def test_truncation_verdict_shows_the_operator_a_bounded_excerpt(allowlist: Path) -> None:
+    """Every other block in this module names the segment it objected to; the
+    truncation block has no segment to name, so it quotes the COMMAND instead —
+    bounded, because the payloads that reach it are kilobytes long and this
+    string is written to an operator's stderr.
+
+    THE RENDER ASSERTION IS THE LOAD-BEARING ONE. `Verdict.render()` formats
+    the constraint and the reason and nothing else, and `main()` writes
+    `render()`; every other block gets its segment onto stderr by putting it IN
+    the reason (`...; segment: {segment}`). So a populated `.segment` that no
+    reason interpolates is invisible, and a test asserting only the field would
+    pass while the operator saw nothing — a decorative assertion about a
+    decorative field.
+    """
+    command = _nested(_DENIED, _TRUNCATING_DEPTH)
+    verdict = _blocked(command, allowlist)
+    assert verdict.segment, "the truncation block names nothing at all"
+    assert command.startswith(verdict.segment[:40]), verdict.segment
+    assert len(verdict.segment) < len(command), "the whole payload was echoed back"
+    assert len(verdict.segment) <= guard._EXCERPT_CHARS + 60, len(verdict.segment)
+
+    rendered = verdict.render()
+    assert verdict.segment in rendered, (
+        "the excerpt never reaches stderr — main() writes render(), which "
+        f"formats constraint + reason only. rendered was: {rendered}"
+    )
+    assert len(rendered) < len(command), "render() echoed the whole payload back"
+
+
+def test_main_debug_reports_truncation(
+    allowlist: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """GUARD_DEBUG must not go silent in the one case it is most needed.
+
+    The public `split_segments` returns an EMPTY list for a truncating payload,
+    so tracing through it printed the verdict and not one `guard: segment=`
+    line — the operator saw a block with no evidence, which is the same
+    invisible truncation that caused RB-009 in the first place.
+    """
+    monkeypatch.setattr(
+        "sys.stdin", io.StringIO(_payload(_nested(_DENIED, _WELL_PAST_TRUNCATING_DEPTH)))
+    )
+    assert guard.main(["--allowlist", str(allowlist), "--debug"]) == 2
+    err = capsys.readouterr().err
+    assert "guard: TRUNCATED" in err, err[:400]
+    assert "BLOCKED (C-1)" in err

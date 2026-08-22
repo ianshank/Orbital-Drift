@@ -21,6 +21,10 @@
 #   payload is dangerous-shaped, else allow (safe for ordinary work, closed for
 #   anything that looks like cluster mutation or a push).
 # - Any segment the lexer cannot parse: BLOCK.
+# - A command the segmenter could not finish splitting — it exhausts its work
+#   ceiling with substitutions still queued: BLOCK, naming the ceiling. A
+#   command that was never read is not a command that was found safe; 256
+#   nested `$( )` levels used to buy an ALLOW here (RB-009).
 # - A push whose destination cannot be resolved: BLOCK. Never assume `origin`.
 #
 # ACCEPTED FALSE POSITIVES (design choice — changing these needs a DEC entry):
@@ -30,6 +34,16 @@
 # - kubectl/argo read-only forms block, because the settings deny-list blocks
 #   them in every mode and this guard must never be looser (CLAUDE.md prime
 #   constraint 1: hand those to the operator).
+# - A BENIGN command carrying more command substitutions than the segmenter's
+#   work ceiling allows blocks too — refusing to analyze IS the verdict, so it
+#   cannot be conditioned on what the unread part turns out to say, and no
+#   reordering evades it. Read the thresholds off `_MAX_SEGMENTS` in
+#   src/orbital_drift/guard.py rather than trusting a number here: truncation
+#   starts at `_MAX_SEGMENTS - 1` sibling substitutions, or `_MAX_SEGMENTS // 2`
+#   levels of nesting (511 and 256 at the ceiling of 512 in force when this was
+#   written, 2026-08-22). Segment COUNT is not the ceiling — a `;`-chain of any
+#   length is split in one pass and stays allowed. Workaround: express the
+#   command with fewer substitutions.
 #
 # NOT-MODELLED FAMILY (the pre-push hook and the operator layer are
 # authoritative for these): environment-supplied git config
