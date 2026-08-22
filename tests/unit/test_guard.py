@@ -458,23 +458,42 @@ def test_split_segments_reports_truncation_to_policy_callers() -> None:
 
 def test_the_ceiling_is_read_from_the_constant_not_a_literal(
     monkeypatch: pytest.MonkeyPatch,
+    allowlist: Path,
 ) -> None:
     """The bound is ``_MAX_SEGMENTS`` itself, not a same-valued literal.
 
     Every other test above derives its depths FROM ``guard._MAX_SEGMENTS``, so
     all of them describe the ceiling's current value and none of them describe
-    where the loop gets it. MEASURED 2026-08-22: rewriting the loop condition to
-    ``guard_rail < 512`` — the identical value, hand-copied — leaves this whole
-    file green (76 passed), because nothing changes at the shipped ceiling. That
-    is the single-home defect RB-008 exists to catch, and it is the one mutation
-    this test adds: lower the constant and the same payload must change verdict.
+    where the loop gets it. MEASURED 2026-08-22 at 9de5a0e, in a scratch COPY of
+    the tree rather than in the tree under review: rewriting the loop condition
+    to ``guard_rail < 512`` — the identical value, hand-copied — leaves this
+    whole file green (76 passed), because nothing changes at the shipped
+    ceiling. That is the single-home defect RB-008 exists to catch, and it is
+    the mutation this test adds: lower the constant and the same payload must
+    change verdict.
 
     ``_LAST_ANALYZABLE_DEPTH`` is chosen deliberately —
     ``test_below_the_ceiling_the_command_is_still_read`` already pins that this
     exact depth is read IN FULL at the shipped ceiling, so a truncated result
     here can only be the lowered constant taking effect.
+
+    The unpatched ALLOW is asserted FIRST, and it is not decoration. Nothing
+    else in this suite pins that a benign, deeply-nested, BELOW-ceiling command
+    is allowed: the substitution cases in ``test_permitted_commands_allow`` and
+    the wrapper's ``ALLOWED`` corpus are depth 1, and
+    ``test_a_benign_command_with_many_segments_is_still_allowed`` is a
+    ``;``-chain with no nesting at all. Every other deep payload here carries a
+    DENIED verb or sits above the ceiling, so all of them turn on a BLOCK.
+    Without the assertion below, a regression that refused readable deep
+    payloads for some reason OTHER than truncation would pass this whole file —
+    and refusing legitimate work is the failure mode this guard is least able to
+    notice about itself.
     """
     payload = _nested("echo hi", _LAST_ANALYZABLE_DEPTH)
+    assert guard.analyze(payload, allowlist=allowlist) == guard.Verdict(
+        blocked=False, constraint="", reason="", segment=""
+    ), "a readable deep payload must be judged on its contents, not refused"
+
     monkeypatch.setattr(guard, "_MAX_SEGMENTS", 8)
 
     segments, truncated = guard._split_segments(payload)
