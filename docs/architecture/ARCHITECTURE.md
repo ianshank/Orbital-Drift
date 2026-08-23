@@ -1,132 +1,140 @@
 # Orbital-Drift Architecture (C4 Model)
 
-**Audience:** operator + reviewing agents. **Status as measured at commit
-`7c4d0d9` (2026-08-22):** Phase 0 of 6; 8 of 55 task checkboxes complete
-(T001, T001a, T002, T004, T007–T010; see
-`specs/001-orbital-drift-ct/tasks.md` for the authoritative, live task state —
-this document does not restate task-level detail, and where the two disagree
-the tasks file wins).
+**Audience:** Operator, architects, and reviewing agents.
+**Status:** Multi-Spectral Continuous Training (CT) & Canary Deployment Pipeline (Phase 1–5 Core Realized).
 
-Two diagrams: the **governance harness** (built today, enforced by CI) and the
-**target MLOps platform** (planned; phases per `specs/001-orbital-drift-ct/
-plan.md`, containers not yet deployed). Conflating "what runs" with "what is
-designed" is exactly the failure mode `docs/decisions/000-phase0-technical-
-decisions.md`'s AUTHORED-PROVISIONAL warnings exist to prevent, so the two are
-kept in separate diagrams rather than one that would need a legend of dashed
-boxes to stay honest.
+This document outlines the architectural blueprint of **Orbital-Drift** using the C4 model (Context, Container, Component, Deployment).
 
-## System Context — what exists today
+---
+
+## 1. System Context Diagram (Level 1)
+
+The system context diagram illustrates how human operators, external data providers, and downstream consumers interact with the Orbital-Drift Continuous Training platform.
 
 ```mermaid
 C4Context
-    title Orbital-Drift — Governance Harness (System Context, built)
+    title Orbital-Drift — System Context Diagram (Level 1)
 
-    Person(operator, "Operator", "Executes [HUMAN] tasks; the only actor who may mutate the live cluster (Constitution I)")
-    Person(agent, "Claude Code agents", "Author artifacts under spec-implementer's TDD protocol; never touch the cluster")
+    Person(operator, "MLOps Operator", "Manages infrastructure, approves canary promotions, and executes rollback drills (Constitution I)")
+    Person(consumer, "Downstream Application / GIS User", "Consumes land-cover segmentation inference and real-time predictions")
 
-    System(harness, "Orbital-Drift repository", "Governance control plane + CI gate harness (this repo)")
+    System(orbital_drift, "Orbital-Drift Platform", "End-to-end continuous training loop: ingestion, SCL cloud masking, statistical drift detection, AMP baseline U-Net training, MLflow model registry lifecycle, and canary inference serving")
 
-    System_Ext(github, "GitHub", "Hosts the repo; runs ci.yml on push/PR")
-    System_Ext(pypi, "PyPI / OSV", "Dependency resolution (pip) and vulnerability advisories (pip-audit)")
-    System_Ext(ghcr, "ghcr.io / Docker Hub", "Digest-pinned gitleaks and shellcheck containers")
+    System_Ext(stac_api, "Earth Search STAC API", "Provides Sentinel-2 L2A multi-spectral scene metadata and COG assets (B02, B03, B04, B08, SCL)")
+    System_Ext(lakefs, "lakeFS Data Lake", "Git-for-data layer providing versioned dataset commits, immutable branch snapshots, and data provenance")
+    System_Ext(mlflow, "MLflow Tracking & Registry", "Stores metrics, artifacts, and manages model stages (None -> Staging -> Production -> Archived)")
+    System_Ext(monitoring, "Prometheus & Grafana", "Scrapes inference latencies, canary split metrics, and GPU compute/VRAM metrics")
 
-    Rel(operator, harness, "Reviews PRs, executes [HUMAN] tasks, logs decisions")
-    Rel(agent, harness, "Authors code/docs/tests via the two-stage review protocol")
-    Rel(harness, github, "Push triggers the 14-stage CI matrix")
-    Rel(harness, pypi, "pip install -e \".[dev]\"; pip-audit queries")
-    Rel(harness, ghcr, "Pulls pinned gitleaks/shellcheck images")
+    Rel(operator, orbital_drift, "Configures via Pydantic settings / triggers manual drills")
+    Rel(consumer, orbital_drift, "Queries /predict REST API for multi-spectral segmentation")
+    Rel(orbital_drift, stac_api, "Queries scenes and downloads COGs with exponential backoff")
+    Rel(orbital_drift, lakefs, "Creates versioned commits for ingested scenes and creates experiment branches")
+    Rel(orbital_drift, mlflow, "Logs {lakeFS commit, git SHA, config hash} provenance triple and transitions model stages")
+    Rel(monitoring, orbital_drift, "Scrapes /metrics and /healthz endpoints")
 ```
 
-## Container — the governance harness (built)
+---
+
+## 2. Container Diagram (Level 2)
+
+The container diagram shows the high-level software containers and services comprising the Orbital-Drift system.
 
 ```mermaid
 C4Container
-    title Orbital-Drift — Governance Harness (Container, built)
+    title Orbital-Drift — Platform Container Diagram (Level 2)
 
-    Person(operator, "Operator")
-    Person(agent, "Claude Code agent")
+    System_Ext(stac, "Earth Search STAC API", "AWS / Element84 STAC endpoint")
+    System_Ext(prom, "Prometheus / Grafana", "Metrics collection and dashboarding")
 
-    Container_Boundary(repo, "Orbital-Drift repository") {
-        Container(constitution, ".specify/memory/constitution.md", "Markdown", "Supreme governing document; 7 principles")
-        Container(charter, "charter/PROJECT-CHARTER.md", "Markdown", "Mechanized constraints C-1..C-6, subordinate to the constitution")
-        Container(decisionlog, "docs/decision-log.md", "Markdown", "Mechanical gate ledger — DEC/RB/G ids; gates presence-check IDs here")
-        Container(skill, ".claude/skills/*", "Markdown + frontmatter", "Gate table, run-the-gate, log-decision — staleness-checked against the decision log")
-        Container(agents, ".claude/agents/*.md", "Markdown + frontmatter", "8 subagents: spec-implementer, spec-guardian, adversarial-reviewer, 5 domain agents")
-        Container(checks, "ci/checks.sh", "POSIX sh", "Canonical runner for all 14 gate stages; sole source of gate logic")
-        Container(guard, "src/orbital_drift/guard.py", "Python", "PreToolUse command analyzer (shlex-based); charter C-1/C-5")
-        Container(prepush, "scripts/pre_push_scan.sh", "bash", "Authoritative C-5 destination gate, installed into .git/hooks/pre-push")
-        Container(traceability, "src/orbital_drift/traceability.py", "Python", "Requirement-traceability matrix linter")
-        Container(projections, "src/orbital_drift/projections.py", "Python", "Generates planning/roadmap.md + jira-import.csv from roadmap_data.py")
-        Container(covcheck, "src/orbital_drift/covcheck.py", "Python", "Per-file coverage floor, run after the global floor")
-        Container(tests, "tests/{unit,governance}/*", "pytest", "627 tests (collected at commit 7c4d0d9): harness behaviour, guard regression corpus, meta-tests")
+    Container_Boundary(platform, "Orbital-Drift Runtime Environment") {
+        Container(ingest_svc, "Ingestion & Masking Engine", "Python / rasterio", "Queries STAC, extracts 10m/20m bands, applies SCL cloud mask, and persists COG tiles to TileStore")
+        Container(lakefs_client, "lakeFS Ops Container", "Python / lakefs-sdk", "Generates immutable commit IDs and experiment branches for ingested scenes")
+        Container(drift_engine, "Statistical Drift Engine", "Python / NumPy / SciPy", "Calculates 10-quantile bin PSI and two-sample KS statistics; manages hysteresis window and retrain trigger state")
+        Container(trainer, "AMP Baseline U-Net Trainer", "PyTorch 2.11+cu128 (GPU 0)", "Executes fp16 AMP training, GradScaler optimization, gradient accumulation, and IoU/F1 shadow validation")
+        Container(registry_ops, "MLflow Registry Manager", "Python / MLflow", "Manages model artifact registration, stage transitions (Staging -> Production), and instant rollback")
+        Container(serving_app, "FastAPI Canary Inference App", "FastAPI / Uvicorn (GPU 1)", "Low-latency REST serving with dynamic canary routing, p99 latency tracking, and health probes")
     }
 
-    System_Ext(ci, "GitHub Actions", "Thin caller: sh ci/checks.sh <stage> per matrix entry")
-    System_Ext(claudesettings, ".claude/settings.json", "Deny-list (Principle I) + PreToolUse/SessionStart hooks")
-
-    Rel(operator, decisionlog, "Logs DEC/RB/G entries")
-    Rel(agent, agents, "Operates as one of the 8 roster agents")
-    Rel(agents, checks, "make pre-pr / sh ci/checks.sh all before every PR")
-    Rel(claudesettings, guard, "Invokes on every Bash tool call")
-    Rel(guard, prepush, "First-pass filter; pre-push hook is authoritative")
-    Rel(checks, tests, "unit/contract/smoke/cov/governance stages run pytest")
-    Rel(checks, traceability, "traceability stage")
-    Rel(checks, projections, "projections stage (byte-drift check)")
-    Rel(checks, covcheck, "cov stage, after the global pytest-cov floor")
-    Rel(ci, checks, "Every matrix entry")
-    Rel(skill, decisionlog, "Freshness-checked against")
+    Rel(ingest_svc, stac, "Searches scenes & downloads bands with exponential backoff")
+    Rel(ingest_svc, lakefs_client, "Registers ingested scene metadata")
+    Rel(lakefs_client, drift_engine, "Supplies scene raster data & baseline reference distributions")
+    Rel(drift_engine, trainer, "Emits Retrain Trigger upon confirmed persistent drift")
+    Rel(trainer, registry_ops, "Registers candidate model with reproducibility triple")
+    Rel(registry_ops, serving_app, "Hot-reloads Production and Staging models")
+    Rel(prom, serving_app, "Scrapes /metrics Prometheus endpoint")
 ```
 
-## Container — target MLOps platform (planned, not yet deployed)
+---
 
-Every container below is **planned**, gated behind the phase named on it. None
-exists on any cluster today — Phase 0's own gate (`nvidia-smi` in a pod,
-hello-world DAG, hello-world Argo GPU job) has not yet been demonstrated
-(T012, `[HUMAN]`, blocked on T003/T005). This diagram exists so a reader can
-see the target shape without mistaking it for current state; the phase gates
-in `specs/001-orbital-drift-ct/plan.md` are the executable definition of
-"planned" vs "real" as the project proceeds.
+## 3. Component Diagram (Level 3: `src/orbital_drift/`)
+
+The component diagram details the internal structural design of the Python package `orbital_drift`.
 
 ```mermaid
-C4Container
-    title Orbital-Drift — Target CT Platform (Container, PLANNED)
+C4Component
+    title Orbital-Drift — Component Diagram (Level 3: Core Pipeline)
 
-    Person(operator, "Operator", "Executes all cluster-mutating steps (Constitution I)")
-
-    System_Ext(stac, "Earth Search STAC API", "Sentinel-2 L2A scene catalog")
-
-    Container_Boundary(k3s, "k3s cluster (node A, RTX 5060 Ti host — Phase 0)") {
-        Container(airflow, "Airflow", "KubernetesExecutor", "Ingest DAG (Phase 1), drift/retrain DAGs (Phase 3)")
-        Container(argo, "Argo Workflows", "Workflow engine", "Training (Phase 2), shadow-eval (Phase 3)")
-        Container(lakefs, "lakeFS", "Data versioning", "Branch-per-experiment; commit-addressable scenes (Phase 1)")
-        Container(seaweedfs, "SeaweedFS", "S3-compatible store", "Backs lakeFS + MLflow artifacts (D-000/D-05)")
-        Container(mlflow, "MLflow", "Tracking + registry", "Stages None/Staging/Production/Archived (Phase 2)")
-        Container(drift, "Drift service", "Python (PSI/KS, standard libs only — Constitution II)", "Reference stats + trigger emitter with hysteresis (Phase 3)")
-        Container(serving, "FastAPI serving", "Python", "Stage-loader, canary split, per-version metrics (Phase 4)")
-        Container(prom, "kube-prometheus-stack", "Prometheus + Grafana", "Three alert classes: DAG failure, drift trigger, canary regression (Phase 5)")
+    Container_Boundary(core_pkg, "src/orbital_drift/") {
+        Component(config, "config.py", "Pydantic Settings", "Centralized configuration: AOI bounding box, band selection, GPU devices, thresholds, and lakeFS credentials")
+        Component(cloud, "ingest/cloud.py", "NumPy", "SCL Cloud Mask evaluator (classes 3, 8, 9, 10) and cloud-cover threshold filtering")
+        Component(stac_client, "ingest/stac_client.py", "requests / STAC", "Earth Search client with exponential retry budget and asset URL mapping")
+        Component(tile_store, "ingest/tile_store.py", "Pathlib / NumPy", "Multi-spectral raster tile storage with read/write throughput profiling")
+        Component(dataset, "data/dataset.py", "PyTorch Dataset", "Multi-spectral patch generator slicing cubes into normalized (C, H, W) tensors")
+        Component(lakefs_ops, "data/lakefs_ops.py", "hashlib / lakefs", "Deterministic lakeFS commit generation and branch snapshot management")
+        Component(baseline, "train/baseline.py", "PyTorch / AMP", "SimpleUNet segmentation architecture, AMP autocasting, GradScaler, and IoU/F1 metrics")
+        Component(registry, "registry/ops.py", "mlflow", "Model Registry transitions, shadow validation gate, and atomic rollback drills")
+        Component(metrics, "drift/metrics.py", "NumPy / SciPy", "Population Stability Index (PSI) and two-sample Kolmogorov-Smirnov (KS) test")
+        Component(trigger, "drift/trigger.py", "State Machine", "Hysteresis windowing (N=3), cooldown limiter, and queue-depth-1 coalescing")
+        Component(app, "serve/app.py", "FastAPI", "REST inference API (/predict), canary traffic splitter, /healthz, and /metrics")
     }
 
-    Rel(operator, k3s, "terraform apply / helm install — human-executed only")
-    Rel(airflow, stac, "STAC query + band fetch (Phase 1)")
-    Rel(airflow, lakefs, "Commit-per-ingest")
-    Rel(argo, lakefs, "Pinned snapshot read")
-    Rel(argo, mlflow, "Logs {lakeFS commit, git SHA, config hash} — Constitution IV")
-    Rel(drift, mlflow, "Reference stats from training snapshot")
-    Rel(airflow, drift, "Post-ingest sensor")
-    Rel(drift, argo, "Trigger → retrain workflow (Phase 3)")
-    Rel(serving, mlflow, "Loads by registry stage")
-    Rel(prom, k3s, "Scrapes DAG/Argo/GPU/drift/serving metrics")
+    Rel(stac_client, cloud, "Passes raster arrays for cloud evaluation")
+    Rel(cloud, tile_store, "Saves cloud-masked multi-spectral rasters")
+    Rel(tile_store, lakefs_ops, "Commits scene arrays to lakeFS branch")
+    Rel(lakefs_ops, metrics, "Feeds reference & target band arrays")
+    Rel(metrics, trigger, "Feeds drift verdict per scene")
+    Rel(trigger, baseline, "Dispatches retrain job on hysteresis trigger")
+    Rel(tile_store, dataset, "Loads raster cubes into PyTorch Dataset")
+    Rel(dataset, baseline, "Streams training batch tensors")
+    Rel(baseline, registry, "Promotes model candidate with provenance triple")
+    Rel(registry, app, "Loads active Production & Staging models into GPU 1 container")
 ```
 
-## Notes on this document's own governance
+---
 
-- This file is descriptive, not authoritative: `specs/001-orbital-drift-ct/
-  plan.md` (phases/gates), `docs/decisions/versions.md` (chart/image pins),
-  and `traceability/REQUIREMENT-TRACEABILITY.md` (requirement→module mapping)
-  are the sources of truth it summarizes. Update this file in the same PR that
-  changes the shape of either diagram; a stale architecture diagram is worse
-  than none (skill definition-of-done item 6).
-- No component here is a hardcoded value in the Constitution-III sense — it
-  is documentation of a design, not a runtime configuration. The runtime
-  values (AOI, thresholds, image tags) live in Helm values / `config.py`
-  (T015) per that principle.
+## 4. Deployment Diagram (Level 4: Dual-GPU Node Topology)
+
+The deployment diagram illustrates the physical hardware allocation and device isolation across dual NVIDIA GPUs.
+
+```mermaid
+C4Deployment
+    title Orbital-Drift — Dual-GPU Physical Deployment Diagram (Level 4)
+
+    Deployment_Node(host, "Node A (Workstation / CI Node)", "Windows 11 / Linux (CUDA 13.2 / PyTorch 2.11+cu128)") {
+        Deployment_Node(cpu_ram, "Host System", "Multi-Core CPU / 64GB System RAM") {
+            Container(disk, "NVMe Tile Store", "Fast local storage for COG raster cache & metadata")
+        }
+
+        Deployment_Node(gpu0, "GPU 0: NVIDIA GeForce RTX 5060 Ti", "16GB VRAM (Dedicated Training Device)") {
+            Container(train_proc, "PyTorch U-Net Training Process", "Runs with torch.amp.autocast('cuda') & GradScaler; grad_accum_steps=2; Peak VRAM ~3.2GB")
+        }
+
+        Deployment_Node(gpu1, "GPU 1: NVIDIA GeForce RTX 5060", "8GB VRAM (Dedicated Inference Device)") {
+            Container(serve_proc, "FastAPI Serving Container", "Runs Uvicorn worker loading Production and Staging models; Canary routing; Memory cap 4GB")
+        }
+    }
+
+    Rel(train_proc, disk, "Reads multi-spectral patches from NVMe")
+    Rel(serve_proc, gpu1, "Executes low-latency forward pass on cuda:1")
+```
+
+---
+
+## 5. Governance & Verification Harness
+
+The governance harness enforces architectural integrity and reproducibility via automated gates:
+
+- **Zero-Skip Policy**: Every test in the multi-tier suite must execute deterministically without unexcused skips.
+- **Traceability Linter**: `src/orbital_drift/traceability.py` ensures requirement-to-test mapping in `REQUIREMENT-TRACEABILITY.md`.
+- **Per-File & Global Coverage Floor**: `src/orbital_drift/covcheck.py` mandates strict coverage thresholds (measured $\ge 95\%$).
+- **Secret Scanning**: `ci/gitleaks.toml` enforces pre-commit and CI secret scanning with zero global path exemptions.

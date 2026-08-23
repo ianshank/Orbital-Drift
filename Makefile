@@ -80,6 +80,15 @@ guard-probe: ## Show the PreToolUse guard's verdict for CMD, with the reason
 	@test -n "$(CMD)" || { echo 'usage: make guard-probe CMD="<command>"'; exit 2; }
 	@bash "$(ROOT)/scripts/guard_probe.sh" "$(CMD)"
 
+serve: ## Run FastAPI canary inference server locally
+	$(PYTHON) -m uvicorn orbital_drift.serve.app:app --host 0.0.0.0 --port 8000
+
+docker-build: ## Build multi-stage production container
+	docker build -t orbital-drift:latest .
+
+docker-run: ## Run production container locally
+	docker run -p 8000:8000 orbital-drift:latest
+
 governance: ## Governance meta-tests (guards, zero-skip, skill freshness)
 	sh "$(ROOT)/ci/checks.sh" governance
 

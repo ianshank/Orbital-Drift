@@ -23,7 +23,7 @@ import shutil
 import subprocess
 import tomllib
 from pathlib import Path
-from typing import Final, NamedTuple
+from typing import Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 #: Subprocess ceiling (see test_zero_skip_guard for the rationale).
@@ -45,7 +45,9 @@ PYPROJECT: Final = REPO_ROOT / "pyproject.toml"
 
 _GATE_RECIPE = re.compile(r"^(?P<target>[a-z-]+):[^\n]*\n(?P<recipe>(?:\t[^\n]*\n?)+)", re.M)
 # Recipes allowed to run something other than `sh ci/checks.sh <stage>`:
-_NON_GATE_TARGETS: Final = frozenset({"help", "install", "format", "guard-probe", "clean"})
+_NON_GATE_TARGETS: Final = frozenset(
+    {"help", "install", "format", "guard-probe", "clean", "serve", "docker-build", "docker-run"}
+)
 # Raw tool invocations that would reconstruct a gate inline:
 _GATE_TOOLS = re.compile(r"-m (pytest|ruff check|mypy|pre_commit|vulture|pip_audit)\b")
 
@@ -131,15 +133,19 @@ def test_skill_decision_section_is_fresh() -> None:
 PUBLIC_CANDIDATE_ALLOWLIST: Final = (
     # Root-level, deliberately public repo plumbing; everything else is
     # governed by default.
+    ".dockerignore",
     ".env.example",
     ".gitattributes",
     ".gitignore",
     ".pre-commit-config.yaml",
     "CHANGELOG.md",
     "CLAUDE.md",
+    "Dockerfile",
     "Makefile",
     "README.md",
+    "docker-compose.yaml",
     "pyproject.toml",
+    "uv.lock",
     "docs/*",
 )
 

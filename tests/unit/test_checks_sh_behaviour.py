@@ -1227,6 +1227,17 @@ def _launcher(directory: Path, name: str) -> None:
     only on the one nobody runs locally. That is the whole lesson of round 11.
     """
     resolved = shutil.which(name)
+    if resolved is None and sys.platform == "win32":
+        if name == "sh":
+            resolved = shutil.which("bash")
+        if resolved is None:
+            # Git Bash utilities are often not in the system PATH but exist in Git's usr\bin
+            git_cmd = shutil.which("git")
+            if git_cmd:
+                git_dir = Path(git_cmd).parents[1]  # e.g. C:\Program Files\Git
+                usr_bin = git_dir / "usr" / "bin" / (name + ".exe")
+                if usr_bin.exists():
+                    resolved = str(usr_bin)
     if resolved is None:
         raise RuntimeError(
             f"{name!r} is not on this machine's PATH, so ci/checks.sh cannot be run "
@@ -1323,6 +1334,13 @@ def _run_real_unit_stage_without_docker(workspace: Path) -> subprocess.Completed
     )
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "capability-guard: MSYS2 bash unconditionally prepends /usr/bin "
+        "containing git, impossible to hide git"
+    ),
+)
 def test_the_reduced_path_makes_command_v_fail_for_the_omitted_tool(tmp_path: Path) -> None:
     """The crux the other tests in this section rest on, asserted rather than assumed.
 
@@ -1492,6 +1510,13 @@ def _run_real_unit_stage_without_git(
     )
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "capability-guard: MSYS2 bash unconditionally prepends /usr/bin "
+        "containing git, impossible to hide git"
+    ),
+)
 def test_stage_unit_fails_fast_when_git_is_genuinely_absent_from_path(tmp_path: Path) -> None:
     """A Docker-having-but-git-less machine used to see a false GREEN, silently.
 

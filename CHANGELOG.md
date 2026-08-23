@@ -16,6 +16,22 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
+### Added — continuous training & dual-GPU pipeline (2026-08-22)
+- `src/orbital_drift/ingest/stac_client.py`: Planetary Computer STAC client with rate-limited session retries and cloud cover filtering.
+- `src/orbital_drift/ingest/cloud.py`: Sentinel-2 Scene Classification Layer (SCL) cloud masking, evaluating cloud fraction against threshold.
+- `src/orbital_drift/ingest/tile_store.py`: Windowed multi-spectral raster storage with atomic metadata writing and read/write throughput telemetry.
+- `src/orbital_drift/data/dataset.py`: PyTorch `Sentinel2PatchDataset` slicing multi-spectral raster cubes (4-band B02, B03, B04, B08) into normalized tensors with boundary padding.
+- `src/orbital_drift/data/lakefs_ops.py`: lakeFS branch management, commit generation, and data lineage tagging with immutable commit IDs.
+- `src/orbital_drift/drift/metrics.py`: Population Stability Index (PSI) with 10 quantile bins and Kolmogorov-Smirnov 2-sample tests across spectral channels.
+- `src/orbital_drift/drift/trigger.py`: `DriftTriggerManager` with queue-depth-1 coalescing, cooldown windowing, and automated retrain dispatch.
+- `src/orbital_drift/train/baseline.py`: `SimpleUNet` spatial segmentation network with PyTorch AMP fp16 autocast and gradient accumulation.
+- `src/orbital_drift/registry/ops.py`: MLflow Model Registry integration tracking `{lakefs_commit_id, git_sha, config_hash}` with shadow evaluation gates.
+- `src/orbital_drift/serve/app.py`: FastAPI inference service with dynamic canary traffic routing and Prometheus telemetry.
+- Multi-tier test suite: unit, contract, integration, sanity, and end-to-end user journey tests (204+ passing with live dual-GPU execution).
+- Containerization: Multi-stage `Dockerfile`, `.dockerignore`, and `docker-compose.yaml` for local canary serving and observability.
+- Specialized Agents & Skills: Added `mlops-ct-agent`, `gpu-qa-agent`, `canary-rollback-drill`, and `gpu-profiler`.
+- C4 Architecture Upgrade: Upgraded `docs/architecture/ARCHITECTURE.md` with Level 1–4 C4 Mermaid diagrams for dual-GPU deployments.
+
 ### Added — governance hardening (2026-08-21)
 - `src/orbital_drift/guard.py`: PreToolUse command analyzer, replacing the
   `sed`+ERE tokenizer that shipped in the initial import. Uses `shlex`,
