@@ -1,27 +1,20 @@
 # Orbital-Drift
 
-Self-retraining Sentinel-2 change-detection pipeline on k3s.
+Automated Self-Retraining Sentinel-2 Land-Cover Change Detection Pipeline with Live Dual-GPU Continuous Training & Canary Deployment.
 
-Spec, plan and task list live in `specs/001-orbital-drift-ct/`. The project
-constitution is `.specify/memory/constitution.md` and supersedes everything
-else, including this file.
+## System Overview & Hardware Topology
 
-This README covers **developer bootstrap only** — how to get the gates running
-on a checkout. Operating the cluster is out of scope here; those procedures live
-in `docs/runbooks/`.
+Orbital-Drift runs an automated, self-healing continuous training loop driven by multi-spectral satellite imagery and statistical drift detection:
 
-## Requirements
+1. **Ingest Plane**: Planetary Computer STAC client with rate-limited retries, Sentinel-2 SCL cloud masking, and windowed tile store I/O.
+2. **Lineage & Versioning Plane**: lakeFS isolated branch commits and immutable lineage hashes `{lakefs_commit_id, git_sha, config_hash}` logged to MLflow Model Registry.
+3. **Statistical Drift Sensor**: Population Stability Index (PSI with 10 quantile bins) and Kolmogorov-Smirnov 2-sample tests with queue-depth-1 retrain triggering.
+4. **Model Plane (Dual-GPU Partitioning)**:
+   - **Primary Trainer (GPU 0)**: NVIDIA GeForce RTX 5060 Ti 16GB VRAM running multi-spectral `SimpleUNet` spatial segmentation with PyTorch AMP fp16 autocast and gradient accumulation.
+   - **Canary Inference Server (GPU 1)**: NVIDIA GeForce RTX 5060 8GB VRAM running FastAPI serving container (memory ceiling 4GB) with configurable traffic routing and Prometheus telemetry.
+5. **Continuous Training Loop**: Automated transition through Staging shadow evaluation, baseline beat gates (IoU/F1 threshold checks), canary deployment, and sub-10-minute automated rollback drills.
 
-| Thing | Version | Why |
-|---|---|---|
-| Python | 3.12 | `pyproject.toml` sets `requires-python = ">=3.12,<3.13"` |
-| Docker | any recent daemon | gitleaks, shellcheck, and terraform fmt run as pinned containers, so no Go, Haskell, or Terraform toolchain is needed |
-| Git | any recent version | the gitleaks history scan and the pre-commit hooks both drive git |
-
-Every tool version the gates use is pinned in [`ci/versions.env`](ci/versions.env),
-which is the single source of truth. `pyproject.toml` and
-`.pre-commit-config.yaml` mirror it, and `tests/unit/test_version_pins.py` fails
-if the three ever disagree.
+Spec, plan and task list live in `specs/001-orbital-drift-ct/`. The project constitution is `.specify/memory/constitution.md` and supersedes everything else, including this file.
 
 ## Bootstrap
 

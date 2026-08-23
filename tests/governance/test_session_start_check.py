@@ -36,6 +36,13 @@ TIMEOUT: Final = 30.0
 
 
 def _bash() -> str:
+    for candidate in (
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+    ):
+        if Path(candidate).exists():
+            return candidate
     found = shutil.which("bash")
     assert found, "bash is required to run the hook body (Git Bash on Windows)"
     return found
@@ -73,17 +80,17 @@ def _versions_env(repo: Path, pins: dict[str, str]) -> None:
 
 def _run(repo: Path, *, no_interpreter_on_path: bool = False) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
-    env["CLAUDE_PROJECT_DIR"] = str(repo)
+    env["CLAUDE_PROJECT_DIR"] = repo.as_posix()
     if no_interpreter_on_path:
         env["PATH"] = _minimal_path_for_dirname_only()
     return subprocess.run(
-        [_bash(), str(SCRIPT)],
+        [_bash(), SCRIPT.as_posix()],
         capture_output=True,
         text=True,
         check=False,
         timeout=TIMEOUT,
         env=env,
-        cwd=str(repo),
+        cwd=repo.as_posix(),
     )
 
 
@@ -111,6 +118,14 @@ def _minimal_path_for_dirname_only() -> str:
     allow only what is named).
     """
     dirname_bin = shutil.which("dirname")
+    if not dirname_bin:
+        for candidate in (
+            r"C:\Program Files\Git\usr\bin\dirname.exe",
+            r"C:\Program Files (x86)\Git\usr\bin\dirname.exe",
+        ):
+            if Path(candidate).exists():
+                dirname_bin = candidate
+                break
     assert dirname_bin, "dirname is required to compute SCRIPT_DIR in the hook body"
     bin_dir = Path(tempfile.mkdtemp(prefix="minimal-path-"))
     target = bin_dir / Path(dirname_bin).name

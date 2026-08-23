@@ -39,6 +39,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -65,7 +66,15 @@ def posix_shell() -> str:
     of the gate runner, which is the failure mode this whole module was written
     to end.
     """
-    found = shutil.which("sh")
+    for candidate in (
+        r"C:\Program Files\Git\bin\sh.exe",
+        r"C:\Program Files\Git\usr\bin\sh.exe",
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\sh.exe",
+    ):
+        if Path(candidate).exists():
+            return candidate
+    found = shutil.which("sh") or shutil.which("bash")
     if found is None:
         raise RuntimeError(
             "no POSIX `sh` on PATH. ci/checks.sh is POSIX sh and these tests run it; "
@@ -687,8 +696,17 @@ def run_checks(
         env.update(extra_env)
 
     script = checks_sh or CHECKS_SH
+    cmd = [posix_shell(), script.as_posix(), stage]
+    if sys.platform == "win32":
+        # MSYS2 bash prepends its own directories to PATH, bypassing bin_dir.
+        # Force bin_dir to the very front inside the shell so stubs win.
+        drive, tail = bin_dir.drive, bin_dir.as_posix().split(":", 1)[-1]
+        msys_bin = f"/{drive[0].lower()}{tail}"
+        sh_wrapper = f'PATH="{msys_bin}:$PATH" exec "$0" "$@"'
+        cmd = [posix_shell(), "-c", sh_wrapper, script.as_posix(), stage]
+
     completed = subprocess.run(
-        [posix_shell(), script.as_posix(), stage],
+        cmd,
         capture_output=True,
         text=True,
         env=env,

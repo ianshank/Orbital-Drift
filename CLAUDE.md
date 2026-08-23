@@ -15,6 +15,8 @@ Read `.specify/memory/constitution.md` before any work. It supersedes this file;
 | `[A:ml-engineer]` | ml-engineer | training/eval/registry/serving code, their tests |
 | `[A:drift-engineer]` | drift-engineer | drift metrics/triggers, dashboards, their tests |
 | `[A:runbook-writer]` | runbook-writer | runbooks, incident/soak templates, decision docs |
+| `[A:mlops-ct-agent]` | mlops-ct-agent | automated continuous training loops, shadow eval, canary promotion |
+| `[A:gpu-qa-agent]` | gpu-qa-agent | dual-GPU profiling, AMP precision verification, VRAM leak analysis |
 | (untagged + governance tasks) | spec-implementer | default implementer; its TDD protocol binds ALL implementers |
 | (every artifact) | spec-guardian | conformance review vs constitution + spec |
 | (every artifact) | adversarial-reviewer | adversarial technical review (supersedes peer-reviewer, adopt-governance-kit D5) |

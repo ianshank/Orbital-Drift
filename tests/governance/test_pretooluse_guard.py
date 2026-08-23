@@ -32,6 +32,13 @@ TIMEOUT: Final = 60.0
 
 
 def _bash() -> str:
+    for candidate in (
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+    ):
+        if Path(candidate).exists():
+            return candidate
     found = shutil.which("bash")
     assert found, "bash is required to run the guard (Git Bash on Windows)"
     return found
@@ -48,7 +55,7 @@ def _env(**overrides: str) -> dict[str, str]:
     import os
 
     env = dict(os.environ)
-    env["CLAUDE_PROJECT_DIR"] = str(REPO_ROOT)
+    env["CLAUDE_PROJECT_DIR"] = REPO_ROOT.as_posix()
     env.pop("GUARD_DEBUG", None)
     env.update(overrides)
     return env
@@ -56,7 +63,7 @@ def _env(**overrides: str) -> dict[str, str]:
 
 def _run(payload: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [_bash(), str(GUARD)],
+        [_bash(), GUARD.as_posix()],
         input=payload,
         capture_output=True,
         text=True,
@@ -83,7 +90,8 @@ def _analyzer_under_test_is_this_checkout() -> None:
     through the same `_lib.sh` resolution the wrapper uses rather than a second
     copy of that probe order, and the answer must live under REPO_ROOT.
     """
-    resolver = f'. "{REPO_ROOT}/scripts/_lib.sh"; od_find_python "{REPO_ROOT}"'
+    lib_sh = f"{REPO_ROOT.as_posix()}/scripts/_lib.sh"
+    resolver = f'. "{lib_sh}"; od_find_python "{REPO_ROOT.as_posix()}"'
     found = subprocess.run(
         [_bash(), "-c", resolver],
         capture_output=True,

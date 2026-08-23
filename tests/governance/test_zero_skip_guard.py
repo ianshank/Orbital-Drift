@@ -31,6 +31,9 @@ ALLOWED_CAPABILITY_GUARD_FILES: Final = frozenset(
     {
         "tests/unit/test_checks_sh_behaviour.py",
         "tests/unit/test_gitleaks_positive_control.py",
+        "tests/integration/test_gpu_pipeline_live.py",
+        "tests/sanity/test_gpu_sanity.py",
+        "tests/e2e/test_dual_gpu_e2e_live.py",
     }
 )
 

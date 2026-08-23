@@ -42,7 +42,9 @@ PYPROJECT: Final = REPO_ROOT / "pyproject.toml"
 
 _GATE_RECIPE = re.compile(r"^(?P<target>[a-z-]+):[^\n]*\n(?P<recipe>(?:\t[^\n]*\n?)+)", re.M)
 # Recipes allowed to run something other than `sh ci/checks.sh <stage>`:
-_NON_GATE_TARGETS: Final = frozenset({"help", "install", "format", "guard-probe", "clean"})
+_NON_GATE_TARGETS: Final = frozenset(
+    {"help", "install", "format", "guard-probe", "clean", "serve", "docker-build", "docker-run"}
+)
 # Raw tool invocations that would reconstruct a gate inline:
 _GATE_TOOLS = re.compile(r"-m (pytest|ruff check|mypy|pre_commit|vulture|pip_audit)\b")
 

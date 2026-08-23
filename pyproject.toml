@@ -93,6 +93,7 @@ ignore = [
 # strings are CSV-projected DATA, not code. Wrapping them to 100 columns would
 # trade diffability for nothing — E501 is ignored here and nowhere else in src.
 "src/orbital_drift/planning/roadmap_data.py" = ["E501"]
+"scripts/setup_gpu_env.py" = ["T201", "S603"]
 "tests/**/*.py" = [
   "S101",  # assert is the point of a test
   # The behavioural tests RUN ci/checks.sh (with git/docker/python stubbed on
@@ -128,6 +129,26 @@ pretty = true
 # in Phase 1+ with an explicit [[tool.mypy.overrides]] block and a reason,
 # never globally.
 ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = [
+  "torch.*",
+  "torch",
+  "torchvision.*",
+  "torchvision",
+  "numpy.*",
+  "numpy",
+  "scipy.*",
+  "scipy",
+  "fastapi.*",
+  "fastapi",
+  "starlette.*",
+  "pydantic.*",
+  "pydantic",
+  "pydantic_settings.*",
+  "pydantic_settings",
+]
+ignore_missing_imports = true
 
 # NOTE: there is deliberately NO [tool.coverage.*] section here. The FR-011a
 # global coverage floor is owned entirely by ci/checks.sh's stage_coverage,
