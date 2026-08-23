@@ -23,7 +23,7 @@ import shutil
 import subprocess
 import tomllib
 from pathlib import Path
-from typing import Final, NamedTuple
+from typing import Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 #: Subprocess ceiling (see test_zero_skip_guard for the rationale).
@@ -133,15 +133,19 @@ def test_skill_decision_section_is_fresh() -> None:
 PUBLIC_CANDIDATE_ALLOWLIST: Final = (
     # Root-level, deliberately public repo plumbing; everything else is
     # governed by default.
+    ".dockerignore",
     ".env.example",
     ".gitattributes",
     ".gitignore",
     ".pre-commit-config.yaml",
     "CHANGELOG.md",
     "CLAUDE.md",
+    "Dockerfile",
     "Makefile",
     "README.md",
+    "docker-compose.yaml",
     "pyproject.toml",
+    "uv.lock",
     "docs/*",
 )
 
