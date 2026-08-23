@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+import requests
 
 from orbital_drift.ingest.stac_client import STACClient
 
@@ -24,7 +25,7 @@ class MockSTACResponse:
 
 
 class MockSession:
-    def __init__(self, responses: list[MockSTACResponse]) -> None:
+    def __init__(self, responses: list[MockSTACResponse | requests.RequestException]) -> None:
         self.responses = list(responses)
         self.calls: list[dict[str, Any]] = []
 
@@ -36,7 +37,10 @@ class MockSession:
     ) -> MockSTACResponse:
         self.calls.append({"url": url, "payload": json, "timeout": timeout})
         if self.responses:
-            return self.responses.pop(0)
+            response = self.responses.pop(0)
+            if isinstance(response, requests.RequestException):
+                raise response
+            return response
         return MockSTACResponse(200, {"features": []})
 
 
@@ -112,3 +116,85 @@ def test_stac_client_retry_and_backoff() -> None:
     assert len(features) == 1
     assert features[0]["id"] == "recovered"
     assert len(mock_session.calls) == 2
+
+
+@pytest.mark.contract
+def test_stac_client_raises_after_timeout() -> None:
+    """Returns a terminal error when the retry budget is exhausted by a timeout."""
+    mock_session = MockSession([requests.Timeout("request exceeded 30 seconds")])
+    client = STACClient(retry_budget=1, session=mock_session)  # type: ignore[arg-type]
+
+    with pytest.raises(RuntimeError, match=r"failed after 1 attempts.*request exceeded 30 seconds"):
+        client.search_scenes(
+            bbox=(-122.5, 37.5, -122.0, 38.0),
+            date_range="2026-08-01/2026-08-02",
+        )
+
+
+@pytest.mark.contract
+def test_stac_client_raises_after_connection_error() -> None:
+    """Returns a terminal error when a connection cannot be established."""
+    mock_session = MockSession([requests.ConnectionError("service unavailable")])
+    client = STACClient(retry_budget=1, session=mock_session)  # type: ignore[arg-type]
+
+    with pytest.raises(RuntimeError, match=r"failed after 1 attempts.*service unavailable"):
+        client.search_scenes(
+            bbox=(-122.5, 37.5, -122.0, 38.0),
+            date_range="2026-08-01/2026-08-02",
+        )
+
+
+@pytest.mark.contract
+def test_stac_client_returns_empty_list_after_terminal_http_failure() -> None:
+    """Returns no scenes when every HTTP response is non-successful."""
+    mock_session = MockSession([MockSTACResponse(503, {})])
+    client = STACClient(retry_budget=1, session=mock_session)  # type: ignore[arg-type]
+
+    scenes = client.search_scenes(
+        bbox=(-122.5, 37.5, -122.0, 38.0),
+        date_range="2026-08-01/2026-08-02",
+    )
+
+    assert scenes == []
+    assert mock_session.calls[0]["url"] == "https://earth-search.aws.element84.com/v1/search"
+
+
+@pytest.mark.contract
+def test_stac_client_returns_empty_list_for_response_without_features() -> None:
+    """Treats a valid JSON object without the expected features field as empty."""
+    mock_session = MockSession([MockSTACResponse(200, {"type": "FeatureCollection"})])
+    client = STACClient(session=mock_session)  # type: ignore[arg-type]
+
+    scenes = client.search_scenes(
+        bbox=(-122.5, 37.5, -122.0, 38.0),
+        date_range="2026-08-01/2026-08-02",
+    )
+
+    assert scenes == []
+
+
+@pytest.mark.contract
+def test_stac_client_returns_empty_features_list_unchanged() -> None:
+    """Preserves an explicitly empty STAC features list."""
+    mock_session = MockSession([MockSTACResponse(200, {"features": []})])
+    client = STACClient(session=mock_session)  # type: ignore[arg-type]
+
+    scenes = client.search_scenes(
+        bbox=(-122.5, 37.5, -122.0, 38.0),
+        date_range="2026-08-01/2026-08-02",
+    )
+
+    assert scenes == []
+
+
+@pytest.mark.contract
+def test_stac_client_extracts_band_url_from_partial_asset_name() -> None:
+    """Finds a requested band when only a descriptive asset key is available."""
+    client = STACClient()
+
+    urls = client.get_band_asset_urls(
+        {"assets": {"sentinel_band_b11": {"href": "s3://bucket/b11.tif"}}},
+        bands=("B11",),
+    )
+
+    assert urls == {"B11": "s3://bucket/b11.tif"}

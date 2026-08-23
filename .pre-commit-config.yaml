@@ -90,19 +90,27 @@ repos:
 
   # ---------------------------------------------------------------------------
   # mypy — strict. Config in pyproject.toml [tool.mypy].
-  # The hook runs in its own isolated env, so third-party stubs must be listed
-  # in additional_dependencies as Phase 1+ adds real dependencies.
+  #
+  # One rule, one environment, one verdict: mypy's answer depends on the
+  # installed dependency set, so an isolated hook environment can only
+  # approximate the gate. Mirroring the full [dev] list in
+  # additional_dependencies would duplicate the dependency contract into a
+  # third file and put a roughly 750 MB torch wheel in every contributor's
+  # pre-commit cache merely to re-derive the venv's answer. `language: system`
+  # instead consumes the environment the one documented bootstrap command,
+  # `pip install -e ".[dev]"` (Constitution Principle IV), already produces;
+  # the hook and gate therefore cannot disagree by construction.
+  #
+  # The version pin remains enforced: before its hooks stage, ci/checks.sh
+  # asserts `mypy --version` equals ci/versions.env MYPY_VERSION.
   # ---------------------------------------------------------------------------
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.3.0 # == mypy 2.3.0, ci/versions.env MYPY_VERSION
+  - repo: local
     hooks:
       - id: mypy
-        # Override the mirror's default args: --ignore-missing-imports would
-        # silently defeat pyproject's strict settings.
-        args: ["--config-file=pyproject.toml"]
+        name: mypy (project environment, strict)
+        entry: mypy --config-file=pyproject.toml
+        language: system
         pass_filenames: false
-        additional_dependencies:
-          - "pytest==9.1.1"
 
   # ---------------------------------------------------------------------------
   # shellcheck — ci/checks.sh was the only unlinted file in the repo. It is

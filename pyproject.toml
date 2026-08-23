@@ -2,14 +2,31 @@
 # Orbital-Drift — project + tooling configuration
 #
 # Python 3.12 per specs/001-orbital-drift-ct/plan.md (Technical Context).
-# Runtime dependencies are deliberately EMPTY at T001: torch/torchgeo/airflow/
-# mlflow/lakefs-client land with the tasks that first import them (Phase 1+).
-# Adding them now would be scope creep and would pin versions nobody has
-# verified against the GPU stack yet (R-05).
 #
-# Every pin below was verified against a live source on 2026-08-08; see
+# RUNTIME DEPENDENCIES WERE EMPTY UNTIL RB-009 AND THAT WAS A DEFECT, NOT A
+# POLICY. The original header said they were "deliberately EMPTY at T001"
+# because "torch/torchgeo/mlflow/lakefs-client land with the tasks that first
+# import them". Those tasks landed (PR #16) and the declarations did not. The
+# result: `pip install -e ".[dev]"` -- the ONE documented bootstrap command
+# (README.md, Principle IV) and the command CI itself runs -- produced a tree in
+# which 7 of 17 modules under src/orbital_drift raised ModuleNotFoundError on
+# import, and six of fourteen CI gates were red on main
+# (run 32660872598: contract, coverage, hooks, traceability, typecheck, unit).
+# An undeclared import is not a deferred decision, it is a broken install.
+#
+# The declarations below are therefore organised as CORE + ADAPTER EXTRAS, which
+# is the dependency-graph expression of the ports-and-adapters boundary:
+# `dependencies` is what the configuration spine needs to exist at all, and each
+# extra is one adapter's third-party surface. `orbital_drift.quality.dep_contract`
+# reconciles this table against the imports actually present in src/ on every
+# run of the `deps` gate, so this class of defect cannot recur silently.
+#
+# Every pin below was verified against a live index; see
 # docs/decisions/versions.md for the platform-side pins and the pinning
-# protocol (Constitution IV).
+# protocol (Constitution IV). Gate-TOOL pins live in ci/versions.env; runtime
+# LIBRARY pins live here only, because ci/checks.sh derives its preflight tool
+# list from that file's `<NAME>_VERSION` keys and would try to probe
+# `numpy --version` as if it were an executable.
 # =============================================================================
 
 [build-system]
@@ -28,11 +45,77 @@ version = "0.0.0"
 description = "Self-retraining Sentinel-2 change-detection pipeline on k3s"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
-dependencies = []
+
+# CORE: what the configuration spine needs to exist at all. Nothing in this
+# package can be constructed without a validated config, so these are not
+# optional the way an adapter's client library is. Deliberately small.
+dependencies = [
+  "pydantic==2.13.4",
+  "pydantic-settings==2.15.0",
+]
 
 [project.optional-dependencies]
+# --- ADAPTER EXTRAS -----------------------------------------------------------
+# One extra per adapter surface. A module that imports one of these libraries
+# belongs to that adapter and is declared here, never in `dependencies`, so the
+# domain layer's independence from frameworks is visible in the dependency graph
+# and not merely asserted in prose. `[tool.orbital_drift.dependency_contract]`
+# below maps modules to extras and the `deps` gate enforces the mapping.
+
+# STAC catalogue + tile store I/O.
+ingest = [
+  "requests==2.34.2",
+  "numpy==2.5.2",
+]
+
+# PSI / KS drift metrics. scipy supplies ks_2samp; nothing bespoke (Principle II).
+drift = [
+  "numpy==2.5.2",
+  "scipy==1.18.1",
+]
+
+# Promotion-gate statistics. esda supplies Moran's I and its permutation
+# inference (PySAL, the reference implementation); scikit-learn supplies
+# average_precision_score and calibration_curve. Principle II requires that
+# drift and eval use standard, widely recognised methods from off-the-shelf
+# libraries -- so these are dependencies, not code to be written.
+evaluation = [
+  "numpy==2.5.2",
+  "scipy==1.18.1",
+  "scikit-learn==1.9.0",
+  "esda==2.10.0",
+  "libpysal==4.15.0",
+]
+
+# FastAPI serving adapter.
+serve = [
+  "fastapi==0.141.1",
+  "uvicorn==0.52.4",
+  "numpy==2.5.2",
+]
+
+# Torch training adapter. Pinned by VERSION only, never by local version
+# segment: `torch==2.13.0` matches `2.13.0+cpu` and `2.13.0+cu###` alike
+# (PEP 440 ignores an unspecified local segment), so one pin serves the CPU
+# integration runner and the dual-GPU host. WHICH build gets installed is an
+# environment fact, not a package version, and lives in ci/versions.env as
+# TORCH_CPU_INDEX_URL for CI and in the host-prep runbook for node A.
+train = [
+  "torch==2.13.0",
+  "numpy==2.5.2",
+]
+
+# --- DEVELOPMENT / GATE TOOLING ----------------------------------------------
 # Installed by ci/checks.sh and by the pre-commit hooks' own isolated envs.
-# Keep in lockstep with ci/versions.env and .pre-commit-config.yaml revs.
+# Tool pins keep lockstep with ci/versions.env and .pre-commit-config.yaml revs
+# (tests/unit/test_version_pins.py asserts it mechanically).
+#
+# The adapter extras are RESTATED here rather than self-referenced as
+# `orbital-drift[ingest,drift,...]` for a mechanical reason: every `[dev]` entry
+# must be pinned with `==` or tests/unit/test_version_pins.py fails, and a
+# self-reference carries no version. tests/unit/test_dependency_contract.py
+# asserts `[dev]` is a superset of every adapter extra at identical versions, so
+# the restatement cannot drift from the extras it mirrors.
 dev = [
   "ruff==0.16.2",
   "mypy==2.3.0",
@@ -44,6 +127,35 @@ dev = [
   # with provenance URLs, asserted by tests/unit/test_version_pins.py.
   "vulture==2.16",
   "pip-audit==2.10.1",
+  # Boundary enforcement (RB-009). Mechanically verifies the ports-and-adapters
+  # hexagon via .importlinter contracts; the same rule is independently
+  # re-derived from the AST by tests/architecture/test_import_boundaries.py,
+  # because a linter nobody wired into CI enforces nothing.
+  "import-linter==2.13",
+  # Property-based testing for the canonical-hash and round-trip invariants,
+  # where example-based tests cannot cover the input space that matters.
+  "hypothesis==6.165.10",
+  # requests ships no inline annotations; mypy runs strict with
+  # ignore_missing_imports = false, so the stubs are a hard requirement.
+  "types-requests==2.32.4.20250913",
+  # starlette's TestClient -- which fastapi.testclient re-exports and which
+  # tests/contract/test_serving.py and tests/unit/test_serving_edge_cases.py
+  # both import -- raises RuntimeError at import time without this. It is a
+  # TEST-ONLY dependency of the serve adapter, so it belongs in [dev] and NOT
+  # in the `serve` extra: a production deployment must not carry a test client.
+  # This is precisely the case the `deps` gate is built to catch, and it does:
+  # dep_contract classifies imports reached only from tests/ as dev-scoped.
+  "httpx2==2.12.0",
+  # Adapter extras, restated (see note above).
+  "requests==2.34.2",
+  "numpy==2.5.2",
+  "scipy==1.18.1",
+  "scikit-learn==1.9.0",
+  "esda==2.10.0",
+  "libpysal==4.15.0",
+  "fastapi==0.141.1",
+  "uvicorn==0.52.4",
+  "torch==2.13.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -147,6 +259,12 @@ module = [
   "pydantic",
   "pydantic_settings.*",
   "pydantic_settings",
+  "sklearn.*",
+  "sklearn",
+  "esda.*",
+  "esda",
+  "libpysal.*",
+  "libpysal",
 ]
 ignore_missing_imports = true
 
@@ -221,4 +339,22 @@ addopts = "-ra --strict-markers --strict-config"
 markers = [
   "contract: pipeline-boundary contract test (Constitution V)",
   "smoke: DAG/workflow import + structural smoke test",
+]
+
+[tool.orbital_drift.architecture]
+domain_packages = ["orbital_drift.domain", "orbital_drift.ports"]
+forbidden_third_party = [
+  "numpy",
+  "scipy",
+  "torch",
+  "pydantic",
+  "pydantic_settings",
+  "sklearn.*",
+  "sklearn",
+  "esda.*",
+  "esda",
+  "libpysal.*",
+  "libpysal",
+  "requests",
+  "fastapi",
 ]

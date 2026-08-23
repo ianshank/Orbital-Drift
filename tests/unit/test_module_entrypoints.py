@@ -108,6 +108,24 @@ def _guard_payload(command: str) -> str:
     return json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
 
 
+def _hardcode_scan_invocation(tmp_path: Path) -> _Invocation:
+    """Build a failing hardcode-scan CLI run over only synthetic source."""
+    target = tmp_path / "candidate.py"
+    target.write_text("timeout = 30.0\n", encoding="utf-8")
+    policy = tmp_path / "pyproject.toml"
+    policy.write_text("[project]\nname = 'entrypoint-case'\n", encoding="utf-8")
+    return _Invocation(
+        [
+            str(target),
+            "--policy-file",
+            str(policy),
+            "--format",
+            "json",
+            "--fail-on-findings",
+        ]
+    )
+
+
 #: (id, module, invocation builder, expected process exit code).
 #:
 #: Each module gets its real gate invocation. Where a FAILING run is cheap to
@@ -185,6 +203,12 @@ _CASES: tuple[_Case, ...] = (
         "orbital_drift.traceability",
         lambda _tmp: _Invocation(["--json"]),
         0,
+    ),
+    _Case(
+        "hardcode-scan-finds-literal",
+        "orbital_drift.quality.hardcode_scan",
+        _hardcode_scan_invocation,
+        1,
     ),
 )
 

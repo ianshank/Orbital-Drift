@@ -1,0 +1,37 @@
+[importlinter]
+root_packages =
+    orbital_drift
+include_external_packages = True
+
+# TODO(phase-1-adapters): expand this scoped additive contract to the intended
+# full sequence serve -> adapters -> quality/observability -> config -> ports ->
+# domain once the existing flat modules have been migrated into those packages.
+# The repository currently has no quality package and config is a flat module.
+[importlinter:contract:layers]
+name = New core ports depend only on the domain
+type = layers
+layers =
+    orbital_drift.ports
+    orbital_drift.domain
+
+[importlinter:contract:forbidden]
+name = Domain and ports do not depend on third-party runtime libraries
+type = forbidden
+source_modules =
+    orbital_drift.domain
+    orbital_drift.ports
+forbidden_modules =
+    numpy
+    scipy
+    torch
+    pydantic
+    pydantic_settings
+    requests
+    fastapi
+
+[importlinter:contract:independence]
+name = Independent geometry and temporal primitives
+type = independence
+modules =
+    orbital_drift.domain.geometry
+    orbital_drift.domain.temporal

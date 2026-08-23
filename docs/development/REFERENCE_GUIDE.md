@@ -1,7 +1,7 @@
 # Orbital-Drift: Development & Operational Reference Guide
 
-**Project**: Orbital-Drift — Autonomous Sentinel-2 Continuous Training Pipeline on Dual GPUs  
-**Compliance**: 2026 Standards, Constitution v1.1.0, Zero Hardcoded Values, 7-Tier $\ge 80\%$ Test Coverage  
+**Project**: Orbital-Drift — Autonomous Sentinel-2 Continuous Training Pipeline on Dual GPUs
+**Compliance**: 2026 Standards, Constitution v1.1.0, Zero Hardcoded Values, 7-Tier $\ge 80\%$ Test Coverage
 
 ---
 

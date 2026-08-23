@@ -29,9 +29,10 @@ from __future__ import annotations
 import re
 import tomllib
 from pathlib import Path
-from typing import Final
+from typing import Final, cast
 
 import pytest
+from pre_commit.yaml import yaml_load  # type: ignore[import-untyped]
 
 # The ci/versions.env parser has ONE home (`shell_harness`), not a private copy
 # per module — this file used to carry the fourth of five byte-identical
@@ -49,7 +50,6 @@ PRE_COMMIT_CONFIG: Final = REPO_ROOT / ".pre-commit-config.yaml"
 WORKFLOW: Final = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 RUFF_PRE_COMMIT: Final = "https://github.com/astral-sh/ruff-pre-commit"
-MYPY_PRE_COMMIT: Final = "https://github.com/pre-commit/mirrors-mypy"
 
 
 def _read_pyproject() -> dict[str, object]:
@@ -92,10 +92,39 @@ def _read_hook_revs() -> dict[str, str]:
     return {match.group("repo"): match.group("rev") for match in pattern.finditer(text)}
 
 
+def _read_pre_commit_hooks() -> tuple[tuple[str, dict[str, object]], ...]:
+    """Return hooks from pre-commit's own parser, retaining their owning repository.
+
+    This is deliberately not a regex over YAML: defaults such as an omitted
+    ``additional_dependencies`` are part of pre-commit's configuration
+    semantics, and this test must inspect the same parsed structure the hook
+    runner will execute rather than infer it from whitespace.
+    """
+    configuration = cast(
+        dict[str, object],
+        yaml_load(PRE_COMMIT_CONFIG.read_text(encoding="utf-8")),
+    )
+    repositories = configuration["repos"]
+    assert isinstance(repositories, list)
+
+    hooks: list[tuple[str, dict[str, object]]] = []
+    for repository in repositories:
+        assert isinstance(repository, dict)
+        name = repository["repo"]
+        entries = repository["hooks"]
+        assert isinstance(name, str)
+        assert isinstance(entries, list)
+        for entry in entries:
+            assert isinstance(entry, dict)
+            hooks.append((name, entry))
+    return tuple(hooks)
+
+
 VERSIONS: Final = read_versions_env()
 DEV_EXTRAS: Final = _read_dev_extras()
 HOOK_REVS: Final = _read_hook_revs()
 PRE_COMMIT_TEXT: Final = PRE_COMMIT_CONFIG.read_text(encoding="utf-8")
+PRE_COMMIT_HOOKS: Final = _read_pre_commit_hooks()
 
 
 # ``<NAME>_VERSION`` keys in ci/versions.env that are NOT distributions in
@@ -202,11 +231,10 @@ def test_versions_env_matches_pyproject_dev_extra(pin_key: str, distribution: st
     ("pin_key", "repo_url"),
     [
         ("RUFF_VERSION", RUFF_PRE_COMMIT),
-        ("MYPY_VERSION", MYPY_PRE_COMMIT),
     ],
 )
 def test_versions_env_matches_pre_commit_rev(pin_key: str, repo_url: str) -> None:
-    """The hook runs the same linter version the CI stage does."""
+    """A remote hook revision agrees with the version its CI gate enforces."""
     assert repo_url in HOOK_REVS, f".pre-commit-config.yaml has no hook repo {repo_url}"
     expected = f"v{VERSIONS[pin_key]}"
     assert HOOK_REVS[repo_url] == expected, (
@@ -214,18 +242,68 @@ def test_versions_env_matches_pre_commit_rev(pin_key: str, repo_url: str) -> Non
     )
 
 
-def test_mypy_hook_pins_the_same_pytest() -> None:
-    """mypy's isolated hook env needs pytest stubs at the pinned version.
+def test_mypy_hook_uses_the_gate_environment() -> None:
+    """The hook cannot type-check in a second dependency universe.
 
-    The hook resolves imports in its own virtualenv, so a stale ``pytest==`` in
-    ``additional_dependencies`` type-checks the test suite against a different
-    pytest than the unit/contract/smoke stages import at runtime.
+    ``mypy`` resolves bases, decorators, stubs, and ``type: ignore`` validity
+    from installed distributions. The old ``mirrors-mypy`` hook therefore
+    disagreed with ``ci/checks.sh typecheck`` whenever its isolated environment
+    lacked a Phase 1 dependency. ``language: system`` is the evidence-bearing
+    fix: it invokes the venv made by the documented ``.[dev]`` bootstrap, while
+    ``ci/checks.sh`` verifies its mypy version against ``MYPY_VERSION`` before
+    running the hooks stage. A local hook with no ``additional_dependencies``
+    has no second environment that can drift.
     """
-    found = set(re.findall(r'"pytest==([^"]+)"', PRE_COMMIT_TEXT))
-    assert found == {VERSIONS["PYTEST_VERSION"]}, (
-        f"pre-commit additional_dependencies pin pytest {sorted(found)}, "
-        f"ci/versions.env says {VERSIONS['PYTEST_VERSION']}"
+    mypy_hooks = [
+        (repository, hook) for repository, hook in PRE_COMMIT_HOOKS if hook["id"] == "mypy"
+    ]
+    assert len(mypy_hooks) == 1, f"expected one mypy hook, got {mypy_hooks!r}"
+    repository, hook = mypy_hooks[0]
+
+    assert repository == "local", f"mypy must be a local hook, got {repository!r}"
+    assert hook["language"] == "system", f"mypy must use the venv, got {hook['language']!r}"
+    assert hook["entry"] == "mypy --config-file=pyproject.toml"
+    assert hook["pass_filenames"] is False
+    assert "additional_dependencies" not in hook, (
+        "mypy must not declare dependencies that construct an isolated environment: "
+        f"got {hook['additional_dependencies']!r}"
     )
+    assert "https://github.com/pre-commit/mirrors-mypy" not in PRE_COMMIT_TEXT
+
+
+def test_all_hook_dependency_pins_match_the_dev_environment() -> None:
+    """Every declared hook dependency is a pinned member of the bootstrap contract.
+
+    A hook-local distribution is still a second resolver input even when its
+    hook is not mypy. It must therefore name a ``==``-pinned distribution in
+    ``[project.optional-dependencies].dev`` at exactly the same version; an
+    unpinned or extra-only declaration can make a hook green against bytes that
+    the documented development environment never installs. ``yaml_load`` parses
+    every repository and hook before this test applies the explicit empty-list
+    default, so the structural assertion below proves the check examined that
+    configuration rather than passing because a regex happened to find no pins.
+    """
+    assert PRE_COMMIT_HOOKS, "pre-commit parser found no hooks to inspect"
+
+    for repository, hook in PRE_COMMIT_HOOKS:
+        dependencies = hook.get("additional_dependencies", [])
+        assert isinstance(dependencies, list), (
+            f"{repository}/{hook['id']} additional_dependencies is not a parsed list: "
+            f"{dependencies!r}"
+        )
+        for dependency in dependencies:
+            distribution, separator, version = str(dependency).partition("==")
+            assert separator, (
+                f"{repository}/{hook['id']} additional dependency {dependency!r} "
+                "is not pinned with '=='"
+            )
+            assert distribution in DEV_EXTRAS, (
+                f"{repository}/{hook['id']} pins {distribution!r}, absent from pyproject [dev]"
+            )
+            assert DEV_EXTRAS[distribution] == version, (
+                f"{repository}/{hook['id']} pins {distribution} {version}, "
+                f"but pyproject [dev] pins {DEV_EXTRAS[distribution]}"
+            )
 
 
 @pytest.mark.parametrize(
