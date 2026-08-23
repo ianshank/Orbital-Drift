@@ -29,23 +29,11 @@ from typing import Final
 
 import pytest
 
+from shell_harness import PINS
+
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
-VERSIONS_ENV: Final = REPO_ROOT / "ci" / "versions.env"
 PRE_COMMIT_CONFIG: Final = REPO_ROOT / ".pre-commit-config.yaml"
 
-
-def _pins() -> dict[str, str]:
-    pins: dict[str, str] = {}
-    for raw in VERSIONS_ENV.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        pins[key.strip()] = value.strip()
-    return pins
-
-
-PINS: Final[dict[str, str]] = _pins()
 TERRAFORM_IMAGE: Final[str] = PINS["TERRAFORM_IMAGE"]
 
 

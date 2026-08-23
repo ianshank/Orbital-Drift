@@ -22,10 +22,13 @@
 #
 # NON-NEGOTIABLE: no `|| true`, no `set +e` around a gate, no `continue-on-error`
 # in the caller. A gate that cannot fail is not a gate (Constitution V, FR-011).
-# (`set +e` appears twice below, both times to CAPTURE a diagnostic before
-# re-raising the failure. Neither swallows a non-zero result, and
+# (`set +e` appears three times below — in pytest_suite, stage_coverage and
+# require_pinned_image — always to CAPTURE a diagnostic before re-raising the
+# failure. None of them swallows a non-zero result, and
 # tests/unit/test_ci_contract.py enforces that scope per function rather than
-# merely counting the directives.)
+# merely counting the directives. This paragraph said "twice" while the file had
+# three, which is how stage_coverage's window went unparametrized in that test's
+# own coverage; the count is now mechanically checked too — RB-008 F5.)
 #
 # BOOTSTRAP: Python ${PYTHON_VERSION} + `python -m pip install -e ".[dev]"`.
 # See README.md. That is also the exact command .github/workflows/ci.yml runs,
@@ -163,6 +166,29 @@ PYTHON="${PYTHON:-python}"
 STAGE_LABELS='lint typecheck unit contract smoke coverage gitleaks hooks dead audit specs traceability projections governance all'
 
 log() { printf '\n\033[1m>>> %s\033[0m\n' "$*"; }
+
+# The accepted-invocation line, rendered from STAGE_LABELS rather than typed.
+# ONE home, because there are now two callers (the unknown-stage arm and the
+# too-many-arguments guard, both at the bottom of this file) and the stage list
+# has already rotted once when it was hand-kept — see
+# test_the_usage_string_is_derived_from_stage_labels.
+#
+# `command -p tr`, NOT a bare `tr`, and this is load-bearing rather than style.
+# The dispatch guards below (unknown stage, too many arguments) are the one path
+# through this script that must still speak with no PATH at all — see
+# test_checks_sh_resolves_script_dir_with_no_path_at_all — and both of them print
+# this line. MEASURED under PATH="" in dash AND bash, with a bare `tr`: the
+# substitution yields nothing and the operator gets `tr: not found` followed by
+# `usage: sh ci/checks.sh <>`, i.e. an error about a helper they never invoked
+# plus a usage message naming zero of the fifteen stages, exactly when this
+# message is the only thing still working. `-p` resolves tr from the standard
+# utilities path (`getconf PATH`) instead of PATH, so the list renders either
+# way. Do not "simplify" the `-p` away; pinned by
+# test_the_usage_line_still_names_every_stage_with_no_path_at_all.
+usage() {
+  printf 'usage: sh ci/checks.sh <%s>\n' \
+    "$(printf '%s' "${STAGE_LABELS}" | command -p tr ' ' '|')" >&2
+}
 
 # Read one pin straight out of ci/versions.env by key. Used so the preflight can
 # look a version up from a DERIVED tool name without `eval`.
@@ -328,6 +354,42 @@ stage_python_pins() {
       printf 'internal error: no pin set declared for stage %s\n' "$1" >&2
       return 1
       ;;
+  esac
+}
+
+# Does this stage EXECUTE Python at all? Answered SEPARATELY from
+# stage_python_pins above, because the two questions are genuinely different and
+# conflating them opened a hole (RB-008).
+#
+# An empty pin set means "this stage runs no PINNED DISTRIBUTION". It does not
+# mean "this stage runs no Python": `projections` declares no pins — the module
+# is pure stdlib, so there is no distribution to assert — and then runs
+# `"${PYTHON}" -m orbital_drift.projections`. preflight() below returned on the
+# empty pin set BEFORE require_python_interpreter, so that module executed on
+# whatever ${PYTHON} happened to be, under a stage header announcing the pinned
+# version. That is precisely the failure this file's own header forbids: "the
+# version a stage header PRINTS is the version that stage RUNS" (see WHAT THE
+# PREFLIGHT ACTUALLY GUARANTEES, above).
+#
+# Exempt by NAME, not by "has no pins", so adding a stage cannot silently join
+# the exempt set:
+#   gitleaks  runs a pinned container and git; `sh ci/checks.sh gitleaks` must
+#             work on a fresh clone with Docker and git and NO Python at all,
+#             which is the whole point of the stage with the fewest
+#             prerequisites in the repository.
+#   specs     runs ci/validate_specs.sh, POSIX sh plus awk by design (D13).
+# Both claims are pinned behaviourally by tests/unit/test_checks_sh_behaviour.py
+# (test_the_secrets_gate_consults_no_python_at_all and its specs counterpart),
+# so an exemption that stops being true fails the suite. The LIST ITSELF is
+# cross-checked against this file's own call graph — a name may sit here only if
+# its stage never reaches "${PYTHON}" — by test_ci_contract.py's
+# test_the_python_free_stage_exemptions_are_derived_from_the_source, so it is
+# not a hand-kept list that can quietly rot the way PREFLIGHT_EXEMPT_PINS would
+# without require_pin_coverage().
+stage_runs_python() {
+  case "$1" in
+    gitleaks|specs) return 1 ;;
+    *) return 0 ;;
   esac
 }
 
@@ -556,7 +618,18 @@ preflight() {
   require_pin_coverage
 
   pf_pins=$(stage_python_pins "${pf_stage}")
-  if [ -z "${pf_pins}" ]; then
+  # THE SHORT-CIRCUIT IS NARROWER THAN "NO PINS" (RB-008). It used to be
+  # `if [ -z "${pf_pins}" ]; then return 0; fi`, which skipped
+  # require_python_interpreter for every stage declaring no pinned distribution
+  # — including `projections`, which then executed
+  # `python -m orbital_drift.projections` on an unverified interpreter. Only a
+  # stage that runs no Python at all may return here; see stage_runs_python.
+  #
+  # Everything below is reached with an EMPTY pf_pins for such a stage, and that
+  # is deliberate: the banner logic reads the same, and `for pf_tool in
+  # ${pf_pins}` simply iterates zero times, so the interpreter is verified
+  # without inventing a second code path that could drift from this one.
+  if [ -z "${pf_pins}" ] && ! stage_runs_python "${pf_stage}"; then
     return 0
   fi
 
@@ -874,7 +947,7 @@ stage_smoke() {
 }
 
 # -----------------------------------------------------------------------------
-# Stage: coverage  (FR-011a — minimum measured statement coverage of src/)
+# Stage: coverage  (FR-011a — minimum measured statement+branch coverage of src/)
 #
 # NOT one of FR-011's six gates. It exists because FR-011a asks for it, which is
 # the only thing that makes it conformant: the `hooks` stage is NOT a precedent
@@ -967,8 +1040,35 @@ stage_coverage() {
   # `rc=$?` capture inside it. Wrapping this invocation for readability pushed
   # the capture out of that window. Widening the guard to suit one call site
   # would trade a real protection for a cosmetic one.
+  #
+  # `--cov-branch` (RB-008 part 3) measures ARCS, not only statements. Without
+  # it a branch that is never taken still reports as covered whenever its `if`
+  # line executes — measured at 9de5a0e: eleven such arcs, including a C-1
+  # BLOCK return in orbital_drift.guard that no test reached. It is on the
+  # COMMAND LINE and not in a [tool.coverage] section because
+  # test_no_coverage_config_silently_redefines_what_the_gate_measures forbids
+  # that section outright; the CLI is the only home left, and
+  # test_the_coverage_stage_measures_branches_not_only_statements asserts this
+  # argv carries the flag.
+  #
+  # WHAT THAT CHANGES, AND WHAT IT DOES NOT (state this before a reader reads
+  # the number as a regression). With branches on, coverage.py's
+  # `percent_covered` — the terminal TOTAL --cov-fail-under tests, AND the
+  # per-file `summary.percent_covered` orbital_drift.covcheck reads out of the
+  # --cov-report=json below — becomes the COMBINED statement+branch rate:
+  # (covered statements + covered arcs) / (statements + arcs). Neither floor's
+  # VALUE moves; RB-008 forbids that. The QUANTITY each floor compares gets
+  # strictly harder. Measured at 9de5a0e: global 96.81% -> 96.18% against the
+  # 85 floor (11.18 pts of headroom), per-file minimum 90.74% -> 91.45% against
+  # the 90 floor. The global number falling is the flag working, not a
+  # regression.
+  #
+  # WHY ONE COMBINED BAR RATHER THAN A SEPARATE BRANCH BAR, with the four
+  # rejected alternatives and the measurements behind them: D-14. That is the
+  # same document the breach message below sends a breaching operator to, and
+  # FR-011a now says "statement and branch" because of it.
   set +e
-  cov_output=$("${PYTHON}" -m pytest tests --cov=src/orbital_drift --cov-report=term-missing --cov-report=json --cov-fail-under="${COVERAGE_MIN_PERCENT}" 2>&1)
+  cov_output=$("${PYTHON}" -m pytest tests --cov=src/orbital_drift --cov-branch --cov-report=term-missing --cov-report=json --cov-fail-under="${COVERAGE_MIN_PERCENT}" 2>&1)
   cov_rc=$?
   set -e
 
@@ -980,7 +1080,15 @@ stage_coverage() {
     # Run ONLY after the global floor has already passed, over the
     # coverage.json --cov-report=json just produced, and propagate its exit
     # code as this stage's own so a per-file breach still reddens `coverage`.
-    "${PYTHON}" -m orbital_drift.covcheck
+    #
+    # --floor IS PASSED EXPLICITLY, for the same Constitution III reason
+    # --cov-fail-under is above. This invocation carried no floor, so
+    # covcheck.PER_FILE_FLOOR's default silently WAS this gate's bar: a
+    # threshold living in application code, where an edit to a src/ module
+    # changes a gate and no pin file or test says a word (measured — lowering
+    # that default to 11.0 left the whole suite green). RB-008 F4 moved its home
+    # to ci/versions.env and left the number alone.
+    "${PYTHON}" -m orbital_drift.covcheck --floor "${COVERAGE_PER_FILE_MIN_PERCENT}"
     return $?
   fi
 
@@ -1229,11 +1337,11 @@ docker_or_fail() {
 # FIX line in docker_error_cause() already tells the operator to run, so
 # "reproduce it in isolation" is literally true, and it is one API round trip.
 #
-# `|| dd_rc=$?` rather than the `set +e` / `rc=$?` / `set -e` window used twice
-# elsewhere in this file: a command on the LEFT of `||` is already exempt from
-# errexit, so the status is captured without ever disarming errexit. Strictly
-# narrower than a disarmed window, and it keeps the number of places in this
-# file where errexit is off at two.
+# `|| dd_rc=$?` rather than the `set +e` / `rc=$?` / `set -e` window used three
+# times elsewhere in this file: a command on the LEFT of `||` is already exempt
+# from errexit, so the status is captured without ever disarming errexit.
+# Strictly narrower than a disarmed window, and it keeps this file down to three
+# places where errexit is off.
 docker_daemon_or_fail() {
   dd_reason="$1"
   docker_probe_errfile
@@ -2172,6 +2280,40 @@ stage_all() {
   log "all stages passed"
 }
 
+# EXACTLY ONE STAGE PER INVOCATION, AND EXTRA ARGUMENTS ARE REFUSED.
+#
+# MEASURED defect (RB-008c(c), round-3 item A4): the dispatch below reads only
+# `$1`, so `sh ci/checks.sh lint typecheck dead audit specs traceability
+# projections governance` printed the preflight and lint blocks and exited 0.
+# Seven of the eight named gates never ran and the exit status said everything
+# passed — the silently-green class RB-008 part (1) exists to close, in the
+# single gate source itself (design D1). An operator (or an agent) reporting
+# "eight stages, rc=0" from that invocation reports something false.
+#
+# Refused rather than looped over: .github/workflows/ci.yml runs one stage per
+# job and `stage_all` already means "run everything", so accepting a list here
+# would add a second, undocumented mode whose semantics differ from CI's. rc=2
+# is this script's own usage exit, shared with the unknown-stage arm below.
+#
+# This runs BEFORE any preflight or stage body, so an ambiguous invocation
+# executes nothing at all and no partial run can be mistaken for the whole one.
+# Behaviourally pinned by tests/unit/test_checks_sh_behaviour.py's
+# test_more_than_one_stage_argument_is_refused_instead_of_silently_ignored.
+if [ "$#" -gt 1 ]; then
+  printf 'too many arguments: %s\n' "$*" >&2
+  printf 'ci/checks.sh takes ONE stage. The dispatch would otherwise read only\n' >&2
+  printf 'the first argument, running that stage alone and exiting 0 as though\n' >&2
+  printf 'every stage named had passed. Use\n' >&2
+  # Double quotes, not backticks: shellcheck reads a backtick inside a
+  # single-quoted string as an unexpanded command substitution (SC2016) and
+  # the pinned-container hook treats that as a failure. The characters are
+  # literal either way, so this costs nothing and keeps the hook honest
+  # rather than suppressed.
+  printf '"sh ci/checks.sh all", or one invocation per stage.\n' >&2
+  usage
+  exit 2
+fi
+
 # The labels below are a contract with .github/workflows/ci.yml: the matrix
 # there plus {gitleaks, hooks, all} must equal this set exactly, or a stage can
 # be added to stage_all and never run in CI. They must also equal STAGE_LABELS,
@@ -2195,7 +2337,7 @@ case "${1:-all}" in
   all)       stage_all ;;
   *)
     printf 'unknown stage: %s\n' "$1" >&2
-    printf 'usage: sh ci/checks.sh <%s>\n' "$(printf '%s' "${STAGE_LABELS}" | tr ' ' '|')" >&2
+    usage
     exit 2
     ;;
 esac

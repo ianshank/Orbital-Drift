@@ -69,9 +69,13 @@ sh ci/checks.sh governance    # tests/governance/: guard corpus, meta-tests
 `lint`, `typecheck`, `unit`, `contract`, `smoke` and `gitleaks` are FR-011's six
 gates. The other two are not, and each has its own requirement:
 
-* `coverage` implements **FR-011a** — a minimum measured statement coverage of
-  `src/orbital_drift`, with the threshold pinned in `ci/versions.env` as
-  `COVERAGE_MIN_PERCENT` rather than written into the script (Constitution III).
+* `coverage` implements **FR-011a** — a minimum measured statement **and
+  branch** coverage of `src/orbital_drift`, as one combined rate, with the
+  threshold pinned in `ci/versions.env` as `COVERAGE_MIN_PERCENT` rather than
+  written into the script (Constitution III). Branch measurement
+  (`--cov-branch`) was added under RB-008 part 3 without moving that pin — the
+  quantity it compares got harder, the number did not change; see D-14 in
+  `docs/decisions/001-coverage-gate.md`.
   It needs no special case for "there is no product code yet": coverage reports
   100% for zero measurable statements, so the gate clears today and arms itself
   the moment the first executable line lands. It measures **`src/orbital_drift`
@@ -83,7 +87,11 @@ gates. The other two are not, and each has its own requirement:
   run that measured nothing. Once the global floor passes, the same stage also
   runs `orbital_drift.covcheck` over the `coverage.json` that run produced — a
   per-file floor (charter C-6, DEC-004) that catches a single untested module
-  hiding behind a healthy aggregate, which a global average alone cannot.
+  hiding behind a healthy aggregate, which a global average alone cannot. That
+  second bar is pinned the same way as the first: `COVERAGE_PER_FILE_MIN_PERCENT`
+  in `ci/versions.env`, passed to covcheck as `--floor` (RB-008 F4). The
+  module's own `PER_FILE_FLOOR` constant is only the fallback for a hand-run,
+  and a test holds it equal to the pin.
 * `hooks` exists so the pre-commit config is enforced in CI rather than only on
   machines where somebody remembered to install it.
 

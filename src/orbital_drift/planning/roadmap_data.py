@@ -61,6 +61,24 @@ LABELS: Final[frozenset[str]] = frozenset(
     }
 )
 
+#: The Jira import template carries exactly this many Labels columns.
+#:
+#: SINGLE HOME, and it lives HERE rather than in :mod:`orbital_drift.projections`
+#: (which is where it used to be, with this module keeping a private
+#: ``limit = 3`` copy). The stated reason for that copy — "duplicated to keep
+#: this module I/O-free" — was simply wrong: importing an ``int`` performs no
+#: I/O. The real constraint is direction. ``projections`` imports this module,
+#: so this module importing ``projections`` back would be a cycle. Putting the
+#: constant in the leaf and re-exporting it from ``projections`` satisfies both
+#: the acyclic import graph and Constitution III.
+#:
+#: Both readers must move together: ``projections._label_cells`` pads to this
+#: width and raises above it, and :func:`labels_fit_the_csv_projection` rejects
+#: the same overflow before the emitter ever runs. Two literals meant widening
+#: the CSV in one place restored the exact silent-data-loss bug those two exist
+#: to prevent.
+LABEL_COLUMNS: Final = 3
+
 
 @dataclass(frozen=True)
 class Epic:
@@ -256,9 +274,8 @@ def labels_fit_the_csv_projection() -> list[str]:
     three), which is data loss inside the module whose premise is that the
     backlog cannot disagree with the plan.
     """
-    limit = 3  # projections.LABEL_COLUMNS; duplicated to keep this module I/O-free
-    over: list[str] = [epic.key for epic in EPICS if len(epic.labels) > limit]
-    over += [story.key for story in STORIES if len(story.labels) > limit]
+    over: list[str] = [epic.key for epic in EPICS if len(epic.labels) > LABEL_COLUMNS]
+    over += [story.key for story in STORIES if len(story.labels) > LABEL_COLUMNS]
     return over
 
 

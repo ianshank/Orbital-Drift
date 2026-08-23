@@ -40,12 +40,15 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 CHECKS_SH: Final = REPO_ROOT / "ci" / "checks.sh"
+VERSIONS_ENV: Final = REPO_ROOT / "ci" / "versions.env"
 
 # Environment variables the stubs snapshot on every call. `SKIP` and
 # `PRE_COMMIT_ALLOW_NO_CONFIG` are the two pre-commit escape hatches
@@ -329,7 +332,28 @@ case "$*" in
     exit "$(_od_seq_next PYTEST_RUN_RC '@PYTEST_RUN_RC@')" ;;
   "-m vulture --version")    printf 'vulture %s\n' "$(_od_seq_next VULTURE '@VULTURE@')" ;;
   "-m pip_audit --version")  printf 'pip-audit %s\n' "$(_od_seq_next PIP_AUDIT '@PIP_AUDIT@')" ;;
-  "-m orbital_drift.covcheck")
+  "-m orbital_drift.covcheck" | "-m orbital_drift.covcheck "*)
+    # BOTH SPELLINGS, and the second is the live one: stage_coverage passes
+    # `--floor "${COVERAGE_PER_FILE_MIN_PERCENT}"` (RB-008 F4). An exact-match
+    # arm stops matching the moment that flag is added, so the invocation falls
+    # through to the bare `exit @PYTHON_RC@` at the bottom and the `covcheck_rc`
+    # knob controls nothing.
+    #
+    # WHICH TEST THAT ACTUALLY SILENCED, attributed precisely — an earlier
+    # version of this comment blamed the wrong change. With the exact-match arm
+    # AND `--floor` present, `test_a_covcheck_failure_after_a_passing_global_
+    # floor_reddens_the_stage` FAILS loudly: it asserts a non-zero exit the
+    # neutered stub no longer produces. The VACUOUS pass belonged to the
+    # `_covcheck_calls` conversion — under the old equality filter,
+    # `test_covcheck_does_not_run_when_the_global_floor_already_failed` asserts
+    # an EMPTY list, which an unmatched argv satisfies for entirely the wrong
+    # reason, making "covcheck ran" and "covcheck did not run" indistinguishable.
+    # Both sides are fixed: the glob here, the prefix matcher there.
+    #
+    # The bare form is kept so a future stage edit that DROPS the flag is still
+    # recorded and driveable rather than falling through to that same bare exit
+    # — not for an operator's hand-run, which never reaches this stub at all: it
+    # only ever sees what ci/checks.sh invokes via ${PYTHON}.
     exit "$(_od_seq_next COVCHECK_RC '@COVCHECK_RC@')" ;;
 esac
 exit @PYTHON_RC@
@@ -423,9 +447,30 @@ class Stubs:
     pip_audit: str | None = None
 
 
-def _pins() -> dict[str, str]:
+def read_versions_env() -> dict[str, str]:
+    """Parse ``ci/versions.env`` the way ``sh`` would when sourcing it.
+
+    THE ONE HOME for this parser, and shared deliberately. Four other modules
+    carried a byte-identical private copy of these six lines
+    (``test_ci_contract``, ``test_version_pins``, and the gitleaks and
+    terraform-fmt positive controls), which is not four lines of duplication
+    but five independent places a parsing decision can diverge — in the support
+    code for the gate whose whole subject is pins not diverging.
+    ``tests/unit/test_ci_contract.py::test_only_one_module_parses_ci_versions_env``
+    fails on a sixth copy anywhere under ``tests/`` (it sweeps recursively).
+
+    Parsing rules, all four pinned by
+    ``test_read_versions_env_parses_the_file_the_way_sh_would``: blank lines and
+    ``#`` comments are skipped, a line with no ``=`` is skipped rather than
+    raising, key and value are stripped, and only the FIRST ``=`` splits (so a
+    ``repo:tag@sha256:...`` image reference survives intact).
+
+    Returns a FRESH dict on every call, so a caller that mutates its own view
+    (a monkeypatched pin, a test fixture) cannot reach another module's.
+    :data:`PINS` is the shared, genuinely read-only snapshot for the common case.
+    """
     pins: dict[str, str] = {}
-    for raw in (REPO_ROOT / "ci" / "versions.env").read_text(encoding="utf-8").splitlines():
+    for raw in VERSIONS_ENV.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -434,7 +479,14 @@ def _pins() -> dict[str, str]:
     return pins
 
 
-PINS: Final[dict[str, str]] = _pins()
+#: Read-only, and enforced rather than asserted. Four modules import this one
+#: object; a plain dict would let any of them mutate every other module's view
+#: of the pins, in the support code for the gate whose subject is pins not
+#: drifting. ``MappingProxyType`` makes the docstring's "read-only" claim true
+#: instead of aspirational — a stray ``PINS[...] = ...`` is now a TypeError at
+#: the point of the mistake, not a mystery in an unrelated test. Callers
+#: needing a mutable copy call :func:`read_versions_env`, which returns one.
+PINS: Final[Mapping[str, str]] = MappingProxyType(read_versions_env())
 
 
 @dataclass(frozen=True)

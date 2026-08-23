@@ -21,7 +21,21 @@ import sys
 from pathlib import Path
 from typing import Final
 
+# LABEL_COLUMNS is imported, not defined here, and is deliberately RE-EXPORTED:
+# `projections.LABEL_COLUMNS` is part of this module's surface and stays
+# resolvable. Its single home is roadmap_data (the leaf) because this module
+# imports that one — see the constant's own comment for why the previous
+# arrangement, a copy here plus a private `limit = 3` there, was a defect
+# rather than a style choice.
+#
+# The `as LABEL_COLUMNS` redundant alias is load-bearing, not noise: mypy runs
+# --strict here, which implies --no-implicit-reexport, so a plainly-imported
+# name is NOT visible to importers of this module. Without the alias,
+# `projections.LABEL_COLUMNS` type-checks as an error at every call site while
+# working fine at runtime — the alias is mypy's documented way to say "this
+# re-export is intentional".
 from orbital_drift.planning.roadmap_data import EPICS, STORIES
+from orbital_drift.planning.roadmap_data import LABEL_COLUMNS as LABEL_COLUMNS
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 PLANNING_DIR: Final = REPO_ROOT / "planning"
@@ -50,9 +64,11 @@ def render_csv() -> str:
             "Epic Name",
             "Epic Link",
             "Description",
-            "Labels",
-            "Labels",
-            "Labels",
+            # DERIVED, not three literals. The header's width and _label_cells'
+            # padding width are the same fact; spelling it out here made a
+            # fourth un-derived expression, so widening LABEL_COLUMNS would
+            # have emitted N cells under 3 headers.
+            *(["Labels"] * LABEL_COLUMNS),
             "Story Points",
             "Priority",
             _CSV_BANNER,
@@ -93,10 +109,6 @@ def render_csv() -> str:
             ]
         )
     return buffer.getvalue()
-
-
-#: The Jira import template carries exactly three Labels columns.
-LABEL_COLUMNS: Final = 3
 
 
 class ProjectionError(ValueError):

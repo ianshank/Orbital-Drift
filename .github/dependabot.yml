@@ -1,0 +1,39 @@
+# =============================================================================
+# Orbital-Drift — Dependabot configuration.
+#
+# AUDIENCE: maintainers of the CI toolchain. Read with .claude/skills/pin-a-tool.
+#
+# WHY THIS FILE EXISTS. `.github/workflows/ci.yml` pins every action to a
+# 40-character commit SHA and argues, correctly, that a mutable `@v5` tag
+# running with repository access is unacceptable — a rule
+# `tests/unit/test_ci_contract.py::test_every_workflow_action_is_pinned_to_a_commit_sha`
+# enforces. But a SHA pin is immutable in BOTH directions: it also never
+# notices that the action it names has been superseded. `actions/cache` sat on
+# a v4.3.0 SHA until it was a full major behind (v4.3.0 -> v5.1.0, resolved
+# against the upstream tag on 2026-08-22) and running on a Node.js runtime
+# GitHub had already deprecated, and nothing in the repo could have said so.
+# Pinning without a freshness mechanism does not remove the supply-chain
+# decision, it just defers it until something breaks.
+#
+# Dependabot opens a PR proposing the new SHA; the pin stays immutable, the
+# bump stays reviewed, and the CI contract test still gates the result. Note
+# it rewrites the `# vX.Y.Z` trailing comment alongside the SHA, which is what
+# keeps that comment honest rather than decorative.
+#
+# SCOPE: github-actions only, deliberately. Python distributions are NOT
+# managed here — they are pinned in ci/versions.env with a provenance URL and
+# cross-checked against pyproject and .pre-commit-config.yaml by
+# tests/unit/test_version_pins.py. Letting Dependabot edit pyproject directly
+# would bypass ci/versions.env, which is the single source of truth for those
+# (Constitution IV). Their freshness signal is the `audit` stage's pip-audit,
+# which today runs only on push/PR; the weekly `schedule:` trigger that would
+# let it catch an advisory against an unchanged pin lands with the
+# gate-integrity change that owns ci.yml's `concurrency` block, since on
+# refs/heads/main the two interact (RB-008a).
+# =============================================================================
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

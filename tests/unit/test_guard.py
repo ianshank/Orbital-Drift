@@ -366,9 +366,71 @@ def test_segment_queue_has_a_work_ceiling(allowlist: Path) -> None:
     10**9, and they held while this very input was being ALLOWED. The payload
     is deliberately BENIGN — refusing to analyse *is* the verdict, so the
     accepted false positive is pinned here rather than met in an incident.
+
+    A THIRD unfalsifiable assertion lived here until now, and it is the reason
+    the two below are EXACT-STATE rather than a bound. MEASURED 2026-08-22 at
+    11af312, in a scratch COPY of this tree: ``len(split_segments(payload)) <=
+    _MAX_SEGMENTS`` evaluates True with the ceiling deleted outright (1
+    segment), with the split hard-wired to return nothing (0), and with a junk
+    segment appended on every drain (256). It compares the wrong two
+    quantities: ``_MAX_SEGMENTS`` bounds queue ITERATIONS, not segments, and
+    for a nested payload the segment count never comes near it. The comparison
+    is not even conservatively true: the ``;``-chain test below returns
+    ``_MAX_SEGMENTS + 1`` segments from a command the guard read in FULL. So it
+    is a bound that neither holds in general nor can fail on this payload.
+
+    EXACT STATE EITHER SIDE OF THE BOUNDARY is what carries the property, and
+    both depths are derived from ``_MAX_SEGMENTS`` rather than chosen, so the
+    pair keeps straddling the boundary if the ceiling moves. Same three
+    mutations, same scratch copy: deleting the ceiling makes the truncating
+    depth split to ``["echo hi"]`` (the second assertion reddens); discarding
+    the segments empties the readable depth (the first reddens); appending junk
+    reddens both. NEITHER is redundant with the verdict assertion that follows
+    — under the discard and junk mutations the split is still reported
+    truncated, so the C-1 BLOCK below still arrives and this test would stay
+    green on the strength of a segmenter returning pure garbage.
+
+    THE VACUITY GUARD IS AT ``> 0``, NOT ``> 1``, because that is where the
+    degeneracy actually starts. ``_LAST_ANALYZABLE_DEPTH = (_MAX_SEGMENTS - 1)
+    // 2`` reaches 0 at ``_MAX_SEGMENTS <= 2``, and at depth 0 ``_nested``
+    returns the bare command: the first assertion becomes
+    ``split_segments("echo hi") == ["echo hi"]``, trivially true, with no
+    nesting for the segmenter to unwrap. MEASURED 2026-08-22 at 09a16b5 in a
+    scratch COPY: with the ceiling rewritten to 2 this test PASSED before the
+    guard was added and FAILS on the guard after it; at ceiling 3 the readable
+    depth is 1, ``readable`` is ``$(echo hi)``, and the assertion is live
+    again. The shipped ceiling of 512 puts the depth at 255, nowhere near the
+    boundary — the guard exists so that a future ceiling change cannot silence
+    this assertion without saying so, the same role ``len(bullets) > 5`` plays
+    in ``tests/governance/test_governance_meta.py``.
+
+    The PUBLIC ``split_segments`` is used deliberately, not the checked
+    ``_split_segments`` that
+    ``test_split_segments_reports_truncation_to_policy_callers`` drives: this
+    is the return shape whose invisible truncation caused RB-009, so what it
+    returns at each side of the ceiling is worth pinning in its own right.
     """
+    assert _LAST_ANALYZABLE_DEPTH > 0, (
+        f"_MAX_SEGMENTS={guard._MAX_SEGMENTS} puts the readable depth at "
+        f"{_LAST_ANALYZABLE_DEPTH}, so `readable` carries no nesting at all and the "
+        "first assertion below is vacuous"
+    )
+
+    readable = _nested("echo hi", _LAST_ANALYZABLE_DEPTH)
     pathological = _nested("echo hi", _TRUNCATING_DEPTH)
-    assert len(guard.split_segments(pathological)) <= guard._MAX_SEGMENTS
+
+    assert guard.split_segments(readable) == ["echo hi"], (
+        f"at depth {_LAST_ANALYZABLE_DEPTH} the split is complete and must unwrap to "
+        "exactly the innermost command; anything else means the segmenter is losing or "
+        "inventing segments below the ceiling"
+    )
+    assert guard.split_segments(pathological) == [], (
+        f"at depth {_TRUNCATING_DEPTH} the ceiling stops the queue before the innermost "
+        "body is ever popped, so nothing should have drained; a non-empty result here "
+        "means this payload is no longer truncating and the test has stopped testing "
+        "the ceiling"
+    )
+
     verdict = guard.analyze(pathological, allowlist=allowlist)
     assert verdict.blocked and verdict.constraint == "C-1", verdict
 
@@ -456,6 +518,54 @@ def test_split_segments_reports_truncation_to_policy_callers() -> None:
     assert drained == ["echo"] + ["echo x"] * _LAST_COMPLETE_SIBLINGS
 
 
+def test_the_ceiling_is_read_from_the_constant_not_a_literal(
+    monkeypatch: pytest.MonkeyPatch,
+    allowlist: Path,
+) -> None:
+    """The bound is ``_MAX_SEGMENTS`` itself, not a same-valued literal.
+
+    Every other test above derives its depths FROM ``guard._MAX_SEGMENTS``, so
+    all of them describe the ceiling's current value and none of them describe
+    where the loop gets it. MEASURED 2026-08-22 at 9de5a0e, in a scratch COPY of
+    the tree rather than in the tree under review: rewriting the loop condition
+    to ``guard_rail < 512`` — the identical value, hand-copied — leaves this
+    whole file green (76 passed), because nothing changes at the shipped
+    ceiling. That is the single-home defect RB-008 exists to catch, and it is
+    the mutation this test adds: lower the constant and the same payload must
+    change verdict.
+
+    ``_LAST_ANALYZABLE_DEPTH`` is chosen deliberately —
+    ``test_below_the_ceiling_the_command_is_still_read`` already pins that this
+    exact depth is read IN FULL at the shipped ceiling, so a truncated result
+    here can only be the lowered constant taking effect.
+
+    The unpatched ALLOW is asserted FIRST, and it is not decoration. Nothing
+    else in this suite pins that a benign, deeply-nested, BELOW-ceiling command
+    is allowed: the substitution cases in ``test_permitted_commands_allow`` and
+    the wrapper's ``ALLOWED`` corpus are depth 1, and
+    ``test_a_benign_command_with_many_segments_is_still_allowed`` is a
+    ``;``-chain with no nesting at all. Every other deep payload here carries a
+    DENIED verb or sits above the ceiling, so all of them turn on a BLOCK.
+    Without the assertion below, a regression that refused readable deep
+    payloads for some reason OTHER than truncation would pass this whole file —
+    and refusing legitimate work is the failure mode this guard is least able to
+    notice about itself.
+    """
+    payload = _nested("echo hi", _LAST_ANALYZABLE_DEPTH)
+    assert guard.analyze(payload, allowlist=allowlist) == guard.Verdict(
+        blocked=False, constraint="", reason="", segment=""
+    ), "a readable deep payload must be judged on its contents, not refused"
+
+    monkeypatch.setattr(guard, "_MAX_SEGMENTS", 8)
+
+    segments, truncated = guard._split_segments(payload)
+    assert truncated is True, (
+        "with the ceiling lowered to 8 this payload must come back truncated; "
+        "it did not, so the loop is not bounded by _MAX_SEGMENTS at all"
+    )
+    assert segments == [], f"the queue was cut short, so nothing should have drained: {segments}"
+
+
 def test_excerpt_is_lossless_below_the_bound_and_says_so_above_it() -> None:
     """A diagnostic must not quietly shorten a command that fits.
 
@@ -520,3 +630,150 @@ def test_main_debug_reports_truncation(
     err = capsys.readouterr().err
     assert "guard: TRUNCATED" in err, err[:400]
     assert "BLOCKED (C-1)" in err
+
+
+# --- arcs the statement counter could not see (RB-008 part 3) --------------
+#
+# Everything below was written because `--cov-branch` made it visible.
+# Statement coverage reported each of these `if` lines as executed the moment
+# any test ran the condition; the arc INTO the body was never taken, so the
+# body's behaviour was unproved. Measured at 18330d4: guard.py carried five
+# such partial arcs, and this section closes four of them — 335->336,
+# 319->320, 214->220, 258->259. Each test is paired, in its docstring, with the
+# one-line production mutation that reddens it: a test that survives every
+# mutation of the line it claims to cover is measuring nothing, and an arc
+# closed by such a test is a number, not a proof.
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "bash -c",  # `-c` as the final token
+        "bash -x -c",  # `-c` final AFTER another flag: `index` is not 1
+        "sh -c",  # not bash-specific
+        "/bin/bash -c",  # path form: `head` comes from `_basename`
+    ],
+)
+def test_a_shell_dash_c_with_nothing_to_analyze_fails_closed(command: str, allowlist: Path) -> None:
+    """A shell `-c` with no argument is a BLOCK no test had ever exercised.
+
+    This is the highest-value arc `--cov-branch` exposed (guard.py:335->336),
+    and it sits in the module whose OTHER fail-open — an empty segment list
+    read as "nothing to object to" — is what RB-009 was raised to close. Same
+    defect class: `analyze` meets an interpreter whose `-c` payload it cannot
+    see, and the only safe reading of "cannot see" is BLOCK. The module
+    docstring already promised that ("Every uncertain path returns a BLOCK");
+    until now nothing checked that this path agreed.
+
+    Both reaching shapes are covered because the index arithmetic differs:
+    `bash -c` puts `-c` at index 1, `bash -x -c` at index 2, so a bounds check
+    written against a fixed position instead of `index + 1 >= len(argv)` would
+    pass the first and fail the second.
+
+    THE MUTATION THAT REDDENS THIS: replace the `return Verdict(True, "C-1",
+    ...)` at guard.py:336-341 with `continue`. That is precisely the fail-open
+    the arc guards — an unreadable interpreter invocation waved through — and
+    it turns every assertion below from blocked=True to blocked=False.
+    """
+    verdict = _blocked(command, allowlist)
+    assert verdict.blocked, f"{command!r} was allowed with no payload to analyze: {verdict}"
+    assert verdict.constraint == "C-1", verdict
+    assert "no argument to analyze" in verdict.reason, verdict.reason
+    # The operator has to be able to tell WHICH segment objected: render()
+    # formats constraint + reason and nothing else, so a segment that no reason
+    # interpolates never reaches stderr.
+    assert command in verdict.render(), verdict.render()
+
+
+# NOTE ON THE MISSING CONTROL. The ALLOW side of the arc above — a `-c` that
+# DOES have a payload — is deliberately not re-asserted here. It already has
+# two tests, `test_shell_dash_c_with_safe_payload_allows` (`bash -c "pytest
+# -q"` allows) and `test_shell_dash_c_payloads_are_analyzed_as_code` (the
+# payload is really re-analyzed), both of which take the 335->False arc, so the
+# analyzer cannot be passing the test above by having turned blanket-hostile to
+# the token `-c`. Adding a third would be a redundant test, which RB-008 part 2
+# is in the business of removing.
+
+
+@pytest.mark.parametrize(
+    "segment",
+    [
+        "# just a comment",  # shlex drops it entirely (comments=True)
+        "FOO=bar",  # a bare assignment, stripped as a leading VAR=value
+        "FOO=bar BAZ=qux",  # ...and the loop must strip ALL of them
+        "builtin",  # a bare WRAPPERS entry with nothing wrapped
+        "FOO=bar # trailing",  # both mechanisms in one segment
+    ],
+)
+def test_a_segment_that_tokenizes_to_nothing_is_skipped_not_misread(
+    segment: str, allowlist: Path
+) -> None:
+    """Closes TWO arcs at once: `_argv`'s `while argv:` exhausting (214->220)
+    and `analyze`'s `if not argv: continue` (319->320).
+
+    They are one path seen twice. `_argv` strips leading `VAR=value`
+    assignments and wrapper commands; a segment made of nothing else strips to
+    the empty list, which the loop in `analyze` must SKIP. Skipping is not a
+    detail: the next segment of the same command line is where the real verb
+    usually sits, so the difference between `continue` and any early exit is
+    the difference between reading `FOO=bar && kubectl delete ns prod` and
+    stopping at `FOO=bar`.
+
+    THE MUTATIONS THAT REDDEN THIS, one per arc:
+
+    * 214->220 — change `while argv:` (guard.py:214) to `while len(argv) > 1:`.
+      `_argv("FOO=bar")` then returns `["FOO=bar"]`, and the first assertion
+      fails.
+    * 319->320 — change the `continue` (guard.py:320) to
+      `return Verdict(False)`. The empty segment then ends the whole analysis,
+      and the compound assertion below fails because the denied verb after it
+      is never read.
+    """
+    assert guard._argv(segment) == [], f"{segment!r} did not strip to nothing"
+    assert not _blocked(segment, allowlist).blocked
+
+    verdict = _blocked(f"{segment}\n{_DENIED}", allowlist)
+    assert verdict.blocked and verdict.constraint == "C-1", (
+        f"an empty segment ended the analysis instead of being skipped, so "
+        f"{_DENIED!r} after {segment!r} was never classified: {verdict}"
+    )
+
+
+@pytest.mark.parametrize("command", ["terraform", "helm"])
+def test_a_conditional_command_with_no_subcommand_matches_no_readonly_form(
+    command: str, allowlist: Path
+) -> None:
+    """Closes guard.py:258->259, the `len(argv) < len(form): continue` arc.
+
+    Every entry in `READONLY_FORMS` is a (command, subcommand) PAIR, so a
+    single-token argv is shorter than all five and can match none — which is
+    the right answer, because a bare `terraform` is not `terraform validate`
+    and must not inherit its permission. Reaching the arc needs no contrivance:
+    `terraform` on its own is a command a human types.
+
+    THE MUTATION THAT REDDENS THIS: change the `continue` at guard.py:259 to
+    `return form`. `_readonly_prefix(["terraform"])` then answers with the
+    first form in the tuple — `("helm", "template")` — instead of None, the
+    first assertion fails, and a bare `terraform` is ALLOWED on a permission it
+    never matched.
+    """
+    assert guard._readonly_prefix([command]) is None
+    verdict = _blocked(command, allowlist)
+    assert verdict.blocked and verdict.constraint == "C-1", verdict
+
+
+def test_a_single_token_command_outside_the_conditional_set_is_the_control(
+    allowlist: Path,
+) -> None:
+    """The same arc, ALLOW side: a one-token argv is shorter than every form,
+    comes back None, and `ls` is then judged on not being a conditional command
+    rather than on having failed to match one.
+
+    NOT redundant with `ls -la` in `test_permitted_commands_allow`, which is
+    the obvious objection. That argv is two tokens, so `len(argv) < len(form)`
+    is FALSE for all five forms and the 258->259 arc is never reached; the
+    single-token shape is the only one that gets there. The bare `_readonly_
+    prefix` assertion is likewise made nowhere else.
+    """
+    assert guard._readonly_prefix(["ls"]) is None
+    assert not _blocked("ls", allowlist).blocked

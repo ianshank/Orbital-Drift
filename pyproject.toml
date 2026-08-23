@@ -160,7 +160,11 @@ ignore_missing_imports = true
 # if any `[tool.coverage]` key reappears; see docs/decisions/001-coverage-gate.md.
 # The per-file floor (charter C-6, DEC-004) is a separate, additive check —
 # orbital_drift.covcheck, run by stage_coverage immediately after the global
-# floor passes — with its own PER_FILE_FLOOR constant, not a pyproject knob.
+# floor passes — and its bar lives in ci/versions.env too, as
+# COVERAGE_PER_FILE_MIN_PERCENT, passed on covcheck's command line as `--floor`
+# (RB-008 F4). covcheck.PER_FILE_FLOOR is only the fallback for a hand-run of
+# the module, held equal to the pin by tests/unit/test_covcheck.py. Neither bar
+# is a pyproject knob.
 
 # -----------------------------------------------------------------------------
 # vulture — dead-code scan (adopt-governance-kit design D3)

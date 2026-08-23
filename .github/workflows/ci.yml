@@ -31,6 +31,22 @@
 # `pip install --upgrade pip`, an unpinned upgrade to a moving target executed
 # immediately before the step that installs every other pin.
 #
+# ...AND AN ACTION PIN HAS A FRESHNESS MECHANISM. A SHA pin is immutable in
+# both directions: it also cannot notice it has gone stale. `.github/dependabot.yml`
+# proposes action bumps weekly and rewrites the trailing `# vX.Y.Z` comment
+# alongside the SHA, so that comment stays honest rather than decorative.
+# Pinning without a freshness mechanism is not safety, it is a deferred
+# decision.
+#
+# NOT YET COVERED: the pinned PYTHON dependencies. pip-audit runs in the
+# `audit` stage, but only on push/PR — so it re-audits unchanged versions and
+# stays green for exactly as long as nobody touches the repo, which is the
+# window in which an advisory lands unnoticed. The weekly `schedule:` trigger
+# that closes this runs on refs/heads/main and would share the concurrency
+# group below with a main push; it therefore lands together with the
+# `cancel-in-progress` fix, in the gate-integrity change that owns that line
+# (RB-008 part 1, deferral recorded in RB-008a). Do not add it here alone.
+#
 # CACHING. `~/.cache/pip` comes from actions/setup-python; `~/.cache/pre-commit`
 # is cached explicitly, keyed on the hash of .pre-commit-config.yaml, because a
 # cold pre-commit cache clones three hook repositories and builds three
@@ -57,13 +73,96 @@ on:
     branches: ["main"]
   pull_request:
   workflow_dispatch:
+  # WEEKLY, BECAUSE ONE GATE IS NOT A PURE FUNCTION OF THE TREE. `audit`
+  # (pip-audit) resolves the pinned dependency set against a LIVE advisory
+  # database, so a CVE published today against a dependency pinned last month
+  # makes this repository vulnerable with no diff, no push and nothing red
+  # anywhere — the gate that would catch it simply never runs. Every other stage
+  # is decided entirely by the checkout and needs no timer.
+  #
+  # COUPLED TO THE WHOLE `concurrency:` BLOCK BELOW — DO NOT SEPARATE THEM.
+  # A scheduled run fires on refs/heads/main, so under the ref-keyed group this
+  # file used to carry it joined the SAME concurrency group as every push to
+  # main. That made it a recurring, unattended canceller of main's own run —
+  # directly under the old `cancel-in-progress: true` (it cancels the run in
+  # progress), and STILL indirectly with cancellation disabled, because a run
+  # queued into an occupied group goes pending and a pending run is cancelled by
+  # the next arrival. Either way the casualty is the gitleaks full-history scan
+  # that run 32575049407 (commit 4a76930) already lost once, silently, because
+  # `cancelled` is not `failure`.
+  #
+  # The trigger is therefore safe because of BOTH keys below — per-commit
+  # grouping for non-PR events AND pull_request-only cancellation — not either
+  # alone. tests/unit/test_ci_contract.py's
+  # test_a_scheduled_run_can_never_cancel_a_push_to_main asserts both, so the
+  # timer cannot outlive them by a later edit or by merge order.
+  #
+  # KNOWN RESIDUAL, DELIBERATELY NOT FIXED HERE — the timer is now subject to a
+  # weaker form of the same blindness this block is about, with the roles
+  # reversed. Per-commit grouping puts a scheduled run on sha X in the SAME
+  # group as the push run for X. If that push run is still in progress the
+  # scheduled run goes pending, and a third arrival on X — a re-run, or a
+  # `workflow_dispatch` — cancels it. The casualty is then `audit`, which is the
+  # one gate this timer exists to run, and a cancelled scheduled run reports
+  # `cancelled` rather than `failure`, so nothing surfaces the skipped week.
+  #
+  # Why it is a residual and not a defect in this change: the gate-integrity
+  # property is about MAIN's own runs, and those are never the casualty — a
+  # scheduled run cannot cancel a run that is in progress, and the commit that
+  # landed on main keeps its completed gitleaks full-history scan either way.
+  # The loss is one week of advisory-database freshness, recoverable by a manual
+  # `workflow_dispatch` and bounded by the next Monday. Fixing it properly means
+  # giving scheduled runs a group of their own (or none), which changes the
+  # grouping rule this PR exists to pin and belongs in its own change with its
+  # own tests — not smuggled in beside the fix it would modify.
+  schedule:
+    # Mondays 06:17 UTC. Deliberately off the hour: GitHub queues scheduled runs
+    # and drops them under load, which is worst at :00.
+    #
+    # This literal is NOT in ci/versions.env, unlike CI_RUNNER_IMAGE, and the
+    # reason is mechanical rather than a preference: GitHub evaluates no
+    # expressions in the `on:` block, so the trick that keeps `runs-on` pinned
+    # (read the value at run time from a job output) has no equivalent here — a
+    # `${{ }}` cron is a parse error, not a cadence. Its SHAPE is asserted
+    # instead, by test_the_workflow_runs_on_a_schedule: one entry, fixed minute
+    # and hour, every day-of-month and month, one fixed weekday. That is what
+    # stops `* * * * *` from passing for "a schedule exists".
+    - cron: "17 6 * * 1"
 
 permissions:
   contents: read
 
+# A RUN OF MAIN MUST NEVER BE CANCELLED, AND THAT TAKES BOTH KEYS BELOW — this
+# is a gate-integrity rule, not a cost one.
+#
+# The incident: run 32575049407 (push, main, head 4a76930, run #56) was
+# cancelled 43 seconds in, superseded by run #57, so that merge commit carries
+# no completed gitleaks full-history scan anywhere. GitHub records `cancelled`,
+# which is not `failure` — no red X, no required-check breach, nothing for an
+# operator to skim past — so Constitution VII ("a red gitleaks halts
+# everything") was silently unenforceable for it.
+#
+# `cancel-in-progress: false` DOES NOT CLOSE THAT ON ITS OWN. Per GitHub's
+# documented concurrency behaviour, a run queued into a group that already holds
+# one becomes PENDING, and a previously pending run in that group is cancelled
+# when a newer one arrives; `cancel-in-progress` governs only the IN-PROGRESS
+# run. With a single ref-keyed group for main, two merges landing while a run
+# holds the group — up to 25 minutes, the `hooks` job timeout — would leave the
+# FIRST merge's run cancelled while pending. Same incident, different door, and
+# the weekly `schedule:` trigger above would hold that group open on a timer.
+#
+# So non-PR events are grouped PER COMMIT and a push to main contends with
+# nothing. Pull requests keep ref-keyed grouping AND cancellation, which is the
+# case where superseding is wanted: the newer head gets a complete run of its
+# own, a PR cannot merge on a cancelled check, and without it every intermediate
+# commit burns a full matrix.
+#
+# Both keys are asserted by tests/unit/test_ci_contract.py's
+# test_a_push_to_main_shares_no_concurrency_group_and_is_never_cancelled, and
+# the grouping half again by the schedule-coupling test beside it.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -127,7 +226,7 @@ jobs:
       # running pre-commit (the only way to observe the MERGED definition), so
       # the unit stage wants this cache as much as the hooks job does.
       - name: Cache pre-commit hook environments
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-py${{ needs.versions.outputs.python }}-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -200,7 +299,7 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Cache pre-commit hook environments
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-py${{ needs.versions.outputs.python }}-${{ hashFiles('.pre-commit-config.yaml') }}
