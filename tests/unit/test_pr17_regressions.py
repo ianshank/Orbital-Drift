@@ -18,8 +18,9 @@ import pytest
 
 from orbital_drift.domain.errors import InvalidTemporalRangeError
 from orbital_drift.domain.temporal import TemporalRange
+from orbital_drift.eval.bootstrap import BlockSize
 from orbital_drift.eval.calibration import calibration_error
-from orbital_drift.eval.superiority import BlockSize, SuperiorityConfig, superiority_gate
+from orbital_drift.eval.superiority import SuperiorityConfig, superiority_gate
 from orbital_drift.observability.logging import (
     REDACTION_PLACEHOLDER,
     _redact_fields,
@@ -156,6 +157,7 @@ class TestMoranThreadSafety:
 
     def test_moran_lock_is_a_threading_lock(self) -> None:
         from orbital_drift.eval.spatial import _MORAN_LOCK
+
         assert isinstance(_MORAN_LOCK, type(threading.Lock()))
 
 
@@ -293,7 +295,8 @@ class TestNegativeMinimumEffectGuard:
         )
         with pytest.raises(ValueError, match="non-negative"):
             superiority_gate(
-                np.ones((2, 2)), np.zeros((2, 2)),
+                np.ones((2, 2)),
+                np.zeros((2, 2)),
                 metric=lambda v: float(np.mean(v)),
                 config=config,
             )
@@ -308,7 +311,8 @@ class TestNegativeMinimumEffectGuard:
         )
         # Should not raise
         result = superiority_gate(
-            np.ones((2, 2)), np.zeros((2, 2)),
+            np.ones((2, 2)),
+            np.zeros((2, 2)),
             metric=lambda v: float(np.mean(v)),
             config=config,
         )

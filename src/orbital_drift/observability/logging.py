@@ -77,7 +77,8 @@ def _redact_value(field_name: str, value: object) -> object:
         return _redact_fields(value)
     if isinstance(value, (list, tuple)):
         return type(value)(
-            _redact_value(field_name, item) if not isinstance(item, Mapping)
+            _redact_value(field_name, item)
+            if not isinstance(item, Mapping)
             else _redact_fields(item)
             for item in value
         )
@@ -90,10 +91,7 @@ def _redact_fields(fields: Mapping[str, object]) -> dict[str, object]:
     Recurses into nested Mappings and lists/tuples so that structures like
     ``{"config": {"api_key": "secret"}}`` are redacted at every depth.
     """
-    return {
-        field_name: _redact_value(field_name, value)
-        for field_name, value in fields.items()
-    }
+    return {field_name: _redact_value(field_name, value) for field_name, value in fields.items()}
 
 
 def _record_extras(record: logging.LogRecord) -> dict[str, object]:

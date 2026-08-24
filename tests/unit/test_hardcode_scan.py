@@ -208,7 +208,7 @@ def test_cli_uses_policy_paths_and_policy_failure_default(
     policy_file.write_text(
         f"""
 [tool.orbital_drift.hardcode_scan]
-paths = ["{target}"]
+paths = ["{target.as_posix()}"]
 fail_on_findings = false
 """.lstrip(),
         encoding="utf-8",

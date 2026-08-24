@@ -154,5 +154,6 @@ def emit_record(
         target_logger = logger
     else:
         from orbital_drift.observability.logging import get_logger
+
         target_logger = get_logger("records")
     target_logger.info(EVENT_MESSAGE, extra={EVENT_FIELD: record.to_json_dict()})
