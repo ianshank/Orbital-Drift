@@ -123,9 +123,9 @@ class TestCalibrationBinWeights:
         """A perfectly calibrated set (fraction_of_positives == mean_predicted_value)
         should produce ECE very close to zero."""
         labels = np.asarray([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
-        probs = np.asarray([0.1, 0.1, 0.1, 0.1, 0.1, 0.9, 0.9, 0.9, 0.9, 0.9])
+        probs = np.asarray([0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0])
         result = calibration_error(labels, probs, bin_count=2, strategy="quantile")
-        assert result.expected_calibration_error == pytest.approx(0.0, abs=0.2)
+        assert result.expected_calibration_error == pytest.approx(0.0, abs=1e-6)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

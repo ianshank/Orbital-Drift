@@ -94,3 +94,4 @@ def test_rollback_production_with_no_archived_version() -> None:
     reg.transition_stage("unet", v1, "Production")
     # Only 1 version exists; no archived version exists.
     assert reg.rollback_production("unet") is None
+    assert reg.get_stage_version("unet", "Production") == v1

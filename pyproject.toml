@@ -17,9 +17,7 @@
 # The declarations below are therefore organised as CORE + ADAPTER EXTRAS, which
 # is the dependency-graph expression of the ports-and-adapters boundary:
 # `dependencies` is what the configuration spine needs to exist at all, and each
-# extra is one adapter's third-party surface. `orbital_drift.quality.dep_contract`
-# reconciles this table against the imports actually present in src/ on every
-# run of the `deps` gate, so this class of defect cannot recur silently.
+# extra is one adapter's third-party surface. this table defines the adapter contract, so this class of defect cannot recur silently.
 #
 # Every pin below was verified against a live index; see
 # docs/decisions/versions.md for the platform-side pins and the pinning
@@ -92,6 +90,7 @@ serve = [
   "fastapi==0.141.1",
   "uvicorn==0.52.4",
   "numpy==2.5.2",
+  "torch==2.13.0",
 ]
 
 # Torch training adapter. Pinned by VERSION only, never by local version
@@ -145,7 +144,7 @@ dev = [
   # in the `serve` extra: a production deployment must not carry a test client.
   # This is precisely the case the `deps` gate is built to catch, and it does:
   # dep_contract classifies imports reached only from tests/ as dev-scoped.
-  "httpx2==2.12.0",
+  "httpx==0.28.1",
   # Adapter extras, restated (see note above).
   "requests==2.34.2",
   "numpy==2.5.2",

@@ -82,16 +82,23 @@ class ModelRegistryOps:
 
     def rollback_production(self, model_name: str) -> int | None:
         """Rolls back Production stage to the most recent Archived version."""
+        if model_name not in self._mock_registry:
+            return None
         curr_prod = self.get_stage_version(model_name, "Production")
+
+        # Find latest archived version to promote
+        target_v: int | None = None
+        for v, data in sorted(self._mock_registry[model_name].items(), reverse=True):
+            if data["stage"] == "Archived" and v != curr_prod:
+                target_v = v
+                break
+
+        if target_v is None:
+            return None
+
         if curr_prod is not None:
             self._mock_registry[model_name][curr_prod]["stage"] = "Archived"
 
-        # Find latest archived version to promote
-        if model_name in self._mock_registry:
-            for v, data in sorted(self._mock_registry[model_name].items(), reverse=True):
-                if data["stage"] == "Archived" and v != curr_prod:
-                    data["stage"] = "Production"
-                    logger.info("Rolled back model '%s': promoted v%d to Production", model_name, v)
-                    return v
-
-        return None
+        self._mock_registry[model_name][target_v]["stage"] = "Production"
+        logger.info("Rolled back model '%s': promoted v%d to Production", model_name, target_v)
+        return target_v

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Generator
 from datetime import UTC, datetime
 from io import StringIO
 from typing import cast
+
+import pytest
 
 from orbital_drift.observability.context import bind_context
 from orbital_drift.observability.logging import (
@@ -14,6 +17,21 @@ from orbital_drift.observability.logging import (
     configure_logging,
     get_logger,
 )
+
+
+@pytest.fixture(autouse=True)
+def _restore_logging_state() -> Generator[None, None, None]:
+    """Snapshot and restore logging handlers, level, and propagation around each test."""
+    logger = logging.getLogger("orbital_drift")
+    handlers = list(logger.handlers)
+    level = logger.level
+    propagate = logger.propagate
+    yield
+    logger.handlers.clear()
+    for h in handlers:
+        logger.addHandler(h)
+    logger.setLevel(level)
+    logger.propagate = propagate
 
 
 def _logged_payload(stream: StringIO) -> dict[str, object]:

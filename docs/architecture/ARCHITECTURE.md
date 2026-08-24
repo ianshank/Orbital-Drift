@@ -75,7 +75,7 @@ C4Component
     title Orbital-Drift — Component Diagram (Level 3: Hexagonal Architecture)
 
     Container_Boundary(core_domain, "Domain Layer (Pure Primitives — Zero 3rd Party Deps)") {
-        Component(geometry, "domain/geometry.py", "BoundingBox, Point", "Timezone-independent spatial extent validation")
+        Component(geometry, "domain/geometry.py", "BoundingBox, Tile", "Timezone-independent spatial extent validation")
         Component(temporal, "domain/temporal.py", "TemporalRange", "Timezone-aware ISO-8601 interval arithmetic")
         Component(scene_dom, "domain/scene.py", "SceneMetadata", "Normalized multi-spectral scene representations")
         Component(lineage, "domain/lineage.py", "CanonicalLineageHash", "Order-invariant JSON canonical SHA-256 provenance triples")

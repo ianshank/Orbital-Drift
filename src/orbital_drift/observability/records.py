@@ -78,8 +78,7 @@ class DecisionRecord:
         """Enforce tz-aware timestamps and freeze metadata after construction."""
         if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
             raise ValueError("created_at must be timezone-aware")
-        if not isinstance(self.metadata, MappingProxyType):
-            object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
     def to_json_dict(self) -> dict[str, object]:
         """Produce sorted JSON-compatible fields so stored evidence has stable shape."""

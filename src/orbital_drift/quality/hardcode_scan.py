@@ -207,8 +207,9 @@ def _all_target(target: ast.AST) -> bool:
 
 def _all_caps_assignment(node: ast.Assign, parent: ast.AST | None) -> bool:
     """Recognize direct module constants only when every target is conventionally constant."""
-    names = [target.id for target in node.targets if isinstance(target, ast.Name)]
-    return isinstance(parent, ast.Module) and bool(names) and all(name.isupper() for name in names)
+    if not isinstance(parent, ast.Module) or not node.targets:
+        return False
+    return all(isinstance(target, ast.Name) and target.id.isupper() for target in node.targets)
 
 
 def _exempt_context_ids(
@@ -344,7 +345,7 @@ def scan_source(source: str, *, path: str, policy: ScanPolicy) -> tuple[Finding,
 
         numeric_value = _numeric_value(node, parents)
         if numeric_value is not None:
-            if float(numeric_value) in policy.allowed_numbers:
+            if any(numeric_value == allowed_number for allowed_number in policy.allowed_numbers):
                 continue
             category = LiteralCategory.NUMERIC_LITERAL
             value: object = numeric_value

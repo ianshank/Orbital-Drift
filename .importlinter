@@ -6,7 +6,7 @@ include_external_packages = True
 # TODO(phase-1-adapters): expand this scoped additive contract to the intended
 # full sequence serve -> adapters -> quality/observability -> config -> ports ->
 # domain once the existing flat modules have been migrated into those packages.
-# The repository currently has no quality package and config is a flat module.
+# The repository's config is currently a flat module; expand layers once the remaining flat modules have been migrated.
 [importlinter:contract:layers]
 name = New core ports depend only on the domain
 type = layers
