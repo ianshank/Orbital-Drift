@@ -66,38 +66,63 @@ C4Container
 
 ---
 
-## 3. Component Diagram (Level 3: `src/orbital_drift/`)
+## 3. Component Diagram (Level 3: Hexagonal Ports & Adapters Architecture)
 
-The component diagram details the internal structural design of the Python package `orbital_drift`.
+The component diagram details the internal structural design of the Python package `orbital_drift`, adhering to a strict **Hexagonal (Ports & Adapters)** architecture and Constitution II/III/VII constraints.
 
 ```mermaid
 C4Component
-    title Orbital-Drift — Component Diagram (Level 3: Core Pipeline)
+    title Orbital-Drift — Component Diagram (Level 3: Hexagonal Architecture)
 
-    Container_Boundary(core_pkg, "src/orbital_drift/") {
-        Component(config, "config.py", "Pydantic Settings", "Centralized configuration: AOI bounding box, band selection, GPU devices, thresholds, and lakeFS credentials")
-        Component(cloud, "ingest/cloud.py", "NumPy", "SCL Cloud Mask evaluator (classes 3, 8, 9, 10) and cloud-cover threshold filtering")
-        Component(stac_client, "ingest/stac_client.py", "requests / STAC", "Earth Search client with exponential retry budget and asset URL mapping")
-        Component(tile_store, "ingest/tile_store.py", "Pathlib / NumPy", "Multi-spectral raster tile storage with read/write throughput profiling")
-        Component(dataset, "data/dataset.py", "PyTorch Dataset", "Multi-spectral patch generator slicing cubes into normalized (C, H, W) tensors")
-        Component(lakefs_ops, "data/lakefs_ops.py", "hashlib / lakefs", "Deterministic lakeFS commit generation and branch snapshot management")
-        Component(baseline, "train/baseline.py", "PyTorch / AMP", "SimpleUNet segmentation architecture, AMP autocasting, GradScaler, and IoU/F1 metrics")
-        Component(registry, "registry/ops.py", "mlflow", "Model Registry transitions, shadow validation gate, and atomic rollback drills")
-        Component(metrics, "drift/metrics.py", "NumPy / SciPy", "Population Stability Index (PSI) and two-sample Kolmogorov-Smirnov (KS) test")
-        Component(trigger, "drift/trigger.py", "State Machine", "Hysteresis windowing (N=3), cooldown limiter, and queue-depth-1 coalescing")
-        Component(app, "serve/app.py", "FastAPI", "REST inference API (/predict), canary traffic splitter, /healthz, and /metrics")
+    Container_Boundary(core_domain, "Domain Layer (Pure Primitives — Zero 3rd Party Deps)") {
+        Component(geometry, "domain/geometry.py", "BoundingBox, Point", "Timezone-independent spatial extent validation")
+        Component(temporal, "domain/temporal.py", "TemporalRange", "Timezone-aware ISO-8601 interval arithmetic")
+        Component(scene_dom, "domain/scene.py", "SceneMetadata", "Normalized multi-spectral scene representations")
+        Component(lineage, "domain/lineage.py", "CanonicalLineageHash", "Order-invariant JSON canonical SHA-256 provenance triples")
+        Component(errors, "domain/errors.py", "DomainError hierarchy", "Exact exception hierarchy for domain invariant violations")
     }
 
-    Rel(stac_client, cloud, "Passes raster arrays for cloud evaluation")
-    Rel(cloud, tile_store, "Saves cloud-masked multi-spectral rasters")
-    Rel(tile_store, lakefs_ops, "Commits scene arrays to lakeFS branch")
-    Rel(lakefs_ops, metrics, "Feeds reference & target band arrays")
-    Rel(metrics, trigger, "Feeds drift verdict per scene")
-    Rel(trigger, baseline, "Dispatches retrain job on hysteresis trigger")
-    Rel(tile_store, dataset, "Loads raster cubes into PyTorch Dataset")
-    Rel(dataset, baseline, "Streams training batch tensors")
-    Rel(baseline, registry, "Promotes model candidate with provenance triple")
-    Rel(registry, app, "Loads active Production & Staging models into GPU 1 container")
+    Container_Boundary(ports_layer, "Ports Layer (Abstract Protocols & Deterministic Fakes)") {
+        Component(catalog_port, "ports/catalog.py", "CatalogPort Protocol", "STAC query interface abstractions")
+        Component(compute_port, "ports/compute.py", "ComputePort Protocol", "GPU batch job execution abstractions")
+        Component(dataversion_port, "ports/dataversion.py", "DataVersionPort, InMemoryDataVersion", "Dataset branching and commit protocols with in-memory fakes")
+        Component(registry_port, "ports/registry.py", "ModelRegistryPort Protocol", "Stage transition and rollback protocols")
+        Component(tiles_port, "ports/tiles.py", "TileStorePort Protocol", "Multi-spectral raster I/O protocols")
+    }
+
+    Container_Boundary(eval_layer, "Evaluation Layer (Statistical Promotion & Calibration Gates)") {
+        Component(bootstrap, "eval/bootstrap.py", "SpatialBlockBootstrap", "Moving-block spatial bootstrap for dependent spatial metrics")
+        Component(calibration, "eval/calibration.py", "ExpectedCalibrationError", "Quantile and uniform reliability curve calibration estimators")
+        Component(ranking, "eval/ranking.py", "AveragePrecisionScore", "Average precision ranking evaluation")
+        Component(spatial, "eval/spatial.py", "MoransI", "Row-standardised spatial autocorrelation with thread-safe Lock")
+        Component(superiority, "eval/superiority.py", "SuperiorityGate", "Paired spatial block-bootstrap promotion gate with positive effect guards")
+    }
+
+    Container_Boundary(observability_layer, "Observability & Governance Layer") {
+        Component(logging_mod, "observability/logging.py", "Structured Logger", "JSON/Plain formatting with recursive credential redaction at all depths")
+        Component(context_mod, "observability/context.py", "ExecutionContext", "Async context variables for correlation and request binding")
+        Component(records_mod, "observability/records.py", "DecisionRecord, GateState", "Durable 4-state gate ledger with frozen metadata and ISO-8601 awareness")
+        Component(hardcode, "quality/hardcode_scan.py", "AST Hardcode Scanner", "Constitution III compliance scanner prohibiting hardcoded values")
+    }
+
+    Container_Boundary(adapters_layer, "Adapters Layer (Framework & Infrastructure Integrations)") {
+        Component(config, "config.py", "Pydantic Settings", "Validated environment settings and hyperparameter schemas")
+        Component(cloud, "ingest/cloud.py", "NumPy", "SCL Cloud Mask evaluator and cloud cover threshold filters")
+        Component(stac_client, "ingest/stac_client.py", "requests / STAC", "Earth Search client with exponential retry budget")
+        Component(tile_store, "ingest/tile_store.py", "Pathlib / NumPy", "Multi-spectral raster tile storage with throughput profiling")
+        Component(dataset, "data/dataset.py", "PyTorch Dataset", "Multi-spectral patch generator slicing cubes into normalized tensors")
+        Component(lakefs_ops, "data/lakefs_ops.py", "hashlib / lakefs", "lakeFS branch management and dataset snapshot pinning")
+        Component(baseline, "train/baseline.py", "PyTorch / AMP", "SimpleUNet segmentation architecture, fp16 autocast, GradScaler")
+        Component(registry_ops, "registry/ops.py", "MLflow Registry", "Model stage transitions (None -> Staging -> Production -> Archived)")
+        Component(metrics, "drift/metrics.py", "NumPy / SciPy", "PSI 10-quantile bins and 2-sample Kolmogorov-Smirnov sensor")
+        Component(trigger, "drift/trigger.py", "State Machine", "Hysteresis windowing, cooldown limiter, queue-depth-1 coalescing")
+        Component(app, "serve/app.py", "FastAPI", "REST inference API (/predict), canary traffic splitter, /healthz, /metrics")
+    }
+
+    Rel(adapters_layer, ports_layer, "Implements protocols")
+    Rel(ports_layer, core_domain, "References domain entities")
+    Rel(eval_layer, core_domain, "Consumes domain primitives")
+    Rel(adapters_layer, observability_layer, "Emits structured logs and decision records")
 ```
 
 ---

@@ -69,10 +69,29 @@ def _is_sensitive(field_name: str) -> bool:
     return any(redacted_key in normalized_name for redacted_key in redact_keys)
 
 
+def _redact_value(field_name: str, value: object) -> object:
+    """Redact a single value, recursing into nested containers."""
+    if _is_sensitive(field_name):
+        return REDACTION_PLACEHOLDER
+    if isinstance(value, Mapping):
+        return _redact_fields(value)
+    if isinstance(value, (list, tuple)):
+        return type(value)(
+            _redact_value(field_name, item) if not isinstance(item, Mapping)
+            else _redact_fields(item)
+            for item in value
+        )
+    return value
+
+
 def _redact_fields(fields: Mapping[str, object]) -> dict[str, object]:
-    """Copy fields while replacing values whose names indicate credentials."""
+    """Copy fields while replacing values whose names indicate credentials.
+
+    Recurses into nested Mappings and lists/tuples so that structures like
+    ``{"config": {"api_key": "secret"}}`` are redacted at every depth.
+    """
     return {
-        field_name: REDACTION_PLACEHOLDER if _is_sensitive(field_name) else value
+        field_name: _redact_value(field_name, value)
         for field_name, value in fields.items()
     }
 

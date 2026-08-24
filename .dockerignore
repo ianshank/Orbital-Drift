@@ -20,6 +20,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.hypothesis/
+.importlinter
 .coverage
 coverage.xml
 coverage.json

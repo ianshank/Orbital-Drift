@@ -68,6 +68,8 @@ def _validate_config(config: SuperiorityConfig) -> None:
         raise ValueError("confidence_level must be strictly between zero and one")
     if not bool(np.isfinite(config.minimum_effect)):
         raise ValueError("minimum_effect must be finite")
+    if config.minimum_effect < 0.0:
+        raise ValueError("minimum_effect must be non-negative")
 
 
 def superiority_gate(

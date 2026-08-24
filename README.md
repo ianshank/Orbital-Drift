@@ -13,6 +13,12 @@ Orbital-Drift runs an automated, self-healing continuous training loop driven by
    - **Primary Trainer (GPU 0)**: NVIDIA GeForce RTX 5060 Ti 16GB VRAM running multi-spectral `SimpleUNet` spatial segmentation with PyTorch AMP fp16 autocast and gradient accumulation.
    - **Canary Inference Server (GPU 1)**: NVIDIA GeForce RTX 5060 8GB VRAM running FastAPI serving container (memory ceiling 4GB) with configurable traffic routing and Prometheus telemetry.
 5. **Continuous Training Loop**: Automated transition through Staging shadow evaluation, baseline beat gates (IoU/F1 threshold checks), canary deployment, and sub-10-minute automated rollback drills.
+6. **Hexagonal Architecture & Observability (Phase 0-R)**:
+   - **Domain Layer (`src/orbital_drift/domain/`)**: Pure primitives (`geometry`, `temporal`, `scene`, `lineage`, `errors`) with zero 3rd-party dependencies and canonical JSON SHA-256 provenance hashing.
+   - **Ports Layer (`src/orbital_drift/ports/`)**: Abstract protocols and deterministic stdlib fakes (`catalog`, `compute`, `dataversion`, `registry`, `tiles`) enabling CPU-only fast feedback and isolation.
+   - **Evaluation Layer (`src/orbital_drift/eval/`)**: Standardized statistical evaluators (`bootstrap`, `calibration`, `ranking`, `spatial`, `superiority`) satisfying Constitution II.
+   - **Observability Plane (`src/orbital_drift/observability/`)**: Structured logging with recursive credential redaction (`logging.py`), execution context binding (`context.py`), and durable 4-state `DecisionRecord` gate ledger (`records.py`).
+   - **Quality & Boundary Enforcement (`src/orbital_drift/quality/`, `.importlinter`)**: AST scanner for hardcoded literals (Constitution III) and formal architectural layer boundary contracts.
 
 Spec, plan and task list live in `specs/001-orbital-drift-ct/`. The project constitution is `.specify/memory/constitution.md` and supersedes everything else, including this file.
 

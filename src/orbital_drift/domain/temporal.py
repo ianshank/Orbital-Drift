@@ -52,8 +52,10 @@ class TemporalRange:
         if len(parts) != 2:
             raise InvalidTemporalRangeError("interval must contain exactly one '/' separator")
         try:
-            return cls(datetime.fromisoformat(parts[0]), datetime.fromisoformat(parts[1]))
+            start = datetime.fromisoformat(parts[0])
+            end = datetime.fromisoformat(parts[1])
         except ValueError as error:
             raise InvalidTemporalRangeError(
                 "interval endpoints must be ISO-8601 datetimes"
             ) from error
+        return cls(start, end)

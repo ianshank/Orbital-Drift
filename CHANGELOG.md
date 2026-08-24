@@ -16,6 +16,17 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
+### Added — hexagonal architecture & governance hardening (Phase 0-R, 2026-08-23)
+
+- `src/orbital_drift/domain/`: Pure domain layer zero-dependency primitives (`geometry.py`, `temporal.py`, `scene.py`, `lineage.py`, `errors.py`) with strict timezone-awareness and canonical JSON SHA-256 hashing.
+- `src/orbital_drift/ports/`: Abstract protocols and deterministic fakes (`catalog.py`, `compute.py`, `dataversion.py`, `registry.py`, `tiles.py`) decoupling domain from third-party frameworks.
+- `src/orbital_drift/eval/`: Off-the-shelf statistical evaluators complying with Constitution II (`bootstrap.py`, `calibration.py`, `ranking.py`, `spatial.py`, `superiority.py`).
+- `src/orbital_drift/observability/`: Structured logging with recursive credential redaction (`logging.py`), execution context binding (`context.py`), and durable 4-state `DecisionRecord` gate ledger (`records.py`).
+- `src/orbital_drift/quality/`: AST-based scanner `hardcode_scan.py` enforcing Constitution III (no magic numbers or hardcoded values).
+- `.importlinter`: Formal architectural boundary enforcement contracts prohibiting framework leakage into domain/ports.
+- Security Hardening (PR #17): Recursive credential redaction across nested dictionaries/lists in logging; frozen metadata (`MappingProxyType`) and ISO-8601 UTC enforcement in decision records; thread-safe `_MORAN_LOCK` wrapping permutation monkeypatch; non-negative `minimum_effect` validation for superiority gates; branch existence validation in `InMemoryDataVersion.merge()`.
+- Test Suites: 19 new regression tests in `tests/unit/test_pr17_regressions.py`, complete lifecycle coverage in `tests/unit/test_lakefs_ops_lifecycle.py` and `tests/unit/test_registry_ops.py`, lifting per-file coverage to >=97% across all modified modules.
+
 ### Added — continuous training & dual-GPU pipeline (2026-08-22)
 - `src/orbital_drift/ingest/stac_client.py`: Planetary Computer STAC client with rate-limited session retries and cloud cover filtering.
 - `src/orbital_drift/ingest/cloud.py`: Sentinel-2 Scene Classification Layer (SCL) cloud masking, evaluating cloud fraction against threshold.

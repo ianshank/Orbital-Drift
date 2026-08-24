@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Final
 
 RECORD_SCHEMA_VERSION: Final[str] = "1.0"
@@ -73,6 +74,13 @@ class DecisionRecord:
     metadata: Mapping[str, str]
     schema_version: str = RECORD_SCHEMA_VERSION
 
+    def __post_init__(self) -> None:
+        """Enforce tz-aware timestamps and freeze metadata after construction."""
+        if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
+            raise ValueError("created_at must be timezone-aware")
+        if not isinstance(self.metadata, MappingProxyType):
+            object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+
     def to_json_dict(self) -> dict[str, object]:
         """Produce sorted JSON-compatible fields so stored evidence has stable shape."""
         payload: dict[str, object] = {
@@ -111,6 +119,10 @@ class DecisionRecord:
         ):
             raise ValueError("Record metadata must map strings to strings.")
 
+        parsed_dt = datetime.fromisoformat(_required_str(payload, "created_at"))
+        if parsed_dt.tzinfo is None or parsed_dt.utcoffset() is None:
+            raise ValueError("created_at must be timezone-aware")
+
         return cls(
             record_id=_required_str(payload, "record_id"),
             kind=_required_str(payload, "kind"),
@@ -118,7 +130,7 @@ class DecisionRecord:
             state=GateState(_required_str(payload, "state")),
             rationale=_required_str(payload, "rationale"),
             evidence=tuple(evidence_value),
-            created_at=datetime.fromisoformat(_required_str(payload, "created_at")),
+            created_at=parsed_dt,
             metadata=dict(metadata_value),
             schema_version=schema_version,
         )
@@ -138,5 +150,9 @@ def emit_record(
     logger: logging.LoggerAdapter[logging.Logger] | logging.Logger | None = None,
 ) -> None:
     """Log a record under a stable event field for gate-ledger collection."""
-    target_logger = logger if logger is not None else logging.getLogger("orbital_drift.records")
+    if logger is not None:
+        target_logger = logger
+    else:
+        from orbital_drift.observability.logging import get_logger
+        target_logger = get_logger("records")
     target_logger.info(EVENT_MESSAGE, extra={EVENT_FIELD: record.to_json_dict()})

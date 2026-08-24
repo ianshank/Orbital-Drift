@@ -55,6 +55,8 @@ class InMemoryDataVersion:
 
     def merge(self, source_branch: str, target_branch: str) -> str:
         """Set an unprotected target branch to the source branch's current commit."""
+        if target_branch not in self._branches:
+            raise KeyError(f"branch not found: {target_branch}")
         if target_branch in self._protected:
             raise PermissionError(f"branch is protected: {target_branch}")
         self._branches[target_branch] = self.resolve_commit(source_branch)

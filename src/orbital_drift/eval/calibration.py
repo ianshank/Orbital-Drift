@@ -69,7 +69,11 @@ def _bin_weights(
     else:
         quantiles = np.linspace(0.0, 1.0, bin_count + 1)
         boundaries = np.percentile(probabilities, quantiles * PERCENT_SCALE)
-    bin_indices = np.searchsorted(boundaries[1:-1], probabilities)
+    bin_indices = np.clip(
+        np.searchsorted(boundaries, probabilities, side="right") - 1,
+        0,
+        bin_count - 1,
+    )
     counts = np.bincount(bin_indices, minlength=bin_count)
     return counts[counts > 0] / probabilities.size
 

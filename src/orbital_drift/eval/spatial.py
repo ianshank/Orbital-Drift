@@ -13,6 +13,7 @@ specified weights transformation explicit because Moran's I depends on it.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from typing import Final
 from unittest.mock import patch
@@ -30,6 +31,12 @@ ROW_STANDARDISATION: Final[str] = "r"
 
 type FloatArray = NDArray[np.float64]
 LOGGER = get_logger("eval.spatial")
+
+# esda.Moran reads numpy.random.permutation from the global namespace, so the
+# monkeypatch in morans_i is not thread-safe without serialisation. This lock
+# wraps the entire patch context manager, not just the Moran() call. Callers
+# expecting concurrent spatial inference should be aware this serialises.
+_MORAN_LOCK: Final = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -81,7 +88,7 @@ def morans_i(values: NDArray[np.generic], *, weights: W, config: MoranConfig) ->
         "starting Moran permutation inference",
         extra={"permutations": config.permutations, "seed": config.seed},
     )
-    with patch("esda.moran.np.random.permutation", new=rng.permutation):
+    with _MORAN_LOCK, patch("esda.moran.np.random.permutation", new=rng.permutation):
         statistic = Moran(
             vector,
             weights,

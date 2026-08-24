@@ -28,6 +28,9 @@ forbidden_modules =
     pydantic_settings
     requests
     fastapi
+    sklearn
+    esda
+    libpysal
 
 [importlinter:contract:independence]
 name = Independent geometry and temporal primitives

@@ -137,6 +137,7 @@ PUBLIC_CANDIDATE_ALLOWLIST: Final = (
     ".env.example",
     ".gitattributes",
     ".gitignore",
+    ".importlinter",
     ".pre-commit-config.yaml",
     "CHANGELOG.md",
     "CLAUDE.md",
