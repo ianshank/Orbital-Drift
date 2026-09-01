@@ -201,7 +201,7 @@ class TestNamedTupleAndArbitraryObjectRedaction:
         configure_logging(level="INFO", stream=stream)
         config = OrbitalDriftConfig(
             lakefs_access_key="plaintext-access-secret",
-            lakefs_secret_key="plaintext-secret-value",  # noqa: S106 -- planted test value, not a real credential
+            lakefs_secret_key="changeme-plaintext-secret",  # noqa: S106 -- planted test value, not a real credential
         )
         get_logger("config.test").info("config loaded", extra={"config": config})
 
@@ -212,7 +212,7 @@ class TestNamedTupleAndArbitraryObjectRedaction:
         # Belt-and-suspenders: the plaintext secrets must not appear anywhere in
         # the formatted output, not merely at the specific dict key checked below.
         assert "plaintext-access-secret" not in raw_output
-        assert "plaintext-secret-value" not in raw_output
+        assert "changeme-plaintext-secret" not in raw_output
 
         payload = json.loads(lines[0])
         redacted_config = payload["config"]
