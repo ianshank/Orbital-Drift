@@ -311,3 +311,48 @@ jobs:
 
       - name: Run stage
         run: sh ci/checks.sh hooks
+
+  # ---------------------------------------------------------------------------
+  # docker-build (RB-010 Part 12, docs/decision-log.md 2026-09-01). Proves the
+  # Dockerfile actually builds. Nothing in this workflow ever ran `docker
+  # build` against it before this job: a builder stage that never copied src/
+  # before `pip wheel` (so hatchling had nothing to package) and a runtime
+  # stage that installed no extras (so fastapi/uvicorn/torch were absent
+  # despite ENTRYPOINT invoking uvicorn) were both invisible to all 14 (now 17)
+  # other passing gates for exactly that reason.
+  #
+  # `--target runtime` builds the FINAL stage only, but the runtime stage's own
+  # `COPY --from=builder` means Docker must still build the `builder` stage
+  # first to satisfy it — one invocation exercises both stages, so a second
+  # `--target builder` build is redundant.
+  #
+  # BUILD-ONLY, matching this task's scope: no push, no registry login, no tag
+  # beyond a disposable local one. Which registry (if any) this image is ever
+  # pushed to is an explicit, separate, later decision named in RB-010's
+  # forward-roadmap — not this job's to make.
+  #
+  # NOT routed through ci/checks.sh: Docker-build orchestration is GitHub
+  # Actions' own domain here, the same way the gitleaks/hooks jobs above invoke
+  # Docker directly rather than through a `sh ci/checks.sh` wrapper that adds
+  # nothing. `.claude/settings.json` denies `docker build` to every agent in
+  # this repo in every mode, so unlike every other stage in this file, this
+  # job's command could never be run and observed passing by the agent that
+  # wrote it — only read carefully and cross-checked against this workflow's
+  # other jobs for correct structure. Its first real execution is this
+  # workflow's own first run.
+  #
+  # No extra setup step: Docker is preinstalled on GitHub-hosted runners, the
+  # same fact the gitleaks/hooks jobs above already rely on without a
+  # docker/setup-buildx-action step.
+  # ---------------------------------------------------------------------------
+  docker-build:
+    needs: versions
+    runs-on: ${{ needs.versions.outputs.runner }}
+    timeout-minutes: 20
+    name: docker-build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build runtime image
+        run: docker build --target runtime -t orbital-drift:ci .
