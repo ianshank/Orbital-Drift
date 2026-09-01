@@ -7,6 +7,7 @@ machine-readable events.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 from collections.abc import Mapping, MutableMapping
@@ -62,6 +63,17 @@ _LOG_RECORD_FIELDS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Types that cannot themselves hold nested named fields, so passing one through
+# _redact_value unchanged is safe by construction; anything outside this set that
+# reaches the final fallback in _redact_value is logged (not silently accepted) so
+# a future secret-bearing object type does not reproduce the OrbitalDriftConfig gap.
+_SAFE_LEAF_TYPES: Final[tuple[type, ...]] = (str, int, float, bool, bytes, type(None))
+
+# A plain stdlib logger, not get_logger(): this module IS the formatter, so its own
+# self-diagnostic must not depend on (or recurse back through) the correlation-context
+# machinery it may be reporting a gap in.
+_INTERNAL_LOGGER: Final[logging.Logger] = logging.getLogger(__name__)
+
 
 def _is_sensitive(field_name: str) -> bool:
     """Return whether a field name could expose protected operational material."""
@@ -69,12 +81,106 @@ def _is_sensitive(field_name: str) -> bool:
     return any(redacted_key in normalized_name for redacted_key in redact_keys)
 
 
+def _is_namedtuple_instance(value: object) -> bool:
+    """Duck-type a NamedTuple instance: a tuple subclass exposing _fields/_make.
+
+    NamedTuple has no common runtime base beyond ``tuple`` itself, so this is the
+    standard detection idiom (mirrors what every ``typing.NamedTuple``-generated
+    class exposes).
+    """
+    value_type = type(value)
+    return (
+        isinstance(value, tuple) and hasattr(value_type, "_fields") and hasattr(value_type, "_make")
+    )
+
+
+def _redact_namedtuple(value: object) -> object:
+    """Rebuild a NamedTuple with each field redacted under its own field name.
+
+    ``type(value)(<generator>)`` -- what the generic ``(list, tuple)`` branch below
+    does -- fails for NamedTuples: ``__new__`` expects one positional argument per
+    declared field, not a single iterable, so it raises ``TypeError``. Standard
+    library ``logging`` swallows that exception and drops the whole log line
+    rather than propagating it. ``_make`` is the documented reconstruction hook
+    that takes a single iterable instead, which is why this check must run before
+    the generic tuple branch rather than falling into it.
+    """
+    value_type = type(value)
+    # NOTE: `value_type` is statically `type[object]`, which has no `_fields`/
+    # `_make`. Plain attribute access would need `# type: ignore[attr-defined]`
+    # on every use; getattr keeps mypy's inferred type `Any` here and lets the
+    # `: tuple[str, ...]`/assignment-to-`object` annotations below re-anchor it
+    # to a concrete type without an ignore comment. Suppressed below (not a style
+    # choice, a mypy-narrowing workaround bugbear cannot see).
+    field_names: tuple[str, ...] = getattr(value_type, "_fields")  # noqa: B009
+    make = getattr(value_type, "_make")  # noqa: B009
+    redacted_values = [_redact_value(name, getattr(value, name)) for name in field_names]
+    rebuilt: object = make(redacted_values)
+    return rebuilt
+
+
+def _is_pydantic_model(value: object) -> bool:
+    """Duck-type a pydantic v2 model/settings instance via its public ``model_dump``.
+
+    Matches both ``BaseModel`` and ``BaseSettings`` (pydantic-settings' ``BaseSettings``
+    extends pydantic's ``BaseModel`` in v2) without importing pydantic here, keeping
+    this observability module dependency-light.
+    """
+    return not isinstance(value, type) and callable(getattr(value, "model_dump", None))
+
+
+def _redact_pydantic_model(value: object) -> object:
+    """Dump a pydantic model to a plain dict and redact it like any other Mapping.
+
+    This is the fix for the confirmed ``OrbitalDriftConfig`` bypass: before this
+    branch existed, a pydantic model matched none of ``_redact_value``'s isinstance
+    checks and fell through to ``return value`` unchanged, so ``json.dumps``'s
+    ``default=str`` fallback stringified its credential fields verbatim into the
+    log line.
+    """
+    # Same getattr-for-mypy rationale as _redact_namedtuple above: `value` is
+    # statically `object` here (narrowing from _is_pydantic_model's plain bool
+    # return does not cross the function boundary).
+    model_dump = getattr(value, "model_dump")  # noqa: B009
+    dumped: dict[str, object] = model_dump()
+    return _redact_fields(dumped)
+
+
+def _warn_unrecognized_object_type(field_name: str, value: object) -> None:
+    """Surface, at DEBUG, that an object type reached the formatter uninspected.
+
+    ``_redact_value`` cannot enumerate every structured type a caller might log;
+    for anything left over after the Mapping/NamedTuple/list/tuple/dataclass/
+    pydantic checks, silently trusting it holds no secret-shaped attributes is
+    exactly how the OrbitalDriftConfig bypass happened. This does not redact the
+    value -- only ``_is_sensitive(field_name)`` and the structural checks above do
+    that -- it only makes the residual gap observable instead of silent. Logs the
+    type's name only, never the value itself, so the diagnostic cannot itself leak
+    whatever the value holds.
+    """
+    _INTERNAL_LOGGER.debug(
+        "Unredacted object type reached the log formatter for field %r: %s",
+        field_name,
+        type(value).__qualname__,
+    )
+
+
 def _redact_value(field_name: str, value: object) -> object:
-    """Redact a single value, recursing into nested containers."""
+    """Redact a single value, recursing into nested containers.
+
+    Check order is deliberate: NamedTuple must be tested before the generic
+    ``(list, tuple)`` branch because every NamedTuple IS a tuple subclass and would
+    otherwise crash ``type(value)(<generator>)`` instead of being redacted;
+    dataclass and pydantic-model detection must run before the final fallback so
+    structured secret-bearing objects (e.g. ``OrbitalDriftConfig``) are inspected
+    field-by-field instead of being passed through whole.
+    """
     if _is_sensitive(field_name):
         return REDACTION_PLACEHOLDER
     if isinstance(value, Mapping):
         return _redact_fields(value)
+    if _is_namedtuple_instance(value):
+        return _redact_namedtuple(value)
     if isinstance(value, (list, tuple)):
         return type(value)(
             _redact_value(field_name, item)
@@ -82,6 +188,12 @@ def _redact_value(field_name: str, value: object) -> object:
             else _redact_fields(item)
             for item in value
         )
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return _redact_fields(dataclasses.asdict(value))
+    if _is_pydantic_model(value):
+        return _redact_pydantic_model(value)
+    if not isinstance(value, _SAFE_LEAF_TYPES):
+        _warn_unrecognized_object_type(field_name, value)
     return value
 
 
