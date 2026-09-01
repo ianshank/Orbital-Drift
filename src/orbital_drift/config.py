@@ -63,16 +63,12 @@ class OrbitalDriftConfig(BaseSettings):
         default=1.5,
         gt=0.0,
         description="Exponential backoff base for STACClient retry sleeps "
-        "(sleep_sec = backoff_factor ** attempt); mirrors the currently-hardcoded "
-        "default in ingest/stac_client.py's STACClient.__init__. Not yet wired "
-        "there -- a separate RB-010 part owns per-module config wiring.",
+        "(sleep_sec = backoff_factor ** attempt).",
     )
     stac_request_timeout_seconds: float = Field(
         default=30.0,
         gt=0.0,
-        description="Per-request HTTP timeout for STACClient.search_scenes; mirrors "
-        "the currently-hardcoded `timeout=30.0` in ingest/stac_client.py. Not yet "
-        "wired there -- a separate RB-010 part owns per-module config wiring.",
+        description="Per-request HTTP timeout for STACClient.search_scenes.",
     )
 
     # --- Storage & Data Versioning ---
@@ -170,10 +166,7 @@ class OrbitalDriftConfig(BaseSettings):
         default=10000.0,
         gt=0.0,
         description="Maximum reflectance scaling factor for Sentinel2PatchDataset "
-        "patch normalization (band DN / this value -> [0.0, 1.0]); mirrors the "
-        "currently-hardcoded `normalize_max=10000.0` default (standard Sentinel-2 "
-        "L2A surface-reflectance scale) in data/dataset.py. Not yet wired there -- "
-        "a separate RB-010 part owns per-module config wiring.",
+        "patch normalization (band DN / this value -> [0.0, 1.0]).",
     )
     use_amp: bool = Field(
         default=True,
@@ -192,12 +185,7 @@ class OrbitalDriftConfig(BaseSettings):
         le=1.0,
         description="Population Stability Index threshold indicating a moderate "
         "(sub-significant) shift, used alongside the KS p-value as a secondary "
-        "drift signal. Named field for the bare `0.10` literal currently "
-        "hardcoded at drift/metrics.py:99 "
-        "(`is_drifted = (psi >= psi_threshold) or "
-        "(psi >= 0.10 and ks_pval < ks_alpha)`). Not yet wired there -- that "
-        "file is owned by a separate, concurrently-running RB-010 part; a later "
-        "part wires this field in.",
+        "drift signal.",
     )
     ks_alpha: float = Field(
         default=0.05,
