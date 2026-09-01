@@ -21,9 +21,16 @@ from typing import Final, NamedTuple
 
 import numpy as np
 
+from orbital_drift.config import OrbitalDriftConfig
+
 # SCL classes corresponding to cloud and cloud shadows
 CLOUD_CLASSES: Final[tuple[int, ...]] = (3, 8, 9, 10)
 VALID_DATA_CLASSES: Final[tuple[int, ...]] = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+
+# Mirrors OrbitalDriftConfig.cloud_cover_max_threshold's own default so a
+# caller that passes neither an explicit cloud_threshold nor config sees
+# identical behavior to before this module was config-wired (RB-010 part 5).
+DEFAULT_CLOUD_THRESHOLD: Final[float] = 0.20
 
 
 class CloudEvaluationResult(NamedTuple):
@@ -43,17 +50,29 @@ class CloudEvaluationResult(NamedTuple):
 
 def evaluate_cloud_mask(
     scl_array: np.ndarray,
-    cloud_threshold: float = 0.20,
+    cloud_threshold: float | None = None,
+    config: OrbitalDriftConfig | None = None,
 ) -> CloudEvaluationResult:
     """Evaluates cloud fraction from an SCL 2D numpy array.
 
     Args:
         scl_array: 2D numpy array of integer SCL class values.
-        cloud_threshold: Threshold above which scene is flagged excluded_from_training.
+        cloud_threshold: Threshold above which scene is flagged
+            excluded_from_training. Explicit value wins; else sourced from
+            ``config.cloud_cover_max_threshold`` (a 0.0-1.0 fraction, the
+            native scale here) when ``config`` is given; else
+            ``DEFAULT_CLOUD_THRESHOLD`` (0.20), matching this parameter's
+            behavior before config wiring.
+        config: Optional central configuration; see ``cloud_threshold`` above.
 
     Returns:
         CloudEvaluationResult containing statistics and exclusion status.
     """
+    if cloud_threshold is None:
+        cloud_threshold = (
+            config.cloud_cover_max_threshold if config is not None else DEFAULT_CLOUD_THRESHOLD
+        )
+
     if scl_array.size == 0:
         return CloudEvaluationResult(
             total_pixels=0,

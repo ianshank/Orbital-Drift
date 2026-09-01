@@ -5,7 +5,15 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from orbital_drift.config import OrbitalDriftConfig
 from orbital_drift.data.dataset import Sentinel2PatchDataset
+
+# Not real credentials -- fixed test doubles for OrbitalDriftConfig's
+# required lakeFS fields, matching tests/unit/test_config.py's convention so
+# every test below can build a valid config without separately re-deriving
+# the missing-credential defect that module covers.
+_TEST_ACCESS_KEY = "unit-test-access-value"
+_TEST_SECRET_KEY = "unit-test-secret-value"  # noqa: S105 -- test double, not a real secret
 
 
 def test_dataset_image_smaller_than_patch_size() -> None:
@@ -54,3 +62,50 @@ def test_dataset_normalization_ceiling() -> None:
     dataset = Sentinel2PatchDataset(high_refl, patch_size=256, normalize_max=10000.0)
     img, _ = dataset[0]
     assert torch.all(img == 1.0)
+
+
+# -----------------------------------------------------------------------------
+# RB-010 part 5: per-module config wiring (Constitution Principle III)
+# -----------------------------------------------------------------------------
+
+
+def test_dataset_normalize_max_sourced_from_config() -> None:
+    """`Sentinel2PatchDataset` sources `normalize_max` from
+    `config.dataset_normalize_max` when the caller omits it explicitly.
+    """
+    raster = np.full((4, 256, 256), 5000.0, dtype=np.float32)
+    cfg = OrbitalDriftConfig(
+        lakefs_access_key=_TEST_ACCESS_KEY,
+        lakefs_secret_key=_TEST_SECRET_KEY,
+        dataset_normalize_max=5000.0,
+    )
+
+    dataset = Sentinel2PatchDataset(raster, patch_size=256, config=cfg)
+    img, _ = dataset[0]
+
+    assert torch.all(img == 1.0)
+
+
+def test_dataset_explicit_normalize_max_overrides_config() -> None:
+    """An explicit `normalize_max` argument always wins over a passed `config`."""
+    raster = np.full((4, 256, 256), 5000.0, dtype=np.float32)
+    cfg = OrbitalDriftConfig(
+        lakefs_access_key=_TEST_ACCESS_KEY,
+        lakefs_secret_key=_TEST_SECRET_KEY,
+        dataset_normalize_max=5000.0,
+    )
+
+    dataset = Sentinel2PatchDataset(raster, patch_size=256, normalize_max=10000.0, config=cfg)
+    img, _ = dataset[0]
+
+    assert torch.all(img == 0.5)
+
+
+def test_dataset_no_config_keeps_pre_wiring_normalize_max_default() -> None:
+    """No config, no explicit `normalize_max` -> unchanged default (10000.0)."""
+    raster = np.full((4, 256, 256), 5000.0, dtype=np.float32)
+
+    dataset = Sentinel2PatchDataset(raster, patch_size=256)
+    img, _ = dataset[0]
+
+    assert torch.all(img == 0.5)
