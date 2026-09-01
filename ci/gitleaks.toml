@@ -190,6 +190,10 @@ tags = ["s3", "lakefs", "seaweedfs", "constitution-vii"]
   description = "Placeholder value in a template or in prose."
   stopwords = ["changeme", "example", "placeholder", "redacted", "xxxxxxxx"]
 
+  [[rules.allowlists]]
+  description = "RB-010 test-fixture literals renamed forward (commits 97767e8/d7292da) but still present in earlier RB-010 commits' history: tests/unit/test_pr17_regressions.py and tests/e2e/test_dual_gpu_e2e_live.py planted these as obviously-fake OrbitalDriftConfig(lakefs_secret_key=...) values before this rule's stopword convention was applied to them. Full-history scanning re-flags the superseded blobs on every run regardless of the later rename, so the exact historical literals are allowlisted here per this file's own sanctioned-response policy above."
+  stopwords = ["plaintext-secret-value", "test-secret-value"]
+
 [[rules]]
 id = "orbital-drift-postgres-password"
 description = "PostgreSQL password inline in values/manifest instead of an existingSecret reference (D-09)"
