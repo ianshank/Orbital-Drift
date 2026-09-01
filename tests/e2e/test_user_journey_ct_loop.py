@@ -48,6 +48,7 @@ def test_full_continuous_training_and_rollback_lifecycle(tmp_path: Path) -> None
     lakefs = LakeFSOps(repository="orbital-drift")
     registry = ModelRegistryOps()
     trigger_mgr = DriftTriggerManager(hysteresis_window=2, cooldown_scenes=3)
+    drift_rng = np.random.default_rng(0)
 
     # 1. Ingest baseline scene
     h, w = 256, 256
@@ -94,7 +95,7 @@ def test_full_continuous_training_and_rollback_lifecycle(tmp_path: Path) -> None
     tile_store.save_scene("scene-drift-1", bands_drifted)
     lakefs.commit_scene("scene-drift-1", metadata={"status": "new"})
     drift_arr1, _ = tile_store.load_scene("scene-drift-1")
-    rep1 = evaluate_scene_drift(base_arr, drift_arr1)
+    rep1 = evaluate_scene_drift(base_arr, drift_arr1, rng=drift_rng)
     dec1 = trigger_mgr.process_scene_verdict(rep1.overall_drift_detected, "scene-drift-1")
     assert dec1.should_trigger is False  # Hysteresis 1/2
 
@@ -102,7 +103,7 @@ def test_full_continuous_training_and_rollback_lifecycle(tmp_path: Path) -> None
     tile_store.save_scene("scene-drift-2", bands_drifted)
     commit_drift2 = lakefs.commit_scene("scene-drift-2", metadata={"status": "new"})
     drift_arr2, _ = tile_store.load_scene("scene-drift-2")
-    rep2 = evaluate_scene_drift(base_arr, drift_arr2)
+    rep2 = evaluate_scene_drift(base_arr, drift_arr2, rng=drift_rng)
     dec2 = trigger_mgr.process_scene_verdict(rep2.overall_drift_detected, "scene-drift-2")
     assert dec2.should_trigger is True
     logger.info("Retrain trigger emitted successfully!")

@@ -106,17 +106,17 @@ _PUSH: Final = "push"
 
 #: Recursion ceiling for nested interpreters (`bash -c "sh -c '...'"`).
 #: Deeper than this is not a legitimate shape; refuse rather than recurse.
-_MAX_DEPTH: Final = 4
+_MAX_DEPTH: Final = 4  # pin: recursion ceiling, see doc comment above
 
 #: Work ceiling for the segment queue, so a pathological input cannot spin.
 #: Far above any real command line; reaching it means the input is adversarial
 #: or malformed, and the caller blocks either way.
-_MAX_SEGMENTS: Final = 512
+_MAX_SEGMENTS: Final = 512  # pin: segment-queue work ceiling, see doc comment above
 
 #: How much of a command a diagnostic may quote. The inputs that reach the
 #: truncation block are kilobytes of `$(`, and this text lands on an operator's
 #: stderr: enough to recognize the command, never the whole payload.
-_EXCERPT_CHARS: Final = 120
+_EXCERPT_CHARS: Final = 120  # pin: diagnostic-excerpt length, see doc comment above
 
 
 @dataclass(frozen=True)

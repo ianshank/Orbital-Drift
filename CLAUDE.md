@@ -21,6 +21,14 @@ Read `.specify/memory/constitution.md` before any work. It supersedes this file;
 | (every artifact) | spec-guardian | conformance review vs constitution + spec |
 | (every artifact) | adversarial-reviewer | adversarial technical review (supersedes peer-reviewer, adopt-governance-kit D5) |
 
+`src/orbital_drift/{observability,domain,ports,quality}/` (added by PR#17, "Phase 0-R";
+`eval/` too, though its scope already overlapped ml-engineer's) carry no owning-subagent
+delegation tag anywhere in `specs/001-orbital-drift-ct/tasks.md` — no task ID targets
+them (RB-010, `docs/decision-log.md`, 2026-09-01). They fall under spec-implementer's
+default ("untagged + governance tasks") ownership per the roster row above; this line
+makes that explicit rather than assumed, since their absence from the roster table was
+previously silent.
+
 ## Collaboration protocol (default ON)
 Agents collaborate by default. For every task:
 0. Consult the `orbital-drift-governance` skill's gate table and `docs/decision-log.md`; an unsatisfied gate is a STOP, not a judgment call.

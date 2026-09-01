@@ -163,7 +163,7 @@ PYTHON="${PYTHON:-python}"
 # the pin-coverage self-check below can iterate them without re-parsing the
 # case, and so tests/unit/test_ci_contract.py can assert this list, the dispatch
 # and .github/workflows/ci.yml all describe the same set of stages.
-STAGE_LABELS='lint typecheck unit contract smoke coverage gitleaks hooks dead audit specs traceability projections governance all'
+STAGE_LABELS='lint typecheck unit contract smoke coverage gitleaks hooks dead audit specs traceability projections governance hardcode deps architecture all'
 
 log() { printf '\n\033[1m>>> %s\033[0m\n' "$*"; }
 
@@ -180,7 +180,7 @@ log() { printf '\n\033[1m>>> %s\033[0m\n' "$*"; }
 # this line. MEASURED under PATH="" in dash AND bash, with a bare `tr`: the
 # substitution yields nothing and the operator gets `tr: not found` followed by
 # `usage: sh ci/checks.sh <>`, i.e. an error about a helper they never invoked
-# plus a usage message naming zero of the fifteen stages, exactly when this
+# plus a usage message naming zero of the eighteen stages, exactly when this
 # message is the only thing still working. `-p` resolves tr from the standard
 # utilities path (`getconf PATH`) instead of PATH, so the list renders either
 # way. Do not "simplify" the `-p` away; pinned by
@@ -344,6 +344,21 @@ stage_python_pins() {
     traceability)        printf 'pytest\n' ;;
     projections)         ;;
     governance)          printf 'pytest\n' ;;
+    # deps: orbital_drift.quality.dep_contract is stdlib-only (tomllib + ast +
+    # sys.stdlib_module_names) — no pinned distribution to assert, same
+    # rationale as projections/specs. It still EXECUTES Python (RB-008 F2), so
+    # it is deliberately absent from stage_runs_python's exempt arm below.
+    deps)                 ;;
+    # architecture: mirrors contract/smoke exactly. tests/architecture shells
+    # out to the pinned `import-linter` CLI itself, from inside the pytest
+    # run — the same reason `traceability` claims pytest for a stage that also
+    # shells out to a second tool.
+    architecture)        printf 'pytest\n' ;;
+    # hardcode: orbital_drift.quality.hardcode_scan is stdlib-only (ast +
+    # tokenize + tomllib) — no pinned distribution to assert, same rationale
+    # as deps/projections/specs (RB-010 Part 6). It still EXECUTES Python, so
+    # it is deliberately absent from stage_runs_python's exempt arm below.
+    hardcode)             ;;
     # `all` must list the UNION of every arm above. Not cosmetic: preflight()
     # prints its banner when a stage needs a tool not yet logged, so omitting
     # the two coverage pins here makes `all` print a second banner when
@@ -2226,6 +2241,67 @@ stage_governance() {
 }
 
 # -----------------------------------------------------------------------------
+# Stage: deps  (orbital_drift.quality.dep_contract — Constitution IV
+# dependency contract; RB-010 Part 7)
+#
+# PR#16's exact failure mode, mechanised: an import present under
+# src/orbital_drift with no declaration anywhere in pyproject.toml. Follows the
+# dead/audit pattern — a single pinned-interpreter module invocation, no Docker
+# or git dependency. Pure-stdlib (tomllib + ast + sys.stdlib_module_names), so
+# this stage declares no pinned DISTRIBUTION (see stage_python_pins' `deps`
+# arm) — same rationale as projections/specs — but it still executes Python,
+# so its interpreter is verified like any other stage (stage_runs_python).
+# -----------------------------------------------------------------------------
+stage_deps() {
+  preflight deps
+  log "deps — orbital_drift.quality.dep_contract (dependency contract, Constitution IV)"
+  "${PYTHON}" -m orbital_drift.quality.dep_contract
+}
+
+# -----------------------------------------------------------------------------
+# Stage: architecture  (tests/architecture — import-linter boundary contract;
+# RB-010 Part 8)
+#
+# Mirrors stage_contract exactly: same suite runner, same preflight (pytest
+# only — see stage_python_pins' `architecture` arm). tests/architecture/
+# test_import_boundaries.py shells out to the pinned `lint-imports` CLI
+# (import-linter, a [dev] dependency) AND independently re-derives the same
+# domain/ports boundary via ast.walk, so a passing run here proves both the
+# CONFIGURED contract (.importlinter) and the AST-level FACT agree.
+# -----------------------------------------------------------------------------
+stage_architecture() {
+  preflight architecture
+  log "architecture — pytest ${PYTEST_VERSION} (tests/architecture, import-linter boundary contract)"
+  pytest_suite tests/architecture "architecture suite"
+}
+
+# -----------------------------------------------------------------------------
+# Stage: hardcode  (orbital_drift.quality.hardcode_scan — Constitution
+# Principle III, "No Hardcoded Values"; RB-010 Part 6)
+#
+# A second phantom gate of the same shape as `deps` (RB-010 Part 7): the
+# scanner was fully built and confirmed runnable months before this stage
+# existed, but nothing in ci/checks.sh ever invoked it, so a hardcoded
+# literal landing in src/orbital_drift was invisible to every other passing
+# gate. Follows the dead/audit/deps pattern — a single pinned-interpreter
+# module invocation, no Docker or git dependency. Pure-stdlib (ast + tokenize
+# + tomllib), so this stage declares no pinned DISTRIBUTION (see
+# stage_python_pins' `hardcode` arm) — same rationale as deps/projections/
+# specs — but it still executes Python, so its interpreter is verified like
+# any other stage (stage_runs_python). Every finding the scanner reported
+# against the tree at the time this stage was wired in was triaged to a
+# `# pin: <reason>` annotation or a documented follow-up
+# (docs/decisions/012-rb010-part6-config-wiring-followups.md) before this
+# stage landed, per this repo's DoD rule 4: a gate does not land red and get
+# its threshold or policy loosened in the same PR as the failing run.
+# -----------------------------------------------------------------------------
+stage_hardcode() {
+  preflight hardcode
+  log "hardcode — orbital_drift.quality.hardcode_scan (no hardcoded values, Constitution Principle III)"
+  "${PYTHON}" -m orbital_drift.quality.hardcode_scan
+}
+
+# -----------------------------------------------------------------------------
 # Stage: traceability  (requirement-traceability matrix lint; design D3)
 #
 # Claims the pytest pin because the linter shells out to
@@ -2272,6 +2348,14 @@ stage_all() {
   stage_traceability
   stage_projections
   stage_governance
+  # ...then the three RB-010 CI-wiring stages (Parts 6-8): the no-hardcoded-
+  # values scan, the dependency contract, and the import-linter boundary
+  # contract. All three belong in this same governance-extension group; order
+  # relative to each other is arbitrary, order relative to stage_hooks (last)
+  # is not — see below.
+  stage_hardcode
+  stage_deps
+  stage_architecture
   # ...then the hook enforcement stage. Last, because pre-commit hooks may
   # rewrite files (end-of-file-fixer, trailing-whitespace, ruff --fix) and must
   # not be able to influence a gate that already ran. That rewriting is also why
@@ -2334,6 +2418,9 @@ case "${1:-all}" in
   traceability) stage_traceability ;;
   projections)  stage_projections ;;
   governance)   stage_governance ;;
+  deps)         stage_deps ;;
+  architecture) stage_architecture ;;
+  hardcode)     stage_hardcode ;;
   all)       stage_all ;;
   *)
     printf 'unknown stage: %s\n' "$1" >&2

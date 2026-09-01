@@ -20,7 +20,7 @@ is this repository's body of work to date.
 
 - `src/orbital_drift/domain/`: Pure domain layer zero-dependency primitives (`geometry.py`, `temporal.py`, `scene.py`, `lineage.py`, `errors.py`) with strict timezone-awareness and canonical JSON SHA-256 hashing.
 - `src/orbital_drift/ports/`: Abstract protocols and deterministic fakes (`catalog.py`, `compute.py`, `dataversion.py`, `registry.py`, `tiles.py`) decoupling domain from third-party frameworks.
-- `src/orbital_drift/eval/`: Off-the-shelf statistical evaluators complying with Constitution II (`bootstrap.py`, `calibration.py`, `ranking.py`, `spatial.py`, `superiority.py`).
+- `src/orbital_drift/eval/`: statistical evaluators (`bootstrap.py`, `calibration.py`, `ranking.py`, `spatial.py`, `superiority.py`). **Correction (RB-010, 2026-09-01):** only 3 of 5 comply with Constitution II by delegating to off-the-shelf libraries — `calibration.py` (`sklearn.calibration.calibration_curve`), `ranking.py` (`sklearn.metrics.average_precision_score`), and `spatial.py` (`esda.Moran`/`libpysal`). `bootstrap.py` and `superiority.py` hand-roll statistical resampling/promotion-gate logic (no `scipy`/`arch`/`statsmodels` import — confirmed by search) and are a NON-NEGOTIABLE Constitution II violation, under remediation per RB-010 Part 2/3 pending an operator-decided replacement method.
 - `src/orbital_drift/observability/`: Structured logging with recursive credential redaction (`logging.py`), execution context binding (`context.py`), and durable 4-state `DecisionRecord` gate ledger (`records.py`).
 - `src/orbital_drift/quality/`: AST-based scanner `hardcode_scan.py` enforcing Constitution III (no magic numbers or hardcoded values).
 - `.importlinter`: Formal architectural boundary enforcement contracts prohibiting framework leakage into domain/ports.
@@ -37,7 +37,7 @@ is this repository's body of work to date.
 - `src/orbital_drift/drift/trigger.py`: `DriftTriggerManager` with queue-depth-1 coalescing, cooldown windowing, and automated retrain dispatch.
 - `src/orbital_drift/train/baseline.py`: `SimpleUNet` spatial segmentation network with PyTorch AMP fp16 autocast and gradient accumulation.
 - `src/orbital_drift/registry/ops.py`: MLflow Model Registry integration tracking `{lakefs_commit_id, git_sha, config_hash}` with shadow evaluation gates.
-- `src/orbital_drift/serve/app.py`: FastAPI inference service with dynamic canary traffic routing and Prometheus telemetry.
+- `src/orbital_drift/serve/app.py`: FastAPI inference service with dynamic canary traffic routing and a `/metrics` endpoint. **Correction (RB-010, 2026-09-01):** `/metrics` returns hand-rolled JSON (a `dict[str, Any]`), not real Prometheus exposition format — zero `prometheus_client` usage exists anywhere in `src/` (confirmed by search).
 - Multi-tier test suite: unit, contract, integration, sanity, and end-to-end user journey tests (204+ passing with live dual-GPU execution).
 - Containerization: Multi-stage `Dockerfile`, `.dockerignore`, and `docker-compose.yaml` for local canary serving and observability.
 - Specialized Agents & Skills: Added `mlops-ct-agent`, `gpu-qa-agent`, `canary-rollback-drill`, and `gpu-profiler`.

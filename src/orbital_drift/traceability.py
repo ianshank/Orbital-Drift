@@ -36,7 +36,7 @@ MATRIX: Final = REPO_ROOT / "traceability" / "REQUIREMENT-TRACEABILITY.md"
 #: otherwise hang the `traceability` CI stage until the job's own 20-minute
 #: timeout, with no stage-level diagnosis. Every other subprocess in this repo
 #: sets one; this is production code, so it matters most here.
-COLLECT_TIMEOUT: Final = 300.0
+COLLECT_TIMEOUT: Final = 300.0  # pin: subprocess timeout ceiling, see doc comment above
 
 STATUS_ENUM: Final = frozenset(
     {"Planned-gated", "In-progress", "Green", "Uncured-see-owner", "N/A-by-design"}
@@ -123,10 +123,10 @@ def _parse_rows(text: str) -> tuple[list[Row], list[str]]:
                 requirement=cells[0],
                 summary=cells[1],
                 modules=cells[2],
-                tests=cells[3],
-                milestone=cells[4],
-                status=cells[5],
-                notes=cells[6],
+                tests=cells[3],  # pin: fixed table-column position, matches Row field order
+                milestone=cells[4],  # pin: fixed table-column position, matches Row field order
+                status=cells[5],  # pin: fixed table-column position, matches Row field order
+                notes=cells[6],  # pin: fixed table-column position, matches Row field order
                 line=line_number,
             )
         )
@@ -158,10 +158,12 @@ def _collected_node_ids() -> tuple[frozenset[str], str | None]:
             "(a hung collection, not a matrix defect)"
         )
     # 0 = collected, 5 = collected nothing. Anything else is a collection error.
-    if proc.returncode not in (0, 5):
+    if proc.returncode not in (0, 5):  # pin: pytest's own exit-code convention, see comment above
         detail = (proc.stderr or proc.stdout).strip().splitlines()
         tail = detail[-1] if detail else "no output"
-        return frozenset(), (f"pytest --collect-only failed (exit {proc.returncode}): {tail[:300]}")
+        return frozenset(), (
+            f"pytest --collect-only failed (exit {proc.returncode}): {tail[:300]}"  # pin: truncate
+        )
     return frozenset(line.strip() for line in proc.stdout.splitlines() if "::" in line), None
 
 

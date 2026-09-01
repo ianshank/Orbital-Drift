@@ -54,6 +54,7 @@ def test_calculate_band_drift_empty_arrays() -> None:
         reference_band=np.array([]),
         target_band=np.array([]),
         band_name="B02",
+        rng=np.random.default_rng(0),
     )
     assert result.psi == 0.0
     assert result.is_drifted is False
@@ -68,6 +69,7 @@ def test_evaluate_scene_drift_stacked_bands() -> None:
         target_bands=target_cube,
         band_names=("B02", "B03", "B04", "B08"),
         scene_id="scene-001",
+        rng=np.random.default_rng(0),
     )
     assert report.scene_id == "scene-001"
     assert len(report.band_results) == 4

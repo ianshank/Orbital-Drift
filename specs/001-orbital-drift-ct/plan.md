@@ -51,7 +51,12 @@ orbital-drift/
 │   ├── train/                 # baseline + finetune entrypoints, eval
 │   ├── drift/                 # metrics, hysteresis, trigger emitter
 │   ├── registry/              # MLflow promotion/rollback ops
-│   └── serve/                 # FastAPI app, canary, model loader
+│   ├── serve/                 # FastAPI app, canary, model loader
+│   ├── domain/                # pure domain primitives — see note below
+│   ├── ports/                 # hexagonal Protocols + in-memory fakes — see note below
+│   ├── eval/                  # promotion/calibration statistics — see note below
+│   ├── observability/         # structured logging, context, decision records — see note below
+│   └── quality/               # AST-based hardcode scanner — see note below
 ├── tests/{unit,contract,smoke}/
 ├── dashboards/                # Grafana JSON
 ├── docs/{runbooks,incidents,soak-log,decisions}/   # decisions/ per CLAUDE.md + T030
@@ -68,6 +73,28 @@ Additional paths land incrementally with the adopt-governance-kit change (see
 `tests/governance/` (its Phase 3), `traceability/` (Phase 5), `scripts/` + `planning/` +
 `.claude/allowed-remotes.txt` (Phase 6). Each lands in the same PR that extends
 `tests/unit/test_repo_structure.py` for it.
+
+**Hexagonal layer (`domain/`, `ports/`, `eval/`, `observability/`, `quality/`), added
+outside this task list (RB-010, `docs/decision-log.md`, 2026-09-01).** PR#17
+("Phase 0-R", merged 2026-08-24) added five further `src/orbital_drift/` packages: `domain/`
+(pure, zero-dependency primitives — geometry, temporal ranges, scene metadata, lineage
+hashing, a domain-error hierarchy), `ports/` (`Protocol` abstractions plus in-memory
+stdlib fakes for five boundary interfaces — catalog, compute, dataversion, registry,
+tiles), `eval/` (promotion/calibration statistics), `observability/` (structured
+logging, execution-context binding, a decision-record ledger), and `quality/` (an
+AST-based hardcode scanner). No task ID in this file (T001–T052) targets any of
+them — they landed with no G-1/G-2/G-3 gate and no spec-guardian/adversarial-reviewer
+review before merge. They are currently structurally disconnected from the "real"
+modules listed above: **0 of the 5 `ports/*.py` Protocols have a real adapter** — each
+port's only concrete implementation is its own in-memory fake defined within `ports/`
+itself, and no module under `ingest/`, `data/`, `train/`, `registry/`, or `serve/`
+imports anything from `orbital_drift.ports` (confirmed by search). This paragraph
+documents what exists; it does not redesign the architecture. See
+`docs/architecture/ARCHITECTURE.md` section 0 ("Reality Check") for the full
+code-vs-integration audit, and its "Known follow-ups (not fixed by RB-010)" note for
+the two open architectural questions this layer surfaces: convergence of the two
+disconnected registry implementations (`registry/ops.py` vs `ports/registry.py`), and
+AR-3, the still-open OSCD-vs-DynamicEarthNet dataset decision.
 
 ## Phases
 - **Phase 0 — Substrate** (operator-heavy): repo + CI + gitleaks; host GPU driver validation; k3s up; GPU operator; SeaweedFS/lakeFS/CloudNativePG/MLflow/Airflow/Argo deployed. Gate: `nvidia-smi` inside a pod; hello-world DAG and hello-world Argo GPU job green.

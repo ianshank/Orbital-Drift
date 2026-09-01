@@ -41,7 +41,9 @@ class InMemoryModelRegistry:
         try:
             envelope = self._registered[(model_name, model_version)]
         except KeyError as error:
-            raise KeyError(f"model version not registered: {model_name}/{model_version}") from error
+            raise KeyError(
+                f"model version not registered: {model_name}/{model_version}"  # pin: not a path
+            ) from error
         self._stages.setdefault((model_name, stage), []).append(envelope)
         return envelope
 
@@ -50,13 +52,17 @@ class InMemoryModelRegistry:
         try:
             return self._stages[(model_name, stage)][-1]
         except KeyError as error:
-            raise KeyError(f"stage not assigned: {model_name}/{stage}") from error
+            raise KeyError(
+                f"stage not assigned: {model_name}/{stage}"  # pin: separator, not a path
+            ) from error
 
     def rollback(self, model_name: str, stage: str) -> LineageEnvelope:
         """Discard the latest promotion and return the preceding envelope."""
         key = (model_name, stage)
         history = self._stages.get(key)
         if history is None or len(history) < 2:
-            raise KeyError(f"no rollback target for stage: {model_name}/{stage}")
+            raise KeyError(
+                f"no rollback target for stage: {model_name}/{stage}"  # pin: separator, not a path
+            )
         history.pop()
         return history[-1]

@@ -74,7 +74,7 @@ COVERAGE_JSON: Final = REPO_ROOT / "coverage.json"
 #: ``--floor "${COVERAGE_PER_FILE_MIN_PERCENT}"`` from ci/versions.env, so this
 #: constant governs a hand-run of the module. tests/unit/test_covcheck.py holds
 #: the two equal, so a by-hand run cannot disagree with the gate's verdict.
-PER_FILE_FLOOR: Final = 90.0
+PER_FILE_FLOOR: Final = 90.0  # pin: fallback-only value for a hand-run (see comment above)
 
 #: Files exempt from the per-file floor, each with the reason it cannot be
 #: measured meaningfully. Keep this list short and justified; an unexplained

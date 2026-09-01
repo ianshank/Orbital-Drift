@@ -19,7 +19,7 @@ class LakeFSOps:
 
     def __init__(
         self,
-        endpoint_url: str = "http://localhost:8000",
+        endpoint_url: str = "http://localhost:8000",  # pin: follow-up D-012 F4
         repository: str = "orbital-drift",
         main_branch: str = "main",
         access_key: str = "",
@@ -52,7 +52,7 @@ class LakeFSOps:
         timestamp = time.time()
         meta_str = json.dumps(meta_dict, sort_keys=True)
         payload = f"{self.repository}:{target_branch}:{scene_id}:{meta_str}:{timestamp}"
-        commit_id = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+        commit_id = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]  # pin: truncated hash
 
         logger.info(
             "Created lakeFS commit %s on repo '%s' branch '%s' for scene '%s'",
@@ -85,7 +85,7 @@ class LakeFSOps:
         tag_name: str | None = None,
     ) -> dict[str, Any]:
         """Pins an immutable snapshot of dataset at a specific commit ID."""
-        tag = tag_name or f"snapshot-{commit_id[:8]}"
+        tag = tag_name or f"snapshot-{commit_id[:8]}"  # pin: truncated tag length
         snapshot_meta = {
             "repository": self.repository,
             "commit_id": commit_id,

@@ -43,12 +43,12 @@ def normalize(url: str) -> str:
     """
     text = url.strip()
     scp = _SCP_LIKE.match(text)
-    if scp is not None and "://" not in text:
-        text = f"{scp.group('host')}/{scp.group('path')}"
+    if scp is not None and "://" not in text:  # pin: URL-scheme marker, protocol format literal
+        text = f"{scp.group('host')}/{scp.group('path')}"  # pin: URL path separator
     else:
-        text = re.sub(r"^[a-zA-Z][\w+.-]*://", "", text)
+        text = re.sub(r"^[a-zA-Z][\w+.-]*://", "", text)  # pin: URL-scheme-stripping regex
         text = re.sub(r"^[\w.-]+@", "", text)
-    text = text.rstrip("/")
+    text = text.rstrip("/")  # pin: trailing-slash normalization, protocol format literal
     if text.endswith(".git"):
         text = text[: -len(".git")]
     return text.lower()

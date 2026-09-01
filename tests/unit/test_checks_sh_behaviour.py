@@ -434,18 +434,20 @@ def test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it(tmp_path: 
     """The direct instrumented proof the round asked for: count how many times
     the real version-check subprocess runs across one full ``all`` invocation.
 
-    Twelve of the fifteen ``preflight()`` calls a full ``all`` run makes carry
-    a non-empty pin set — ``all`` itself (all eight tools), then ``lint``
-    (ruff), ``typecheck`` (mypy), ``unit``/``contract``/``smoke`` (pytest,
-    three times), ``coverage`` (pytest + pytest-cov + coverage), ``dead``
-    (vulture), ``audit`` (pip-audit), ``traceability`` (pytest) and
-    ``governance`` (pytest). ``projections`` is the THIRTEENTH interpreter
-    probe and declares no pins at all: it executes ``python -m
-    orbital_drift.projections`` with no pinned DISTRIBUTION to assert, so
-    ``stage_runs_python`` keeps it in the preflight for the interpreter alone
-    (RB-008 F2 — before that fix it verified nothing and this count was 12).
-    ``gitleaks`` and ``specs`` run no Python whatsoever, so those two make no
-    interpreter or tool call at all.
+    Thirteen of the eighteen ``preflight()`` calls a full ``all`` run makes
+    carry a non-empty pin set — ``all`` itself (all eight tools), then
+    ``lint`` (ruff), ``typecheck`` (mypy), ``unit``/``contract``/``smoke``
+    (pytest, three times), ``coverage`` (pytest + pytest-cov + coverage),
+    ``dead`` (vulture), ``audit`` (pip-audit), ``traceability`` (pytest),
+    ``governance`` (pytest) and ``architecture`` (pytest — RB-010 Part 8).
+    ``projections``, ``hardcode`` (RB-010 Part 6) and ``deps`` (RB-010 Part 7)
+    are the FOURTEENTH, FIFTEENTH and SIXTEENTH interpreter probes and
+    declare no pins at all: each executes its module with no pinned
+    DISTRIBUTION to assert, so ``stage_runs_python`` keeps them in the
+    preflight for the interpreter alone (RB-008 F2 — before that fix this
+    count was 12, with no pin-less stage at all). ``gitleaks`` and ``specs``
+    run no Python whatsoever, so those two make no interpreter or tool call
+    at all.
 
     If verification were still memoised the pre-round-7 way, every count below
     would be 1 — the tool's version would be probed once, by whichever stage
@@ -463,25 +465,25 @@ def test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it(tmp_path: 
         return sum(1 for call in python_calls if contains in call.joined)
 
     # The interpreter itself: full + minor version probes, once per preflight()
-    # call that verifies the interpreter — the twelve with a non-empty pin set
+    # call that verifies the interpreter — the thirteen with a non-empty pin set
     # (all, lint, typecheck, unit, contract, smoke, coverage, dead, audit,
-    # traceability, governance, hooks) PLUS projections, which has no pins and
-    # runs Python anyway = 13.
+    # traceability, governance, hooks, architecture) PLUS projections, hardcode
+    # and deps, which have no pins and run Python anyway = 16.
     full_probes = _count(contains="version_info[:3]")
     minor_probes = _count(contains="version_info[:2]")
-    assert full_probes == 13, (
-        f"expected 13 python full-version probes (one per preflight() call that "
+    assert full_probes == 16, (
+        f"expected 16 python full-version probes (one per preflight() call that "
         f"verifies the interpreter), found {full_probes}: "
         f"{[c.joined for c in python_calls]!r}"
     )
-    assert minor_probes == 13, f"expected 13 python minor-version probes, found {minor_probes}"
+    assert minor_probes == 16, f"expected 16 python minor-version probes, found {minor_probes}"
 
     # the ruff pin is needed by `all` and `lint` = 2 calls, not 1.
     assert _count(exact="-m ruff --version") == 2, "ruff --version did not re-probe for `lint`"
     # mypy: needed by `all` and `typecheck` = 2 calls, not 1.
     assert _count(exact="-m mypy --version") == 2, "mypy --version did not re-probe for `typecheck`"
     # pytest: needed by `all`, `unit`, `contract`, `smoke`, `coverage`,
-    # `traceability`, `governance` = 7, not 1.
+    # `traceability`, `governance`, `architecture` (RB-010 Part 8) = 8, not 1.
     #
     # `contains="import pytest"` counts the VERSION PROBE only. It deliberately
     # does not match `-m pytest ...` runs, nor the pytest-cov/coverage probes,
@@ -492,9 +494,9 @@ def test_the_actual_pin_check_reexecutes_once_per_stage_that_needs_it(tmp_path: 
     # `import pytest_cov` directly — a real `case` never reaches a repeated
     # label, so it was dead code shadowed by the importlib.metadata arm above
     # it; removed rather than kept as a second, silently-ignored definition.)
-    assert _count(contains="import pytest") == 7, (
+    assert _count(contains="import pytest") == 8, (
         "the pytest probe did not re-run once each for "
-        "unit/contract/smoke/coverage/traceability/governance"
+        "unit/contract/smoke/coverage/traceability/governance/architecture"
     )
     # pytest-cov and coverage: needed by `all` and `coverage` = 2 calls each.
     assert _count(contains='m.version("pytest-cov")') == 2, (
@@ -731,13 +733,14 @@ def test_sequenced_stub_repeats_the_last_value_once_the_queue_is_exhausted(
     """Exercises the previously-dead clamp branch in ``_od_seq_next``.
 
     A two-value PY_MINOR sequence (both the correct pinned minor version)
-    against a full ``all`` run, which probes PY_MINOR thirteen times (once per
+    against a full ``all`` run, which probes PY_MINOR sixteen times (once per
     ``preflight()`` call that verifies the interpreter: all, lint, typecheck,
     unit, contract, smoke, coverage, dead, audit, traceability, governance,
-    hooks, and — pin-less but Python-executing, RB-008 F2 — projections; the
-    same count ``test_the_actual_pin_check_reexecutes_once_per_stage_that_
+    hooks, architecture (RB-010 Part 8), and — pin-less but Python-executing,
+    RB-008 F2 — projections, hardcode (RB-010 Part 6) and deps (RB-010 Part 7);
+    the same count ``test_the_actual_pin_check_reexecutes_once_per_stage_that_
     needs_it`` measures for an unsequenced run). Calls 1 and 2 consume the two
-    queued values directly; calls 3-13 each ask for an index past the two-line
+    queued values directly; calls 3-16 each ask for an index past the two-line
     queue and must hit ``_od_seq_next``'s
     ``if [ "${_od_idx}" -gt "${_od_total}" ]; then _od_idx="${_od_total}"; fi``
     clamp, repeating line 2's value, for the run to still see the CORRECT
@@ -753,9 +756,9 @@ def test_sequenced_stub_repeats_the_last_value_once_the_queue_is_exhausted(
     assert recording.returncode == 0, recording.output
 
     minor_probes = [call for call in recording.of("python") if "version_info[:2]" in call.joined]
-    assert len(minor_probes) == 13, (
-        "expected 13 interpreter minor-version probes across a full `all` run "
-        "(2 from the queue, 11 past exhaustion via the clamp branch), found "
+    assert len(minor_probes) == 16, (
+        "expected 16 interpreter minor-version probes across a full `all` run "
+        "(2 from the queue, 14 past exhaustion via the clamp branch), found "
         f"{len(minor_probes)}: {[c.joined for c in recording.of('python')]!r}"
     )
 
@@ -1687,8 +1690,8 @@ def test_the_usage_line_still_names_every_stage_with_no_path_at_all() -> None:
         usage: sh ci/checks.sh <>
 
     — an error line about a helper they did not invoke, and a usage message
-    naming zero of the fifteen stages, at exactly the moment the message is the
-    only thing left working. ``command -p`` resolves ``tr`` from the standard
+    naming zero of the eighteen stages, at exactly the moment the message is
+    the only thing left working. ``command -p`` resolves ``tr`` from the standard
     utilities path (``getconf PATH``) rather than from ``PATH``, so the list
     renders regardless.
     """

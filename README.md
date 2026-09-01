@@ -70,6 +70,9 @@ sh ci/checks.sh specs       # OpenSpec structural validation
 sh ci/checks.sh traceability  # requirement-traceability matrix lint
 sh ci/checks.sh projections   # generated planning/ byte-drift check
 sh ci/checks.sh governance    # tests/governance/: guard corpus, meta-tests
+sh ci/checks.sh deps          # dependency contract: pyproject.toml vs src/ imports
+sh ci/checks.sh architecture  # tests/architecture/: import-linter boundary contract
+sh ci/checks.sh hardcode      # orbital_drift.quality.hardcode_scan: no hardcoded values (Principle III)
 ```
 
 `lint`, `typecheck`, `unit`, `contract`, `smoke` and `gitleaks` are FR-011's six
@@ -113,7 +116,10 @@ runs are parallel matrix jobs, so wall-clock is largely unchanged.
 The remaining `dead`, `audit`, `specs`, `traceability`, `projections` and
 `governance` stages are not part of FR-011's six either; they extend the same
 contract under the adopt-governance-kit change (see
-`charter/PROJECT-CHARTER.md` and `openspec/changes/adopt-governance-kit/`). Run
+`charter/PROJECT-CHARTER.md` and `openspec/changes/adopt-governance-kit/`).
+Three more, `hardcode`, `deps` and `architecture`, extend it again under
+RB-010 Parts 6-8 (`docs/decision-log.md`) rather than under
+adopt-governance-kit itself. Run
 `sh ci/checks.sh` with an unrecognized stage name to print the current,
 authoritative stage list — it is generated from `STAGE_LABELS` inside the
 script, never hand-copied, so this README cannot silently disagree with what
@@ -231,7 +237,7 @@ The repo runs under the adopt-governance-kit change (Constitution v1.1.0;
 `openspec/changes/adopt-governance-kit/` holds the proposal, design decisions
 D1–D14, spec deltas, and task record):
 
-- **Gates.** `ci/checks.sh` is the canonical runner for all fourteen stages;
+- **Gates.** `ci/checks.sh` is the canonical runner for all eighteen stages;
   the `Makefile` is a thin front-end (`make pre-pr` = `sh ci/checks.sh all`),
   and on a box without GNU make you call checks.sh directly — Linux CI is
   authoritative. The zero-skip conftest escalates any parked skip; the
@@ -240,7 +246,14 @@ D1–D14, spec deltas, and task record):
   drift checks are all stages, and `tests/governance/` — the guard regression
   corpus and the meta-tests that watch the process — runs under its own
   `governance` stage rather than being attributed to a red `coverage` job
-  whose bare `pytest tests` invocation happens to collect it too.
+  whose bare `pytest tests` invocation happens to collect it too. Three more
+  (RB-010 Parts 6-8): `hardcode` runs `orbital_drift.quality.hardcode_scan`
+  over `src/orbital_drift` (Constitution Principle III, "No Hardcoded
+  Values"); `deps` reconciles `pyproject.toml`'s declared dependencies
+  against the imports `src/orbital_drift` actually makes
+  (`orbital_drift.quality.dep_contract`); and `architecture` runs
+  `tests/architecture/` — the import-linter `.importlinter` boundary contract,
+  independently re-derived via AST.
 - **Control plane.** `charter/PROJECT-CHARTER.md` (constraints C-1…C-6,
   subordinate to the constitution) + `docs/decision-log.md` (the mechanical
   gate ledger — gates presence-check IDs there; prose unlocks nothing) +
@@ -266,15 +279,38 @@ D1–D14, spec deltas, and task record):
 
 ## Current status
 
-Snapshot at commit `7c4d0d9` (2026-08-22) — **the live source is
-`specs/001-orbital-drift-ct/tasks.md`; if this disagrees with it, the tasks
-file wins.** Phase 0 of 6 (`specs/001-orbital-drift-ct/plan.md`); 8 of the 55
-task checkboxes are complete: T001, T001a, T002, T004, T007, T008, T009, T010.
+Snapshot as of 2026-09-01 (RB-010, `docs/decision-log.md`) — **the live
+source is `specs/001-orbital-drift-ct/tasks.md`; if this disagrees with it,
+the tasks file wins.** Phase 0 of 6 (`specs/001-orbital-drift-ct/plan.md`);
+10 of the 55 task checkboxes are complete: T001, T001a, T001b, T002, T004,
+T004a, T007, T008, T009, T010 (T001b and T004a checked per RB-007).
+
+That count describes governance-gated authoring only. Separately — and
+**without** a `G-1` entry ever having been logged — PR #16 (2026-08-23) and
+PR #17 (2026-08-24, "Phase 0-R") authored most of the Phase 1–4 application
+code (T013–T045: ingest/data/drift/train/registry/serve) plus a new
+hexagonal domain/ports/eval/observability/quality layer, with no
+spec-guardian or adversarial-reviewer review and no RB batch authorization
+before merge. RB-010 (`docs/decision-log.md`) is the governance
+reconciliation: a six-lens SDLC review found significant gaps — a
+NON-NEGOTIABLE Constitution II violation (`eval/bootstrap.py`,
+`eval/superiority.py` hand-roll statistics), a non-building Dockerfile,
+unwired `config.py`, a `drift/trigger.py` stuck-breaker, an unauthenticated
+`serve/app.py` with no startup wiring, two phantom CI gates, and 0 of 5
+hexagonal ports having a real adapter, among others — and authorized a 14-part
+remediation program. `tasks.md`'s existing `AUTHORED-PROVISIONAL` status
+(previously used only for T006) now applies retroactively to T013–T052
+pending spec-guardian + adversarial-reviewer review; see the per-task status
+annotations in `specs/001-orbital-drift-ct/tasks.md`'s Phase 1–4 section for
+the evidence-based detail per task.
+
 **Next: T003 `[HUMAN]`** — the operator executes
 `docs/runbooks/00-host-prep.md` on node A and logs `G-1` in
 `docs/decision-log.md`; per RB-007, T006 authoring is deferred until that
-`G-1` entry exists. See `CHANGELOG.md` for what has shipped and
-`docs/architecture/ARCHITECTURE.md` for what is built versus planned.
+`G-1` entry exists. T003 is the next physical cluster-bring-up action and is
+unrelated to the RB-010 remediation program above. See `CHANGELOG.md` for
+what has shipped and `docs/architecture/ARCHITECTURE.md` for what is built
+versus planned versus actually integrated.
 
 ## Local configuration
 

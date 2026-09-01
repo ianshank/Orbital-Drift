@@ -66,12 +66,12 @@ class ScanPolicy:
         "**/tests/**",
     )
     pin_marker: str = "# pin:"
-    max_string_length: int = 160
+    max_string_length: int = 160  # pin: scanner bootstrap output-truncation length
     truncation_suffix: str = "..."
     allow_module_constants: bool = False
     paths: tuple[str, ...] = ("src/orbital_drift",)
     fail_on_findings: bool = True
-    absolute_path_prefix: str = "/"
+    absolute_path_prefix: str = "/"  # pin: scanner bootstrap path-literal prefix
     url_patterns: tuple[str, ...] = (
         "http://",  # pin: scanner bootstrap URL classifier
         "https://",  # pin: scanner bootstrap URL classifier

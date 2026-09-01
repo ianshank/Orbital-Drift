@@ -47,6 +47,7 @@ def test_band_drift_and_scene_drift_evaluation() -> None:
         reference_bands=ref_bands,
         target_bands=tgt_bands,
         band_names=("B02", "B03", "B04", "B08"),
+        rng=np.random.default_rng(0),
         psi_threshold=0.25,
     )
     assert report.overall_drift_detected is True

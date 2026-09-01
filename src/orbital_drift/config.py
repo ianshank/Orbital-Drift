@@ -40,6 +40,8 @@ class OrbitalDriftConfig(BaseSettings):
     )
     cloud_cover_max_threshold: float = Field(
         default=0.20,
+        ge=0.0,
+        le=1.0,
         description="Max acceptable cloud fraction before exclusion from training",
     )
     stac_api_url: str = Field(
@@ -52,7 +54,21 @@ class OrbitalDriftConfig(BaseSettings):
     )
     ingest_retry_budget: int = Field(
         default=3,
-        description="Max retries for STAC queries and COG fetches",
+        ge=1,
+        description="Max retries for STAC queries and COG fetches; a value of 0 "
+        "would mean STACClient.search_scenes never attempts a request "
+        "(see ingest/stac_client.py's `while attempt < self.retry_budget` loop)",
+    )
+    stac_backoff_factor: float = Field(
+        default=1.5,
+        gt=0.0,
+        description="Exponential backoff base for STACClient retry sleeps "
+        "(sleep_sec = backoff_factor ** attempt).",
+    )
+    stac_request_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0.0,
+        description="Per-request HTTP timeout for STACClient.search_scenes.",
     )
 
     # --- Storage & Data Versioning ---
@@ -77,12 +93,16 @@ class OrbitalDriftConfig(BaseSettings):
         description="lakeFS base branch for training reference",
     )
     lakefs_access_key: str = Field(
-        default="lakefs_access_key",
-        description="lakeFS API access key",
+        description="lakeFS API access key. Required, no default: a placeholder "
+        "default here would let the app silently start with a fake, guessable "
+        "'credential' instead of failing fast. Set via "
+        "ORBITAL_DRIFT_LAKEFS_ACCESS_KEY or .env.",
     )
     lakefs_secret_key: str = Field(
-        default="lakefs_secret_key",
-        description="lakeFS API secret key",
+        description="lakeFS API secret key. Required, no default: a placeholder "
+        "default here would let the app silently start with a fake, guessable "
+        "'credential' instead of failing fast. Set via "
+        "ORBITAL_DRIFT_LAKEFS_SECRET_KEY or .env.",
     )
 
     # --- Hardware & GPU Allocation ---
@@ -118,11 +138,15 @@ class OrbitalDriftConfig(BaseSettings):
     )
     batch_size: int = Field(
         default=16,
+        ge=1,
         description="Batch size for training",
     )
     gradient_accumulation_steps: int = Field(
         default=2,
-        description="Gradient accumulation steps for 16GB VRAM constraint",
+        ge=1,
+        description="Gradient accumulation steps for 16GB VRAM constraint; a value "
+        "of 0 divides by zero in train/baseline.py's `loss / grad_accum_steps` "
+        "and its `% grad_accum_steps` step-boundary check",
     )
     learning_rate: float = Field(
         default=1e-4,
@@ -130,11 +154,19 @@ class OrbitalDriftConfig(BaseSettings):
     )
     num_classes: int = Field(
         default=10,
+        ge=1,
         description="Number of land-cover segmentation classes",
     )
     patch_size: int = Field(
         default=256,
+        ge=1,
         description="Spatial patch dimension (pixels)",
+    )
+    dataset_normalize_max: float = Field(
+        default=10000.0,
+        gt=0.0,
+        description="Maximum reflectance scaling factor for Sentinel2PatchDataset "
+        "patch normalization (band DN / this value -> [0.0, 1.0]).",
     )
     use_amp: bool = Field(
         default=True,
@@ -144,24 +176,44 @@ class OrbitalDriftConfig(BaseSettings):
     # --- Drift Monitoring & Trigger Engine ---
     psi_threshold: float = Field(
         default=0.25,
+        ge=0.0,
         description="Population Stability Index threshold indicating significant drift",
+    )
+    psi_moderate_threshold: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Population Stability Index threshold indicating a moderate "
+        "(sub-significant) shift, used alongside the KS p-value as a secondary "
+        "drift signal.",
     )
     ks_alpha: float = Field(
         default=0.05,
+        ge=0.0,
+        le=1.0,
         description="Significance level for two-sample Kolmogorov-Smirnov test",
     )
     drift_hysteresis_window: int = Field(
         default=3,
-        description="Number of consecutive drifted scenes required before trigger",
+        ge=1,
+        description="Number of consecutive drifted scenes required before trigger; "
+        "a value of 0 would mean the hysteresis check in "
+        "DriftTriggerManager.process_scene_verdict never actually requires a "
+        "drifted scene (see drift/trigger.py)",
     )
     drift_cooldown_scenes: int = Field(
         default=5,
-        description="Cooldown period in scenes to prevent trigger storms",
+        ge=1,
+        description="Cooldown period in scenes to prevent trigger storms; a value "
+        "of 0 defeats the cooldown's own purpose (see drift/trigger.py's "
+        "`scenes_since_last_trigger < cooldown_scenes` check)",
     )
 
     # --- Serving & Canary Deployment ---
     canary_ratio: float = Field(
         default=0.10,
+        ge=0.0,
+        le=1.0,
         description="Fraction of inference traffic routed to candidate Staging model (0.0 to 1.0)",
     )
     serving_port: int = Field(
@@ -170,6 +222,7 @@ class OrbitalDriftConfig(BaseSettings):
     )
     auto_promote_margin: float = Field(
         default=0.02,
+        ge=0.0,
         description="Required IoU improvement margin over Production to trigger auto-promotion",
     )
 
