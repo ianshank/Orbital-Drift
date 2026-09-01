@@ -35,7 +35,7 @@ Module docstring: "A confidence interval for one model's metric only shows wheth
 - `SuperiorityConfig(block_size, confidence_level, minimum_effect, replicates, seed)` (`superiority.py:27-35`) — adds `minimum_effect: float` (validated finite and `>= 0.0`, `superiority.py:69-72`) over `bootstrap.py`'s config shape. `SuperiorityResult(..., passes: bool)` (`superiority.py:38-49`).
 - `superiority_gate(candidate_values, champion_values, *, metric, config) -> SuperiorityResult` (`superiority.py:75-145`): validates both grids share shape; seeds **one** `Generator(PCG64(config.seed))`; computes `observed = metric(candidate_flat) - metric(champion_flat)` (`superiority.py:113`); for each of `config.replicates` iterations, draws **one** block-index set via `_moving_block_indices(candidate_grid, config.block_size, rng)` (`superiority.py:116` — reusing `bootstrap.py`'s private, underscore-prefixed helper directly, imported at `superiority.py:20`) and applies the **same** indices to both `candidate_flat[indices]` and `champion_flat[indices]` — this identical-indices-for-both-systems draw is what makes the test "paired." Forms the same percentile-bracketing interval as `bootstrap.py` (`superiority.py:121-123`), then:
   ```python
-  passes = lower > config.minimum_effect          # superiority.py:124
+  passes = lower > config.minimum_effect  # superiority.py:124
   ```
   — a one-sided test: the gate passes only if the entire lower bound of the paired-difference distribution clears a minimum-effect floor. This is a non-inferiority/superiority test, not a plain two-sided significance test.
 
@@ -52,7 +52,7 @@ Read directly from the installed package, `.venv/lib/python3.12/site-packages/sc
   ```python
   def _bootstrap_resample(sample, n_resamples=None, rng=None, *, xp):
       n = sample.shape[-1]
-      i = rng_integers(rng, 0, n, (n_resamples, n))   # every element drawn i.i.d.
+      i = rng_integers(rng, 0, n, (n_resamples, n))  # every element drawn i.i.d.
       ...
   ```
   Every one of the `n` elements of every resample is drawn **independently and uniformly** from `[0, n)`. No block, window, or contiguity concept exists anywhere in this function or file.
@@ -133,10 +133,12 @@ Zero of the 2,275 entries in the source tree are named `*bootstrap*` or `*resamp
 Read directly from the installed package, `.venv/lib/python3.12/site-packages/sklearn/utils/_indexing.py:428-567`:
 
 ```python
-def resample(*arrays, replace=True, n_samples=None, random_state=None, stratify=None, sample_weight=None):
+def resample(
+    *arrays, replace=True, n_samples=None, random_state=None, stratify=None, sample_weight=None
+):
     """... The default strategy implements one step of the bootstrapping procedure. ..."""
     ...
-    indices = random_state.choice(n_samples, ...)          # _indexing.py:566-567
+    indices = random_state.choice(n_samples, ...)  # _indexing.py:566-567
 ```
 
 The draw is `random_state.choice(n_samples, ...)` over the first-dimension length of the input arrays — i.i.d. resampling of whole rows, with the same multi-array index-consistency behavior as `scipy.stats.bootstrap(paired=True)` (`resample(X, y, ...)` returns index-consistent resamples of both), but **no block, window, or contiguity parameter anywhere in its signature or implementation** — confirmed by reading the full function body.
