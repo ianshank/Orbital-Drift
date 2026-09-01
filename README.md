@@ -266,15 +266,38 @@ D1–D14, spec deltas, and task record):
 
 ## Current status
 
-Snapshot at commit `7c4d0d9` (2026-08-22) — **the live source is
-`specs/001-orbital-drift-ct/tasks.md`; if this disagrees with it, the tasks
-file wins.** Phase 0 of 6 (`specs/001-orbital-drift-ct/plan.md`); 8 of the 55
-task checkboxes are complete: T001, T001a, T002, T004, T007, T008, T009, T010.
+Snapshot as of 2026-09-01 (RB-010, `docs/decision-log.md`) — **the live
+source is `specs/001-orbital-drift-ct/tasks.md`; if this disagrees with it,
+the tasks file wins.** Phase 0 of 6 (`specs/001-orbital-drift-ct/plan.md`);
+10 of the 55 task checkboxes are complete: T001, T001a, T001b, T002, T004,
+T004a, T007, T008, T009, T010 (T001b and T004a checked per RB-007).
+
+That count describes governance-gated authoring only. Separately — and
+**without** a `G-1` entry ever having been logged — PR #16 (2026-08-23) and
+PR #17 (2026-08-24, "Phase 0-R") authored most of the Phase 1–4 application
+code (T013–T045: ingest/data/drift/train/registry/serve) plus a new
+hexagonal domain/ports/eval/observability/quality layer, with no
+spec-guardian or adversarial-reviewer review and no RB batch authorization
+before merge. RB-010 (`docs/decision-log.md`) is the governance
+reconciliation: a six-lens SDLC review found significant gaps — a
+NON-NEGOTIABLE Constitution II violation (`eval/bootstrap.py`,
+`eval/superiority.py` hand-roll statistics), a non-building Dockerfile,
+unwired `config.py`, a `drift/trigger.py` stuck-breaker, an unauthenticated
+`serve/app.py` with no startup wiring, two phantom CI gates, and 0 of 5
+hexagonal ports having a real adapter, among others — and authorized a 14-part
+remediation program. `tasks.md`'s existing `AUTHORED-PROVISIONAL` status
+(previously used only for T006) now applies retroactively to T013–T052
+pending spec-guardian + adversarial-reviewer review; see the per-task status
+annotations in `specs/001-orbital-drift-ct/tasks.md`'s Phase 1–4 section for
+the evidence-based detail per task.
+
 **Next: T003 `[HUMAN]`** — the operator executes
 `docs/runbooks/00-host-prep.md` on node A and logs `G-1` in
 `docs/decision-log.md`; per RB-007, T006 authoring is deferred until that
-`G-1` entry exists. See `CHANGELOG.md` for what has shipped and
-`docs/architecture/ARCHITECTURE.md` for what is built versus planned.
+`G-1` entry exists. T003 is the next physical cluster-bring-up action and is
+unrelated to the RB-010 remediation program above. See `CHANGELOG.md` for
+what has shipped and `docs/architecture/ARCHITECTURE.md` for what is built
+versus planned versus actually integrated.
 
 ## Local configuration
 

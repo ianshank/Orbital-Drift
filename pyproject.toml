@@ -3,23 +3,33 @@
 #
 # Python 3.12 per specs/001-orbital-drift-ct/plan.md (Technical Context).
 #
-# RUNTIME DEPENDENCIES WERE EMPTY UNTIL RB-009 AND THAT WAS A DEFECT, NOT A
-# POLICY. The original header said they were "deliberately EMPTY at T001"
-# because "torch/torchgeo/mlflow/lakefs-client land with the tasks that first
-# import them". Those tasks landed (PR #16) and the declarations did not. The
-# result: `pip install -e ".[dev]"` -- the ONE documented bootstrap command
-# (README.md, Principle IV) and the command CI itself runs -- produced a tree in
-# which 7 of 17 modules under src/orbital_drift raised ModuleNotFoundError on
-# import, and six of fourteen CI gates were red on main
-# (run 32660872598: contract, coverage, hooks, traceability, typecheck, unit).
-# An undeclared import is not a deferred decision, it is a broken install.
+# RUNTIME DEPENDENCIES WERE EMPTY UNTIL PR#17'S DEPENDENCY-CONTRACT FIX AND
+# THAT WAS A DEFECT, NOT A POLICY. The original header said they were
+# "deliberately EMPTY at T001" because "torch/torchgeo/mlflow/lakefs-client
+# land with the tasks that first import them". Those tasks landed (PR #16) and
+# the declarations did not. The result: `pip install -e ".[dev]"` -- the ONE
+# documented bootstrap command (README.md, Principle IV) and the command CI
+# itself runs -- produced a tree in which 7 of 17 modules under
+# src/orbital_drift raised ModuleNotFoundError on import, and six of fourteen
+# CI gates were red on main (run 32660872598: contract, coverage, hooks,
+# traceability, typecheck, unit). An undeclared import is not a deferred
+# decision, it is a broken install. (Citation corrected under RB-010,
+# docs/decision-log.md, 2026-09-01: this paragraph previously cited "RB-009" as
+# authorization, which is the unrelated PreToolUse-guard fail-open fix; RB-010
+# is this repo's retroactive reconciling authority for PR#16/#17's work,
+# including this file.)
 #
 # The declarations below are therefore organised as CORE + ADAPTER EXTRAS, which
 # is the dependency-graph expression of the ports-and-adapters boundary:
 # `dependencies` is what the configuration spine needs to exist at all, and each
 # extra is one adapter's third-party surface. `orbital_drift.quality.dep_contract`
-# reconciles this table against the imports actually present in src/ on every
-# run of the `deps` gate, so this class of defect cannot recur silently.
+# -- which would reconcile this table against the imports actually present in
+# src/ on every run of a `deps` gate -- is PLANNED, not built: it does not exist
+# today, there is no `deps` CI stage, and there is no
+# tests/unit/test_dependency_contract.py (confirmed by search). Completing it is
+# RB-010 Part 7 (docs/decision-log.md); until it lands, this table is reconciled
+# against src/ imports by hand-review only, so this class of defect can recur
+# silently.
 #
 # Every pin below was verified against a live index; see
 # docs/decisions/versions.md for the platform-side pins and the pinning
@@ -127,10 +137,15 @@ dev = [
   # with provenance URLs, asserted by tests/unit/test_version_pins.py.
   "vulture==2.16",
   "pip-audit==2.10.1",
-  # Boundary enforcement (RB-009). Mechanically verifies the ports-and-adapters
+  # Boundary enforcement (RB-010, docs/decision-log.md 2026-09-01 -- corrected
+  # citation; this line previously cited "RB-009", the unrelated
+  # PreToolUse-guard fail-open fix). Mechanically verifies the ports-and-adapters
   # hexagon via .importlinter contracts; the same rule is independently
   # re-derived from the AST by tests/architecture/test_import_boundaries.py,
-  # because a linter nobody wired into CI enforces nothing.
+  # because a linter nobody wired into CI enforces nothing -- confirmed: no
+  # `import-linter`/`lint-imports` invocation exists anywhere in ci/checks.sh.
+  # CI-wiring the `import-linter` CLI itself as its own stage is RB-010 Part 8,
+  # not yet done.
   "import-linter==2.13",
   # Property-based testing for the canonical-hash and round-trip invariants,
   # where example-based tests cannot cover the input space that matters.
@@ -143,8 +158,10 @@ dev = [
   # both import -- raises RuntimeError at import time without this. It is a
   # TEST-ONLY dependency of the serve adapter, so it belongs in [dev] and NOT
   # in the `serve` extra: a production deployment must not carry a test client.
-  # This is precisely the case the `deps` gate is built to catch, and it does:
-  # dep_contract classifies imports reached only from tests/ as dev-scoped.
+  # This is precisely the case a `deps` gate should catch: dep_contract would
+  # classify imports reached only from tests/ as dev-scoped. Neither exists yet
+  # (RB-010 Part 7, docs/decision-log.md 2026-09-01) -- this placement is
+  # correct by hand-review only until then.
   "httpx2==2.12.0",
   # Adapter extras, restated (see note above).
   "requests==2.34.2",
