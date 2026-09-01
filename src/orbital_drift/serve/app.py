@@ -57,7 +57,7 @@ app = FastAPI(
 #     default (1,048,576 elements) is not rejected, while still bounding
 #     worst-case allocation to a few million float32 values (order of tens
 #     of MB) per request instead of an unbounded amount.
-_MAX_IMAGE_ELEMENTS: Final[int] = 256 * 256 * 13 * 4  # = 3,407,872
+_MAX_IMAGE_ELEMENTS: Final[int] = 256 * 256 * 13 * 4  # pin: see docstring above = 3,407,872
 
 
 class InferenceRequest(BaseModel):
@@ -160,7 +160,11 @@ class ModelContainer:
         self.canary_ratio = (
             canary_ratio
             if canary_ratio is not None
-            else (config.canary_ratio if config is not None else 0.10)
+            else (
+                config.canary_ratio
+                if config is not None
+                else 0.10  # pin: fallback default mirroring OrbitalDriftConfig.canary_ratio
+            )
         )
 
 
@@ -187,14 +191,18 @@ def _resolve_serve_device(config: OrbitalDriftConfig | None = None) -> str:
     """
     if config is not None:
         return config.serve_device
-    return "cuda:1" if torch.cuda.is_available() and torch.cuda.device_count() > 1 else "cpu"
+    return (
+        "cuda:1"  # pin: pre-existing multi-GPU heuristic fallback, see docstring above
+        if torch.cuda.is_available() and torch.cuda.device_count() > 1
+        else "cpu"
+    )
 
 
 dev = _resolve_serve_device()
 container = ModelContainer(device=dev)
 
 
-@app.get("/healthz")
+@app.get("/healthz")  # pin: REST endpoint path, protocol format literal
 def healthz(response: Response) -> dict[str, str]:
     """Liveness/readiness probe.
 
@@ -208,7 +216,7 @@ def healthz(response: Response) -> dict[str, str]:
     reports a degraded, non-200 status until a production model is loaded.
     """
     if container.production_model is None:
-        response.status_code = 503
+        response.status_code = 503  # pin: well-known HTTP status code (Service Unavailable)
         return {
             "status": "degraded",
             "service": "orbital-drift-serving",
@@ -217,7 +225,7 @@ def healthz(response: Response) -> dict[str, str]:
     return {"status": "ok", "service": "orbital-drift-serving"}
 
 
-@app.get("/metrics")
+@app.get("/metrics")  # pin: REST endpoint path, protocol format literal
 def get_metrics() -> dict[str, Any]:
     """Prometheus-style JSON metrics endpoint."""
     avg_latency = container.metrics["total_latency_ms"] / max(
@@ -237,11 +245,14 @@ def get_metrics() -> dict[str, Any]:
     }
 
 
-@app.post("/predict", response_model=InferenceResponse)
+@app.post("/predict", response_model=InferenceResponse)  # pin: REST endpoint path
 def predict(payload: InferenceRequest) -> InferenceResponse:
     """Executes land-cover segmentation inference with canary routing."""
     if container.production_model is None:
-        raise HTTPException(status_code=503, detail="No production model loaded")
+        raise HTTPException(
+            status_code=503,  # pin: well-known HTTP status code (Service Unavailable)
+            detail="No production model loaded",
+        )
 
     t0 = time.perf_counter()
 
@@ -268,11 +279,13 @@ def predict(payload: InferenceRequest) -> InferenceResponse:
     # Convert image array to tensor
     try:
         np_arr = np.array(payload.image_array, dtype=np.float32)
-        if np_arr.ndim == 3:
+        if np_arr.ndim == 3:  # pin: (C, H, W) tensor rank, algorithm-intrinsic
             # (C, H, W) -> (1, C, H, W)
             tensor_in = torch.from_numpy(np_arr).unsqueeze(0).to(container.device)
         else:
-            raise ValueError(f"Expected 3D input (C, H, W), got shape {np_arr.shape}")
+            raise ValueError(  # pin: 3D tensor rank (C, H, W), algorithm-intrinsic
+                f"Expected 3D input (C, H, W), got shape {np_arr.shape}"
+            )
 
         with torch.no_grad():
             output_logits = active_model(tensor_in)  # type: ignore[misc]
@@ -291,12 +304,12 @@ def predict(payload: InferenceRequest) -> InferenceResponse:
             exc_info=True,
         )
         raise HTTPException(
-            status_code=400,
+            status_code=400,  # pin: well-known HTTP status code (Bad Request)
             detail=f"Inference failed (request_id={payload.request_id}); "
             "see server logs for details.",
         ) from exc
 
-    latency_ms = (time.perf_counter() - t0) * 1000.0
+    latency_ms = (time.perf_counter() - t0) * 1000.0  # pin: seconds-to-milliseconds unit conversion
     container.metrics["total_latency_ms"] += latency_ms
 
     return InferenceResponse(

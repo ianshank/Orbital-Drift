@@ -23,7 +23,7 @@ from torch.utils.data import Dataset
 
 from orbital_drift.config import OrbitalDriftConfig
 
-DEFAULT_NORMALIZE_MAX: Final[float] = 10000.0
+DEFAULT_NORMALIZE_MAX: Final[float] = 10000.0  # pin: fallback default (config-wired above)
 
 
 class Sentinel2PatchDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
@@ -33,8 +33,8 @@ class Sentinel2PatchDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         self,
         raster_data: np.ndarray,
         labels: np.ndarray | None = None,
-        patch_size: int = 256,
-        stride: int = 256,
+        patch_size: int = 256,  # pin: follow-up D-012 F2 (config.patch_size not yet consulted here)
+        stride: int = 256,  # pin: follow-up D-012 F2 (no matching config field yet)
         normalize_max: float | None = None,
         config: OrbitalDriftConfig | None = None,
     ) -> None:

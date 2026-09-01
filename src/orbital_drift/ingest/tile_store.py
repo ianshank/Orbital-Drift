@@ -98,7 +98,7 @@ class TileStore:
         meta_file.write_text(json.dumps(meta_payload, indent=2), encoding="utf-8")
 
         duration = time.perf_counter() - t0
-        mb_written = total_bytes / (1024 * 1024)
+        mb_written = total_bytes / (1024 * 1024)  # pin: byte-to-MB conversion, see docstring
         throughput = mb_written / duration if duration > 0 else 0.0
         logger.info(
             "Saved scene %s: %.2f MB in %.4fs (%.2f MB/s)",
@@ -151,7 +151,7 @@ class TileStore:
 
         stacked = np.stack(arrays, axis=0)
         duration = time.perf_counter() - t0
-        mb_read = total_bytes / (1024 * 1024)
+        mb_read = total_bytes / (1024 * 1024)  # pin: byte-to-MB conversion, see docstring
         throughput = mb_read / duration if duration > 0 else 0.0
         logger.info(
             "Loaded scene %s: %.2f MB in %.4fs (%.2f MB/s)",

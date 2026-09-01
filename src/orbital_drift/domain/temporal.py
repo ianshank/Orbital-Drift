@@ -43,12 +43,12 @@ class TemporalRange:
 
     def to_iso_interval(self) -> str:
         """Render the STAC-compatible ``<start>/<end>`` ISO-8601 interval."""
-        return f"{self.start.isoformat()}/{self.end.isoformat()}"
+        return f"{self.start.isoformat()}/{self.end.isoformat()}"  # pin: ISO-8601 separator (STAC)
 
     @classmethod
     def from_iso_interval(cls, interval: str) -> TemporalRange:
         """Parse an interval produced by :meth:`to_iso_interval`."""
-        parts = interval.split("/")
+        parts = interval.split("/")  # pin: ISO-8601 interval separator, STAC convention
         if len(parts) != 2:
             raise InvalidTemporalRangeError("interval must contain exactly one '/' separator")
         try:

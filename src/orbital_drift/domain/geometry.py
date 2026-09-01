@@ -7,10 +7,10 @@ from typing import Final
 
 from orbital_drift.domain.errors import InvalidGeometryError
 
-MIN_LONGITUDE: Final = -180.0
-MAX_LONGITUDE: Final = 180.0
-MIN_LATITUDE: Final = -90.0
-MAX_LATITUDE: Final = 90.0
+MIN_LONGITUDE: Final = -180.0  # pin: WGS84 geodetic bound, not operator-tunable
+MAX_LONGITUDE: Final = 180.0  # pin: WGS84 geodetic bound, not operator-tunable
+MIN_LATITUDE: Final = -90.0  # pin: WGS84 geodetic bound, not operator-tunable
+MAX_LATITUDE: Final = 90.0  # pin: WGS84 geodetic bound, not operator-tunable
 
 
 @dataclass(frozen=True)

@@ -39,12 +39,12 @@ from orbital_drift.config import OrbitalDriftConfig
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STAC_URL: Final[str] = "https://earth-search.aws.element84.com/v1"
+DEFAULT_STAC_URL: Final[str] = "https://earth-search.aws.element84.com/v1"  # pin: fallback default
 DEFAULT_COLLECTION: Final[str] = "sentinel-2-l2a"
-DEFAULT_RETRY_BUDGET: Final[int] = 3
-DEFAULT_BACKOFF_FACTOR: Final[float] = 1.5
-DEFAULT_TIMEOUT_SECONDS: Final[float] = 30.0
-DEFAULT_MAX_CLOUD_COVER_PERCENT: Final[float] = 100.0
+DEFAULT_RETRY_BUDGET: Final[int] = 3  # pin: fallback default (config-wired below)
+DEFAULT_BACKOFF_FACTOR: Final[float] = 1.5  # pin: fallback default (config-wired below)
+DEFAULT_TIMEOUT_SECONDS: Final[float] = 30.0  # pin: fallback default (config-wired below)
+DEFAULT_MAX_CLOUD_COVER_PERCENT: Final[float] = 100.0  # pin: "no filtering" sentinel, see docstring
 
 
 def _resolve[T](explicit: T | None, from_config: T | None, default: T) -> T:
@@ -103,7 +103,7 @@ class STACClient:
             endpoint_url,
             config.stac_api_url if config is not None else None,
             DEFAULT_STAC_URL,
-        ).rstrip("/")
+        ).rstrip("/")  # pin: trailing-slash normalization
         self.collection = _resolve(
             collection,
             config.stac_collection if config is not None else None,
@@ -131,7 +131,7 @@ class STACClient:
         bbox: tuple[float, float, float, float],
         date_range: str,
         max_cloud_cover: float | None = None,
-        limit: int = 10,
+        limit: int = 10,  # pin: follow-up D-012 F5 (no config field for page size)
     ) -> list[dict[str, Any]]:
         """Queries STAC API for Sentinel-2 scenes matching criteria.
 
@@ -160,11 +160,13 @@ class STACClient:
                 # property is 0-100 percent. Passing the fraction through
                 # unconverted would silently request <=0.20% cloud cover
                 # instead of the intended <=20%.
-                max_cloud_cover = self.config.cloud_cover_max_threshold * 100.0
+                max_cloud_cover = (
+                    self.config.cloud_cover_max_threshold * 100.0  # pin: fraction-to-percent
+                )
             else:
                 max_cloud_cover = DEFAULT_MAX_CLOUD_COVER_PERCENT
 
-        search_url = f"{self.endpoint_url}/search"
+        search_url = f"{self.endpoint_url}/search"  # pin: STAC search endpoint path
         payload: dict[str, Any] = {
             "collections": [self.collection],
             "bbox": list(bbox),
@@ -180,7 +182,7 @@ class STACClient:
         while attempt < self.retry_budget:
             try:
                 response = self.session.post(search_url, json=payload, timeout=self.timeout)
-                if response.status_code == 200:
+                if response.status_code == 200:  # pin: well-known HTTP status code (OK)
                     data = response.json()
                     features: list[dict[str, Any]] = data.get("features", [])
                     logger.info("Discovered %d STAC scenes for bbox %s", len(features), bbox)

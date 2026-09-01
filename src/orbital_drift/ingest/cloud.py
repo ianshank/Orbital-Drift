@@ -24,13 +24,13 @@ import numpy as np
 from orbital_drift.config import OrbitalDriftConfig
 
 # SCL classes corresponding to cloud and cloud shadows
-CLOUD_CLASSES: Final[tuple[int, ...]] = (3, 8, 9, 10)
-VALID_DATA_CLASSES: Final[tuple[int, ...]] = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+CLOUD_CLASSES: Final[tuple[int, ...]] = (3, 8, 9, 10)  # pin: Sentinel-2 SCL codes, see docstring
+VALID_DATA_CLASSES: Final[tuple[int, ...]] = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11)  # pin: SCL codes
 
 # Mirrors OrbitalDriftConfig.cloud_cover_max_threshold's own default so a
 # caller that passes neither an explicit cloud_threshold nor config sees
 # identical behavior to before this module was config-wired (RB-010 part 5).
-DEFAULT_CLOUD_THRESHOLD: Final[float] = 0.20
+DEFAULT_CLOUD_THRESHOLD: Final[float] = 0.20  # pin: fallback default (config-wired above)
 
 
 class CloudEvaluationResult(NamedTuple):

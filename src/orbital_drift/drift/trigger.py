@@ -47,8 +47,8 @@ class DriftTriggerManager:
 
     def __init__(
         self,
-        hysteresis_window: int = 3,
-        cooldown_scenes: int = 5,
+        hysteresis_window: int = 3,  # pin: follow-up D-012 F3 (config field exists, unwired)
+        cooldown_scenes: int = 5,  # pin: follow-up D-012 F3 (config field exists, unwired)
         max_retraining_scenes: int | None = None,
     ) -> None:
         """Configures the hysteresis/cooldown state machine.
@@ -138,7 +138,7 @@ class DriftTriggerManager:
             if self.consecutive_drifted_count < self.hysteresis_window:
                 reason = (
                     f"Hysteresis threshold not met "
-                    f"({self.consecutive_drifted_count}/{self.hysteresis_window})"
+                    f"({self.consecutive_drifted_count}/{self.hysteresis_window})"  # pin: not path
                 )
                 return TriggerDecision(
                     should_trigger=False,
@@ -150,7 +150,7 @@ class DriftTriggerManager:
             # 3. Check cooldown
             if self.scenes_since_last_trigger < self.cooldown_scenes:
                 reason = (
-                    f"Cooldown active ({self.scenes_since_last_trigger}/"
+                    f"Cooldown active ({self.scenes_since_last_trigger}/"  # pin: not a path
                     f"{self.cooldown_scenes} scenes)"
                 )
                 return TriggerDecision(

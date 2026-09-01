@@ -54,7 +54,11 @@ def _resolve_device(device: str | None, config: OrbitalDriftConfig | None) -> st
         return device
     if config is not None:
         return config.train_device
-    return "cuda:0" if torch.cuda.is_available() else "cpu"
+    return (
+        "cuda:0"  # pin: pre-existing hardcoded fallback default, see docstring above
+        if torch.cuda.is_available()
+        else "cpu"
+    )
 
 
 def _resolve_use_amp(use_amp: bool | None, config: OrbitalDriftConfig | None) -> bool:
@@ -103,7 +107,7 @@ def _resolve_num_classes(num_classes: int | None, config: OrbitalDriftConfig | N
         return num_classes
     if config is not None:
         return config.num_classes
-    return 10
+    return 10  # pin: pre-existing hardcoded fallback default, see docstring above
 
 
 class DoubleConv(nn.Module):
@@ -112,10 +116,10 @@ class DoubleConv(nn.Module):
     def __init__(self, in_channels: int, out_channels: int) -> None:
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, padding=1, bias=False),
+            nn.Conv2d(in_channels, out_channels, 3, padding=1, bias=False),  # pin: 3x3 kernel
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, 3, padding=1, bias=False),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1, bias=False),  # pin: 3x3 kernel
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
         )
@@ -129,9 +133,9 @@ class SimpleUNet(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = 4,
+        in_channels: int = 4,  # pin: follow-up D-012 F1 (no config field yet)
         num_classes: int | None = None,
-        init_features: int = 32,
+        init_features: int = 32,  # pin: follow-up D-012 F1 (no config field yet)
         config: OrbitalDriftConfig | None = None,
     ) -> None:
         """Builds the network.
@@ -147,15 +151,25 @@ class SimpleUNet(nn.Module):
         self.pool1 = nn.MaxPool2d(2, 2)
         self.encoder2 = DoubleConv(features, features * 2)
         self.pool2 = nn.MaxPool2d(2, 2)
-        self.encoder3 = DoubleConv(features * 2, features * 4)
+        self.encoder3 = DoubleConv(features * 2, features * 4)  # pin: channel multiplier
         self.pool3 = nn.MaxPool2d(2, 2)
 
-        self.bottleneck = DoubleConv(features * 4, features * 8)
+        self.bottleneck = DoubleConv(features * 4, features * 8)  # pin: channel multiplier
 
-        self.upconv3 = nn.ConvTranspose2d(features * 8, features * 4, 2, stride=2)
-        self.decoder3 = DoubleConv(features * 8, features * 4)
-        self.upconv2 = nn.ConvTranspose2d(features * 4, features * 2, 2, stride=2)
-        self.decoder2 = DoubleConv(features * 4, features * 2)
+        self.upconv3 = nn.ConvTranspose2d(
+            features * 8,  # pin: channel multiplier
+            features * 4,  # pin: channel multiplier
+            2,
+            stride=2,
+        )
+        self.decoder3 = DoubleConv(features * 8, features * 4)  # pin: channel multiplier
+        self.upconv2 = nn.ConvTranspose2d(
+            features * 4,  # pin: channel multiplier
+            features * 2,
+            2,
+            stride=2,
+        )
+        self.decoder2 = DoubleConv(features * 4, features * 2)  # pin: channel multiplier
         self.upconv1 = nn.ConvTranspose2d(features * 2, features, 2, stride=2)
         self.decoder1 = DoubleConv(features * 2, features)
 
@@ -292,7 +306,7 @@ def build_run_metadata(
 ) -> dict[str, str]:
     """Generates immutable run metadata triple {lakeFS commit, git SHA, config hash}."""
     cfg_json = json.dumps(config_dict, sort_keys=True)
-    cfg_hash = hashlib.sha256(cfg_json.encode("utf-8")).hexdigest()[:16]
+    cfg_hash = hashlib.sha256(cfg_json.encode("utf-8")).hexdigest()[:16]  # pin: truncated hash
     return {
         "lakefs_commit_id": lakefs_commit,
         "git_sha": git_sha,

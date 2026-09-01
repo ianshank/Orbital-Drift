@@ -44,7 +44,11 @@ class ModelRegistryOps:
         self.tracking_uri = (
             tracking_uri
             if tracking_uri is not None
-            else (config.mlflow_tracking_uri if config is not None else "http://localhost:5000")
+            else (
+                config.mlflow_tracking_uri
+                if config is not None
+                else "http://localhost:5000"  # pin: fallback default (config-wired above)
+            )
         )
         self._mock_registry: dict[str, dict[int, dict[str, Any]]] = {}
         # register_model_version's version-number assignment (read len(),

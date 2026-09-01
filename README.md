@@ -72,6 +72,7 @@ sh ci/checks.sh projections   # generated planning/ byte-drift check
 sh ci/checks.sh governance    # tests/governance/: guard corpus, meta-tests
 sh ci/checks.sh deps          # dependency contract: pyproject.toml vs src/ imports
 sh ci/checks.sh architecture  # tests/architecture/: import-linter boundary contract
+sh ci/checks.sh hardcode      # orbital_drift.quality.hardcode_scan: no hardcoded values (Principle III)
 ```
 
 `lint`, `typecheck`, `unit`, `contract`, `smoke` and `gitleaks` are FR-011's six
@@ -116,8 +117,9 @@ The remaining `dead`, `audit`, `specs`, `traceability`, `projections` and
 `governance` stages are not part of FR-011's six either; they extend the same
 contract under the adopt-governance-kit change (see
 `charter/PROJECT-CHARTER.md` and `openspec/changes/adopt-governance-kit/`).
-Two more, `deps` and `architecture`, extend it again under RB-010 Parts 7-8
-(`docs/decision-log.md`) rather than under adopt-governance-kit itself. Run
+Three more, `hardcode`, `deps` and `architecture`, extend it again under
+RB-010 Parts 6-8 (`docs/decision-log.md`) rather than under
+adopt-governance-kit itself. Run
 `sh ci/checks.sh` with an unrecognized stage name to print the current,
 authoritative stage list — it is generated from `STAGE_LABELS` inside the
 script, never hand-copied, so this README cannot silently disagree with what
@@ -235,7 +237,7 @@ The repo runs under the adopt-governance-kit change (Constitution v1.1.0;
 `openspec/changes/adopt-governance-kit/` holds the proposal, design decisions
 D1–D14, spec deltas, and task record):
 
-- **Gates.** `ci/checks.sh` is the canonical runner for all seventeen stages;
+- **Gates.** `ci/checks.sh` is the canonical runner for all eighteen stages;
   the `Makefile` is a thin front-end (`make pre-pr` = `sh ci/checks.sh all`),
   and on a box without GNU make you call checks.sh directly — Linux CI is
   authoritative. The zero-skip conftest escalates any parked skip; the
@@ -244,10 +246,12 @@ D1–D14, spec deltas, and task record):
   drift checks are all stages, and `tests/governance/` — the guard regression
   corpus and the meta-tests that watch the process — runs under its own
   `governance` stage rather than being attributed to a red `coverage` job
-  whose bare `pytest tests` invocation happens to collect it too. Two more
-  (RB-010 Parts 7-8): `deps` reconciles `pyproject.toml`'s declared
-  dependencies against the imports `src/orbital_drift` actually makes
-  (`orbital_drift.quality.dep_contract`), and `architecture` runs
+  whose bare `pytest tests` invocation happens to collect it too. Three more
+  (RB-010 Parts 6-8): `hardcode` runs `orbital_drift.quality.hardcode_scan`
+  over `src/orbital_drift` (Constitution Principle III, "No Hardcoded
+  Values"); `deps` reconciles `pyproject.toml`'s declared dependencies
+  against the imports `src/orbital_drift` actually makes
+  (`orbital_drift.quality.dep_contract`); and `architecture` runs
   `tests/architecture/` — the import-linter `.importlinter` boundary contract,
   independently re-derived via AST.
 - **Control plane.** `charter/PROJECT-CHARTER.md` (constraints C-1…C-6,

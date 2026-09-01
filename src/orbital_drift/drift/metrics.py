@@ -16,7 +16,7 @@ from scipy import stats
 
 from orbital_drift.config import OrbitalDriftConfig
 
-EPSILON: Final[float] = 1e-6
+EPSILON: Final[float] = 1e-6  # pin: statistical smoothing constant, algorithm-intrinsic
 
 # Historical literal defaults (RB-010 Part 5, docs/decision-log.md
 # 2026-09-01). These are what calculate_band_drift/evaluate_scene_drift fall
@@ -26,9 +26,9 @@ EPSILON: Final[float] = 1e-6
 # before config wiring existed) byte-for-byte unaffected. OrbitalDriftConfig
 # gives each the same-valued, documented field: psi_threshold, ks_alpha,
 # psi_moderate_threshold.
-DEFAULT_PSI_THRESHOLD: Final[float] = 0.25
-DEFAULT_KS_ALPHA: Final[float] = 0.05
-DEFAULT_PSI_MODERATE_THRESHOLD: Final[float] = 0.10
+DEFAULT_PSI_THRESHOLD: Final[float] = 0.25  # pin: fallback default (config-wired above)
+DEFAULT_KS_ALPHA: Final[float] = 0.05  # pin: fallback default (config-wired above)
+DEFAULT_PSI_MODERATE_THRESHOLD: Final[float] = 0.10  # pin: fallback default (config-wired above)
 
 
 class BandDriftResult(NamedTuple):
@@ -54,7 +54,7 @@ class DriftReport(NamedTuple):
 def calculate_psi(
     reference: np.ndarray,
     target: np.ndarray,
-    num_bins: int = 10,
+    num_bins: int = 10,  # pin: standard PSI quantile-bin count (see docstring below)
 ) -> float:
     """Calculates standard Population Stability Index (PSI) using quantile binning.
 
@@ -69,11 +69,11 @@ def calculate_psi(
         return 0.0
 
     # Determine quantile bins from reference distribution
-    quantiles = np.linspace(0, 100, num_bins + 1)
+    quantiles = np.linspace(0, 100, num_bins + 1)  # pin: percentile scale is 0-100 by definition
     raw_edges = np.unique(np.percentile(ref, quantiles))
     if len(raw_edges) <= 1:
         val = float(ref[0]) if ref.size > 0 else 0.0
-        delta = 1e-4 if val == 0.0 else abs(val) * 1e-4
+        delta = 1e-4 if val == 0.0 else abs(val) * 1e-4  # pin: degenerate-bin-edge perturbation
         bin_edges = np.array([-np.inf, val - delta, val + delta, np.inf])
     else:
         bin_edges = np.concatenate([[-np.inf], raw_edges[1:-1], [np.inf]])
@@ -89,7 +89,7 @@ def calculate_psi(
     tgt_pct = tgt_pct / np.sum(tgt_pct)
 
     psi_val = np.sum((tgt_pct - ref_pct) * np.log(tgt_pct / ref_pct))
-    return float(np.clip(psi_val, 0.0, 10.0))
+    return float(np.clip(psi_val, 0.0, 10.0))  # pin: PSI ceiling clip, algorithm-intrinsic bound
 
 
 def _resolve_threshold(
@@ -179,7 +179,7 @@ def calculate_band_drift(
     # Uses the caller-supplied `rng` (never global `numpy.random` state) so
     # identical inputs + seed reproduce identical subsamples -- see the
     # `rng` paragraph above.
-    max_samples = 5000
+    max_samples = 5000  # pin: KS-test subsample computational cap, not a drift-decision threshold
     if ref_sample.size > max_samples:
         ref_sample = rng.choice(ref_sample, max_samples, replace=False)
     if tgt_sample.size > max_samples:
