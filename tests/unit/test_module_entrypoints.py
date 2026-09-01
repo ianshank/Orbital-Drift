@@ -126,6 +126,30 @@ def _hardcode_scan_invocation(tmp_path: Path) -> _Invocation:
     )
 
 
+def _dep_contract_invocation(tmp_path: Path) -> _Invocation:
+    """Build a failing dependency-contract CLI run over only synthetic source.
+
+    RB-010 Part 7. Same shape as ``_hardcode_scan_invocation`` immediately
+    above: a synthetic import with no matching declaration anywhere in a
+    synthetic pyproject.toml is the exact PR#16 failure mode this module
+    exists to catch, and it is cheap to arrange from argv alone.
+    """
+    target = tmp_path / "candidate.py"
+    target.write_text("import definitely_never_declared_anywhere\n", encoding="utf-8")
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text("[project]\nname = 'entrypoint-case'\n", encoding="utf-8")
+    return _Invocation(
+        [
+            str(target),
+            "--pyproject",
+            str(pyproject),
+            "--format",
+            "json",
+            "--fail-on-undeclared",
+        ]
+    )
+
+
 #: (id, module, invocation builder, expected process exit code).
 #:
 #: Each module gets its real gate invocation. Where a FAILING run is cheap to
@@ -208,6 +232,12 @@ _CASES: tuple[_Case, ...] = (
         "hardcode-scan-finds-literal",
         "orbital_drift.quality.hardcode_scan",
         _hardcode_scan_invocation,
+        1,
+    ),
+    _Case(
+        "dep-contract-finds-undeclared-import",
+        "orbital_drift.quality.dep_contract",
+        _dep_contract_invocation,
         1,
     ),
 )

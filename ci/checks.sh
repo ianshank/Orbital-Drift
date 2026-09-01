@@ -163,7 +163,7 @@ PYTHON="${PYTHON:-python}"
 # the pin-coverage self-check below can iterate them without re-parsing the
 # case, and so tests/unit/test_ci_contract.py can assert this list, the dispatch
 # and .github/workflows/ci.yml all describe the same set of stages.
-STAGE_LABELS='lint typecheck unit contract smoke coverage gitleaks hooks dead audit specs traceability projections governance all'
+STAGE_LABELS='lint typecheck unit contract smoke coverage gitleaks hooks dead audit specs traceability projections governance deps architecture all'
 
 log() { printf '\n\033[1m>>> %s\033[0m\n' "$*"; }
 
@@ -180,7 +180,7 @@ log() { printf '\n\033[1m>>> %s\033[0m\n' "$*"; }
 # this line. MEASURED under PATH="" in dash AND bash, with a bare `tr`: the
 # substitution yields nothing and the operator gets `tr: not found` followed by
 # `usage: sh ci/checks.sh <>`, i.e. an error about a helper they never invoked
-# plus a usage message naming zero of the fifteen stages, exactly when this
+# plus a usage message naming zero of the seventeen stages, exactly when this
 # message is the only thing still working. `-p` resolves tr from the standard
 # utilities path (`getconf PATH`) instead of PATH, so the list renders either
 # way. Do not "simplify" the `-p` away; pinned by
@@ -344,6 +344,16 @@ stage_python_pins() {
     traceability)        printf 'pytest\n' ;;
     projections)         ;;
     governance)          printf 'pytest\n' ;;
+    # deps: orbital_drift.quality.dep_contract is stdlib-only (tomllib + ast +
+    # sys.stdlib_module_names) — no pinned distribution to assert, same
+    # rationale as projections/specs. It still EXECUTES Python (RB-008 F2), so
+    # it is deliberately absent from stage_runs_python's exempt arm below.
+    deps)                 ;;
+    # architecture: mirrors contract/smoke exactly. tests/architecture shells
+    # out to the pinned `import-linter` CLI itself, from inside the pytest
+    # run — the same reason `traceability` claims pytest for a stage that also
+    # shells out to a second tool.
+    architecture)        printf 'pytest\n' ;;
     # `all` must list the UNION of every arm above. Not cosmetic: preflight()
     # prints its banner when a stage needs a tool not yet logged, so omitting
     # the two coverage pins here makes `all` print a second banner when
@@ -2226,6 +2236,41 @@ stage_governance() {
 }
 
 # -----------------------------------------------------------------------------
+# Stage: deps  (orbital_drift.quality.dep_contract — Constitution IV
+# dependency contract; RB-010 Part 7)
+#
+# PR#16's exact failure mode, mechanised: an import present under
+# src/orbital_drift with no declaration anywhere in pyproject.toml. Follows the
+# dead/audit pattern — a single pinned-interpreter module invocation, no Docker
+# or git dependency. Pure-stdlib (tomllib + ast + sys.stdlib_module_names), so
+# this stage declares no pinned DISTRIBUTION (see stage_python_pins' `deps`
+# arm) — same rationale as projections/specs — but it still executes Python,
+# so its interpreter is verified like any other stage (stage_runs_python).
+# -----------------------------------------------------------------------------
+stage_deps() {
+  preflight deps
+  log "deps — orbital_drift.quality.dep_contract (dependency contract, Constitution IV)"
+  "${PYTHON}" -m orbital_drift.quality.dep_contract
+}
+
+# -----------------------------------------------------------------------------
+# Stage: architecture  (tests/architecture — import-linter boundary contract;
+# RB-010 Part 8)
+#
+# Mirrors stage_contract exactly: same suite runner, same preflight (pytest
+# only — see stage_python_pins' `architecture` arm). tests/architecture/
+# test_import_boundaries.py shells out to the pinned `lint-imports` CLI
+# (import-linter, a [dev] dependency) AND independently re-derives the same
+# domain/ports boundary via ast.walk, so a passing run here proves both the
+# CONFIGURED contract (.importlinter) and the AST-level FACT agree.
+# -----------------------------------------------------------------------------
+stage_architecture() {
+  preflight architecture
+  log "architecture — pytest ${PYTEST_VERSION} (tests/architecture, import-linter boundary contract)"
+  pytest_suite tests/architecture "architecture suite"
+}
+
+# -----------------------------------------------------------------------------
 # Stage: traceability  (requirement-traceability matrix lint; design D3)
 #
 # Claims the pytest pin because the linter shells out to
@@ -2272,6 +2317,12 @@ stage_all() {
   stage_traceability
   stage_projections
   stage_governance
+  # ...then the two RB-010 CI-wiring stages (Parts 7-8): the dependency
+  # contract and the import-linter boundary contract. Both belong in this same
+  # governance-extension group; order relative to each other is arbitrary,
+  # order relative to stage_hooks (last) is not — see below.
+  stage_deps
+  stage_architecture
   # ...then the hook enforcement stage. Last, because pre-commit hooks may
   # rewrite files (end-of-file-fixer, trailing-whitespace, ruff --fix) and must
   # not be able to influence a gate that already ran. That rewriting is also why
@@ -2334,6 +2385,8 @@ case "${1:-all}" in
   traceability) stage_traceability ;;
   projections)  stage_projections ;;
   governance)   stage_governance ;;
+  deps)         stage_deps ;;
+  architecture) stage_architecture ;;
   all)       stage_all ;;
   *)
     printf 'unknown stage: %s\n' "$1" >&2

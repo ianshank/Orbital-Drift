@@ -23,13 +23,16 @@
 # is the dependency-graph expression of the ports-and-adapters boundary:
 # `dependencies` is what the configuration spine needs to exist at all, and each
 # extra is one adapter's third-party surface. `orbital_drift.quality.dep_contract`
-# -- which would reconcile this table against the imports actually present in
-# src/ on every run of a `deps` gate -- is PLANNED, not built: it does not exist
-# today, there is no `deps` CI stage, and there is no
-# tests/unit/test_dependency_contract.py (confirmed by search). Completing it is
-# RB-010 Part 7 (docs/decision-log.md); until it lands, this table is reconciled
-# against src/ imports by hand-review only, so this class of defect can recur
-# silently.
+# reconciles this table against the imports actually present under src/ on
+# every run of the `deps` CI stage (RB-010 Part 7, docs/decision-log.md
+# 2026-09-01 -- this paragraph previously described the module, the stage and
+# its test file as not yet built; all three now exist:
+# src/orbital_drift/quality/dep_contract.py, ci/checks.sh's `deps` stage, and
+# tests/unit/test_dependency_contract.py, whose own positive control runs the
+# scanner against this exact table and the real src/ tree and asserts zero
+# undeclared-import findings). This class of defect -- an import landing with
+# no matching declaration anywhere here -- is caught mechanically now, not
+# only by hand-review.
 #
 # Every pin below was verified against a live index; see
 # docs/decisions/versions.md for the platform-side pins and the pinning
@@ -69,8 +72,13 @@ dependencies = [
 # One extra per adapter surface. A module that imports one of these libraries
 # belongs to that adapter and is declared here, never in `dependencies`, so the
 # domain layer's independence from frameworks is visible in the dependency graph
-# and not merely asserted in prose. `[tool.orbital_drift.dependency_contract]`
-# below maps modules to extras and the `deps` gate enforces the mapping.
+# and not merely asserted in prose. `orbital_drift.quality.dep_contract`
+# (RB-010 Part 7, docs/decision-log.md 2026-09-01) reconciles every import
+# under src/ against this table -- core plus every extra below, [dev] included
+# -- rather than against a separate per-module-to-extra mapping table; no such
+# table (this comment previously named one, `[tool.orbital_drift.
+# dependency_contract]`, that was never built) exists in this file, and none
+# is needed for that reconciliation to work.
 
 # STAC catalogue + tile store I/O.
 ingest = [
@@ -141,11 +149,12 @@ dev = [
   # citation; this line previously cited "RB-009", the unrelated
   # PreToolUse-guard fail-open fix). Mechanically verifies the ports-and-adapters
   # hexagon via .importlinter contracts; the same rule is independently
-  # re-derived from the AST by tests/architecture/test_import_boundaries.py,
-  # because a linter nobody wired into CI enforces nothing -- confirmed: no
-  # `import-linter`/`lint-imports` invocation exists anywhere in ci/checks.sh.
-  # CI-wiring the `import-linter` CLI itself as its own stage is RB-010 Part 8,
-  # not yet done.
+  # re-derived from the AST by tests/architecture/test_import_boundaries.py.
+  # `ci/checks.sh`'s `architecture` stage (RB-010 Part 8, docs/decision-log.md
+  # 2026-09-01) now runs that suite in CI -- which is what actually invokes the
+  # `lint-imports` CLI this distribution installs. A linter nobody wires into
+  # CI enforces nothing; before this stage landed, no invocation of
+  # `import-linter`/`lint-imports` existed anywhere in ci/checks.sh.
   "import-linter==2.13",
   # Property-based testing for the canonical-hash and round-trip invariants,
   # where example-based tests cannot cover the input space that matters.
@@ -158,10 +167,14 @@ dev = [
   # both import -- raises RuntimeError at import time without this. It is a
   # TEST-ONLY dependency of the serve adapter, so it belongs in [dev] and NOT
   # in the `serve` extra: a production deployment must not carry a test client.
-  # This is precisely the case a `deps` gate should catch: dep_contract would
-  # classify imports reached only from tests/ as dev-scoped. Neither exists yet
-  # (RB-010 Part 7, docs/decision-log.md 2026-09-01) -- this placement is
-  # correct by hand-review only until then.
+  # dep_contract (RB-010 Part 7, docs/decision-log.md 2026-09-01, now built)
+  # scans src/orbital_drift only, never tests/, so it reports httpx2 as a DEAD
+  # declaration (declared, never imported under src/) rather than distinguishing
+  # "used only from tests" from "used nowhere" -- advisory, non-failing, and
+  # weaker than the src/-vs-tests/-scoped check this comment used to describe
+  # as a plan. This placement remains correct by hand-review; a scanner that
+  # also walks tests/ to make that distinction mechanically is a possible
+  # future sharpening, not something the `deps` gate claims today.
   "httpx2==2.12.0",
   # Adapter extras, restated (see note above).
   "requests==2.34.2",

@@ -4,9 +4,15 @@ root_packages =
 include_external_packages = True
 
 # TODO(phase-1-adapters): expand this scoped additive contract to the intended
-# full sequence serve -> adapters -> quality/observability -> config -> ports ->
-# domain once the existing flat modules have been migrated into those packages.
-# The repository currently has no quality package and config is a flat module.
+# full sequence serve -> quality/observability -> config -> ports -> domain
+# once the existing flat modules have been migrated into those packages. The
+# repository now has a quality package (hardcode_scan.py, dep_contract.py —
+# RB-010 Part 7) and config is still a flat module. There is no `adapters/`
+# package in this repository and none is planned; `ports/` is the real
+# hexagonal package (already a layer in the contract below) — a hexagonal
+# adapter, once one exists, is wired there or alongside the existing
+# pipeline-stage package it serves (registry/, drift/, ...), not under a
+# separate top-level `adapters/` directory (RB-010 Part 8 correction).
 [importlinter:contract:layers]
 name = New core ports depend only on the domain
 type = layers

@@ -209,7 +209,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        stage: [lint, typecheck, unit, contract, smoke, coverage, dead, audit, specs, traceability, projections, governance]
+        stage: [lint, typecheck, unit, contract, smoke, coverage, dead, audit, specs, traceability, projections, governance, deps, architecture]
     name: ${{ matrix.stage }}
     steps:
       - name: Checkout
