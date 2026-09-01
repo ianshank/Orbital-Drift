@@ -15,12 +15,29 @@ from orbital_drift.train.baseline import SimpleUNet
 
 @pytest.mark.contract
 def test_serving_healthz_and_metrics_endpoints() -> None:
-    """Probes /healthz and /metrics HTTP endpoints."""
+    """Probes /healthz and /metrics HTTP endpoints.
+
+    RB-010 Part 13: /healthz is no longer unconditionally "ok" -- it is
+    honest about whether a production model is actually loaded. Both states
+    are exercised here explicitly (rather than relying on suite ordering
+    against the shared module-level `container` singleton), mirroring the
+    reset-then-assert pattern already used in
+    tests/unit/test_serving_edge_cases.py's `test_predict_503_when_no_production_model_loaded`.
+    """
     client = TestClient(app)
 
-    res_health = client.get("/healthz")
-    assert res_health.status_code == 200
-    assert res_health.json()["status"] == "ok"
+    # No production model loaded -> degraded, not-ready.
+    container.production_model = None
+    res_health_degraded = client.get("/healthz")
+    assert res_health_degraded.status_code == 503
+    assert res_health_degraded.json()["status"] == "degraded"
+
+    # Production model loaded -> ok.
+    prod_model = SimpleUNet(in_channels=4, num_classes=3, init_features=8)
+    container.set_models(production=prod_model, prod_version=1)
+    res_health_ok = client.get("/healthz")
+    assert res_health_ok.status_code == 200
+    assert res_health_ok.json()["status"] == "ok"
 
     res_metrics = client.get("/metrics")
     assert res_metrics.status_code == 200

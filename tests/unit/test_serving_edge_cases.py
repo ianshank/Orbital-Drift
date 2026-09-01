@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import logging
+import uuid
+
 import numpy as np
 import pytest
 import torch
+import torch.nn as nn
 from fastapi.testclient import TestClient
 
+import orbital_drift.serve.app as serve_app_module
 from orbital_drift.config import OrbitalDriftConfig
-from orbital_drift.serve.app import ModelContainer, _resolve_serve_device, app, container
+from orbital_drift.serve.app import (
+    InferenceRequest,
+    ModelContainer,
+    _resolve_serve_device,
+    app,
+    container,
+)
 from orbital_drift.train.baseline import SimpleUNet
 
 # Not real credentials -- fixed test doubles for the required lakeFS fields,
@@ -85,6 +96,133 @@ def test_canary_routing_boundary_ratios() -> None:
     resp_staging = client.post("/predict", json={"request_id": "r1", "image_array": img_data})
     assert resp_staging.status_code == 200
     assert resp_staging.json()["served_by_model"] == "Staging"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RB-010 Part 13: serve/app.py baseline hardening. Four confirmed defects from
+# this session's SDLC review: (1) no size/shape bound on InferenceRequest,
+# (2) raw exception text leaked into the HTTP `detail` field, (3) /healthz
+# reported "ok" even with no model loaded, (4) request_id's fixed
+# 'req-001' default looked like leftover fixture data. See docs/decision-log.md
+# RB-010's Part 13 line and serve/app.py's inline comments for full rationale.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class _RaisingModel(nn.Module):
+    """Test double whose forward() raises with a distinctive message that must
+    never reach an HTTP response body (item 2: exception detail leakage)."""
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:  # noqa: ARG002 -- test double, signature only
+        raise RuntimeError("SECRET_INTERNAL_TRACEBACK_DETAIL_zzz789")
+
+
+def test_max_image_elements_ceiling_matches_documented_derivation() -> None:
+    """Pins `_MAX_IMAGE_ELEMENTS`'s documented derivation (config.py's
+    `patch_size` default of 256px * Sentinel-2's 13-band max * 4x headroom)
+    so the ceiling can't silently drift from the comment that justifies it.
+    """
+    assert serve_app_module._MAX_IMAGE_ELEMENTS == 256 * 256 * 13 * 4
+    assert serve_app_module._MAX_IMAGE_ELEMENTS == 3_407_872
+
+
+def test_predict_422_on_oversized_image_array(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Item 1: an oversized image_array must be rejected by pydantic
+    validation (422) before predict() ever builds a numpy array / runs a
+    torch forward pass on it -- not accepted and processed.
+
+    The real ceiling (`_MAX_IMAGE_ELEMENTS`, several million elements) is
+    monkeypatched down here so the test stays fast while exercising the
+    exact same `InferenceRequest` validator that guards the real default;
+    `test_max_image_elements_ceiling_matches_documented_derivation` above
+    separately pins that real default value.
+    """
+    monkeypatch.setattr(serve_app_module, "_MAX_IMAGE_ELEMENTS", 4)
+    model = SimpleUNet(in_channels=1, num_classes=2, init_features=8)
+    container.set_models(production=model, prod_version=1)
+    client = TestClient(app)
+
+    # 1 channel * 2 rows * 3 cols = 6 elements > the monkeypatched ceiling of 4.
+    payload = {
+        "request_id": "req-oversized",
+        "image_array": [[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]],
+    }
+    response = client.post("/predict", json=payload)
+    assert response.status_code == 422
+
+
+def test_predict_400_masks_internal_exception_detail(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Item 2: the raw exception text must not leak into the HTTP response
+    body; it must be logged server-side (with the request_id for
+    correlation) instead."""
+    model = _RaisingModel()
+    container.set_models(production=model, prod_version=1)
+    client = TestClient(app)
+
+    payload = {
+        "request_id": "req-exc-leak-check",
+        "image_array": np.random.rand(1, 4, 4).tolist(),
+    }
+    with caplog.at_level(logging.ERROR, logger="orbital_drift.serve.app"):
+        response = client.post("/predict", json=payload)
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "SECRET_INTERNAL_TRACEBACK_DETAIL_zzz789" not in response.text
+    assert "req-exc-leak-check" in detail  # correlation id still surfaced to the client
+
+    # The full detail IS logged server-side, just not returned to the client.
+    assert "SECRET_INTERNAL_TRACEBACK_DETAIL_zzz789" in caplog.text
+
+
+def test_healthz_reports_not_ready_without_production_model() -> None:
+    """Item 3: /healthz must not report "ok" before a production model is
+    loaded -- `container.production_model` is `None` from process start
+    until `set_models()` is called."""
+    container.production_model = None
+    client = TestClient(app)
+
+    response = client.get("/healthz")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] != "ok"
+    assert body["reason"] == "no production model loaded"
+
+
+def test_healthz_reports_ok_once_production_model_loaded() -> None:
+    """Item 3, positive case: once a production model is loaded, /healthz
+    reports ok again."""
+    model = SimpleUNet(in_channels=1, num_classes=2, init_features=8)
+    container.set_models(production=model, prod_version=1)
+    client = TestClient(app)
+
+    response = client.get("/healthz")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_default_request_id_is_server_generated_and_not_the_old_fixture_value() -> None:
+    """Item 4: request_id no longer defaults to the fixed 'req-001'
+    fixture-looking value; the server generates a fresh, unique identifier
+    per request when the caller omits one, since it's echoed back in
+    InferenceResponse and used for client/server error-log correlation
+    (predict()'s exception handler) -- a shared constant default would
+    collide across concurrent unlabeled requests and defeat that purpose."""
+    req_a = InferenceRequest(image_array=[[[0.1]]])
+    req_b = InferenceRequest(image_array=[[[0.1]]])
+
+    assert req_a.request_id != "req-001"
+    assert req_a.request_id != req_b.request_id
+    # Server-generated ids are valid uuid4 hex strings.
+    assert uuid.UUID(hex=req_a.request_id).version == 4
+
+
+def test_explicit_request_id_is_still_honored() -> None:
+    """Item 4 must not regress the existing contract: a caller-supplied
+    request_id is still used verbatim, not overridden."""
+    req = InferenceRequest(image_array=[[[0.1]]], request_id="caller-supplied-id")
+    assert req.request_id == "caller-supplied-id"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
