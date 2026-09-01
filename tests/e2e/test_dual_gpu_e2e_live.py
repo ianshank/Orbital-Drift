@@ -53,7 +53,7 @@ def test_live_dual_gpu_continuous_training_and_serving_e2e(tmp_path: Path) -> No
         serve_device=serve_device,
         tile_store_path=tmp_path / "tiles",
         lakefs_access_key="test-access-value",
-        lakefs_secret_key="test-secret-value",
+        lakefs_secret_key="test-secret-value",  # noqa: S106 -- test fixture, not a real credential
     )
 
     tile_store = TileStore(base_dir=config.tile_store_path)
