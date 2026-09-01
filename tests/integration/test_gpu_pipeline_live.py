@@ -94,8 +94,9 @@ def test_live_gpu_drift_calculation_on_tensors() -> None:
     clean_np = tgt_clean.cpu().numpy()
     drifted_np = tgt_drifted.cpu().numpy()
 
-    clean_res = calculate_band_drift(ref_np, clean_np, band_name="B04")
-    drift_res = calculate_band_drift(ref_np, drifted_np, band_name="B04")
+    drift_rng = np.random.default_rng(0)
+    clean_res = calculate_band_drift(ref_np, clean_np, band_name="B04", rng=drift_rng)
+    drift_res = calculate_band_drift(ref_np, drifted_np, band_name="B04", rng=drift_rng)
 
     logger.info("Clean PSI: %.4f (Drift: %s)", clean_res.psi, clean_res.is_drifted)
     logger.info("Shifted PSI: %.4f (Drift: %s)", drift_res.psi, drift_res.is_drifted)

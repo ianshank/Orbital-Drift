@@ -12,8 +12,20 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # ORBITAL_DRIFT_SERVE_DEVICE matches OrbitalDriftConfig.serve_device
+      # (env_prefix "ORBITAL_DRIFT_" + field name "SERVE_DEVICE") -- verified
+      # correct as-is, RB-010 Part 5.
       - ORBITAL_DRIFT_SERVE_DEVICE=cpu
-      - ORBITAL_DRIFT_SERVE_PORT=8000
+      # Renamed from ORBITAL_DRIFT_SERVE_PORT (RB-010 Part 5): the config
+      # field is `serving_port`, not `serve_port`, so pydantic-settings with
+      # env_prefix "ORBITAL_DRIFT_" only ever read ORBITAL_DRIFT_SERVING_PORT
+      # -- the old name was silently ignored. The literal port value (8000
+      # here vs. the Dockerfile's own hardcoded 8000 vs. config's default
+      # 8080) and the fact that no code in serve/app.py actually consumes
+      # this env var yet (uvicorn's --port CLI flag in the Dockerfile
+      # ENTRYPOINT is what really binds the port) are RB-010 Part 12's
+      # (Dockerfile build fix) scope, not this one's.
+      - ORBITAL_DRIFT_SERVING_PORT=8000
       - ORBITAL_DRIFT_SERVE_HOST=0.0.0.0
       - ORBITAL_DRIFT_CANARY_RATIO=0.1
     healthcheck:

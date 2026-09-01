@@ -17,6 +17,8 @@ import torch.nn as nn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from orbital_drift.config import OrbitalDriftConfig
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -48,8 +50,25 @@ class InferenceResponse(BaseModel):
 class ModelContainer:
     """Holds active model instances for Production and Staging candidate."""
 
-    def __init__(self, device: str = "cpu") -> None:
-        self.device = device
+    def __init__(
+        self,
+        device: str | None = None,
+        config: OrbitalDriftConfig | None = None,
+    ) -> None:
+        """Initializes the container.
+
+        `device` resolves with precedence (RB-010 Part 5: per-module config
+        wiring): explicit argument > `config.serve_device` > this
+        constructor's own pre-existing hardcoded `"cpu"` default. This is
+        independent of the module-level `dev`/`_resolve_serve_device`
+        heuristic below -- the OTHER hardcoded device rule this file
+        carried (see that function's docstring for why) -- so passing
+        neither `device` nor `config` here reproduces this constructor's own
+        original `"cpu"` default exactly, unchanged.
+        """
+        self.device = (
+            device if device is not None else (config.serve_device if config is not None else "cpu")
+        )
         self.production_model: nn.Module | None = None
         self.production_version: int = 1
         self.staging_model: nn.Module | None = None
@@ -70,17 +89,54 @@ class ModelContainer:
         prod_version: int = 1,
         staging: nn.Module | None = None,
         staging_version: int = 2,
-        canary_ratio: float = 0.10,
+        canary_ratio: float | None = None,
+        config: OrbitalDriftConfig | None = None,
     ) -> None:
+        """Loads Production/Staging models and sets the canary ratio.
+
+        `canary_ratio` resolves with precedence (RB-010 Part 5: per-module
+        config wiring): explicit argument > `config.canary_ratio` > the
+        pre-existing hardcoded `0.10` default.
+        """
         self.production_model = production.to(self.device).eval()
         self.production_version = prod_version
         if staging is not None:
             self.staging_model = staging.to(self.device).eval()
             self.staging_version = staging_version
-        self.canary_ratio = canary_ratio
+        self.canary_ratio = (
+            canary_ratio
+            if canary_ratio is not None
+            else (config.canary_ratio if config is not None else 0.10)
+        )
 
 
-dev = "cuda:1" if torch.cuda.is_available() and torch.cuda.device_count() > 1 else "cpu"
+def _resolve_serve_device(config: OrbitalDriftConfig | None = None) -> str:
+    """Resolves the module-level default serving device.
+
+    Precedence (RB-010 Part 5: per-module config wiring): `config.serve_device`
+    when a config is supplied, else the pre-existing hardcoded multi-GPU
+    heuristic, unchanged (`"cuda:1"` when a second GPU is visible, else
+    `"cpu"`) -- the SECOND, independently-written device-selection rule this
+    file carried alongside `train/baseline.py`'s own `_resolve_device`.
+
+    Deliberately does NOT call `get_config()`/load a config itself: this
+    function seeds the module-level `container` singleton at IMPORT time (see
+    `dev = _resolve_serve_device()` below), and `OrbitalDriftConfig` requires
+    lakeFS credentials with no default (RB-010 Part 4) -- an unconditional
+    `get_config()` here would turn every `import orbital_drift.serve.app`
+    into a hard, fail-fast dependency on those credentials being configured,
+    breaking every existing test that imports `app`/`container` without
+    setting them. RB-010 Part 13 (serve/app.py baseline hardening, which
+    depends on this part) owns actually loading config at process startup
+    and rebuilding the container from it; this function only makes that
+    wiring *possible*.
+    """
+    if config is not None:
+        return config.serve_device
+    return "cuda:1" if torch.cuda.is_available() and torch.cuda.device_count() > 1 else "cpu"
+
+
+dev = _resolve_serve_device()
 container = ModelContainer(device=dev)
 
 

@@ -11,7 +11,22 @@ from typing import Any, Final
 
 import pytest
 
+from orbital_drift.config import OrbitalDriftConfig
 from orbital_drift.registry.ops import ModelRegistryOps
+
+# Not real credentials -- fixed test doubles for the required lakeFS fields,
+# matching tests/unit/test_config.py's `_construct_with_valid_credentials`
+# pattern. Used only by TestMlflowTrackingUriConfigWiring below.
+_TEST_ACCESS_KEY = "unit-test-access-value"
+_TEST_SECRET_KEY = "unit-test-secret-value"  # noqa: S105 -- test double, not a real secret
+
+
+def _build_config(**overrides: object) -> OrbitalDriftConfig:
+    return OrbitalDriftConfig(
+        lakefs_access_key=_TEST_ACCESS_KEY,
+        lakefs_secret_key=_TEST_SECRET_KEY,
+        **overrides,  # type: ignore[arg-type]
+    )
 
 
 def test_register_model_version_increments_versions() -> None:
@@ -299,3 +314,41 @@ class TestArchiveExistingFalseDuplicateProduction:
         v1 = reg.register_model_version("unet-s2", "run-101")
         assert reg.transition_stage("unet-s2", v1, "Production", archive_existing=False) is True
         assert reg.get_stage_version("unet-s2", "Production") == v1
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RB-010 Part 5: per-module config wiring. `tracking_uri` resolves with
+# precedence: explicit constructor argument > `config.mlflow_tracking_uri` >
+# the pre-existing hardcoded `"http://localhost:5000"` default -- so a caller
+# that passes neither sees identical behaviour to before this fix. Purely
+# additive on top of Part 10's locking/target_stage validation above; neither
+# is touched here. See docs/decision-log.md RB-010.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestMlflowTrackingUriConfigWiring:
+    def test_default_tracking_uri_unchanged_without_config(self) -> None:
+        """Positive control: the exact pre-existing zero-arg construction."""
+        reg = ModelRegistryOps()
+        assert reg.tracking_uri == "http://localhost:5000"
+
+    def test_config_supplies_tracking_uri_when_omitted(self) -> None:
+        cfg = _build_config(mlflow_tracking_uri="http://mlflow.internal:5001")
+        reg = ModelRegistryOps(config=cfg)
+        assert reg.tracking_uri == "http://mlflow.internal:5001"
+
+    def test_explicit_tracking_uri_overrides_config(self) -> None:
+        cfg = _build_config(mlflow_tracking_uri="http://mlflow.internal:5001")
+        reg = ModelRegistryOps(tracking_uri="http://explicit-override:9999", config=cfg)
+        assert reg.tracking_uri == "http://explicit-override:9999"
+
+    def test_config_wiring_does_not_disturb_lock_or_registry_state(self) -> None:
+        """Guards the 'purely additive' claim: a config-constructed instance
+        still has a working lock and an empty registry, exactly like the
+        zero-arg constructor -- Part 10's `self._lock` is untouched."""
+        cfg = _build_config(mlflow_tracking_uri="http://mlflow.internal:5001")
+        reg = ModelRegistryOps(config=cfg)
+        assert isinstance(reg._lock, type(threading.Lock()))
+        assert reg._mock_registry == {}
+        v1 = reg.register_model_version("unet-s2", "run-101")
+        assert v1 == 1

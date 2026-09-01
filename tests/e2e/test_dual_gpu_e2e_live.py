@@ -63,6 +63,7 @@ def test_live_dual_gpu_continuous_training_and_serving_e2e(tmp_path: Path) -> No
         hysteresis_window=config.drift_hysteresis_window,
         cooldown_scenes=config.drift_cooldown_scenes,
     )
+    drift_rng = np.random.default_rng(0)
 
     # -------------------------------------------------------------------------
     # Stage 1: Ingestion & SCL Cloud Masking
@@ -152,7 +153,9 @@ def test_live_dual_gpu_continuous_training_and_serving_e2e(tmp_path: Path) -> No
     tile_store.save_scene("scene-drift-001", bands_drifted)
     lakefs.commit_scene("scene-drift-001")
     drift_arr1, _ = tile_store.load_scene("scene-drift-001")
-    rep1 = evaluate_scene_drift(base_arr, drift_arr1, psi_threshold=config.psi_threshold)
+    rep1 = evaluate_scene_drift(
+        base_arr, drift_arr1, rng=drift_rng, psi_threshold=config.psi_threshold
+    )
     dec1 = trigger_mgr.process_scene_verdict(rep1.overall_drift_detected, "scene-drift-001")
     assert dec1.should_trigger is False  # 1/3
 
@@ -160,7 +163,9 @@ def test_live_dual_gpu_continuous_training_and_serving_e2e(tmp_path: Path) -> No
     tile_store.save_scene("scene-drift-002", bands_drifted)
     lakefs.commit_scene("scene-drift-002")
     drift_arr2, _ = tile_store.load_scene("scene-drift-002")
-    rep2 = evaluate_scene_drift(base_arr, drift_arr2, psi_threshold=config.psi_threshold)
+    rep2 = evaluate_scene_drift(
+        base_arr, drift_arr2, rng=drift_rng, psi_threshold=config.psi_threshold
+    )
     dec2 = trigger_mgr.process_scene_verdict(rep2.overall_drift_detected, "scene-drift-002")
     assert dec2.should_trigger is False  # 2/3
 
@@ -168,7 +173,9 @@ def test_live_dual_gpu_continuous_training_and_serving_e2e(tmp_path: Path) -> No
     tile_store.save_scene("scene-drift-003", bands_drifted)
     commit_drift3 = lakefs.commit_scene("scene-drift-003")
     drift_arr3, _ = tile_store.load_scene("scene-drift-003")
-    rep3 = evaluate_scene_drift(base_arr, drift_arr3, psi_threshold=config.psi_threshold)
+    rep3 = evaluate_scene_drift(
+        base_arr, drift_arr3, rng=drift_rng, psi_threshold=config.psi_threshold
+    )
     dec3 = trigger_mgr.process_scene_verdict(rep3.overall_drift_detected, "scene-drift-003")
     assert dec3.should_trigger is True  # 3/3 -> Fired!
     logger.info("Continuous Training Retrain Event Emitted: %s", dec3.reason)

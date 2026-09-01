@@ -10,6 +10,8 @@ import logging
 import threading
 from typing import Any, Final, Literal, get_args
 
+from orbital_drift.config import OrbitalDriftConfig
+
 logger = logging.getLogger(__name__)
 
 StageName = Literal["None", "Staging", "Production", "Archived"]
@@ -25,8 +27,25 @@ _VALID_STAGE_NAMES: Final[frozenset[str]] = frozenset(get_args(StageName))
 class ModelRegistryOps:
     """Manages MLflow model stages and rollback operations."""
 
-    def __init__(self, tracking_uri: str = "http://localhost:5000") -> None:
-        self.tracking_uri = tracking_uri
+    def __init__(
+        self,
+        tracking_uri: str | None = None,
+        config: OrbitalDriftConfig | None = None,
+    ) -> None:
+        """Initializes registry state.
+
+        `tracking_uri` resolves with precedence (RB-010 Part 5: per-module
+        config wiring): explicit argument > `config.mlflow_tracking_uri` >
+        the pre-existing hardcoded `"http://localhost:5000"` default -- so a
+        caller that passes neither sees identical behaviour to before this
+        wiring. Purely additive on top of Part 10's locking and
+        `target_stage` validation below; neither is touched here.
+        """
+        self.tracking_uri = (
+            tracking_uri
+            if tracking_uri is not None
+            else (config.mlflow_tracking_uri if config is not None else "http://localhost:5000")
+        )
         self._mock_registry: dict[str, dict[int, dict[str, Any]]] = {}
         # register_model_version's version-number assignment (read len(),
         # then write len()+1) and transition_stage's archive-then-set stage
