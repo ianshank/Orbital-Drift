@@ -1,8 +1,8 @@
-# Full-Suite QA Triage — Baseline, RCA, and Proposed Fixes
+# Full-Suite QA Triage — Baseline, RCA, and Fixes
 
-**Status:** RECORDED — triage/RCA report only. No `src/` change is made by this document or its branch. Each proposed fix below requires separate review approval before it lands, then ships as its own task/PR with a failing regression test first (TDD), per CLAUDE.md's one-task-per-branch rule.
-**Audience:** whichever operator/agent reviews this triage and authorizes the follow-up fix PRs.
-**Authorized by:** `docs/decision-log.md` RB-011.
+**Status:** BOTH FINDINGS RESOLVED. Finding 1 required no code change (confirmed environmental). Finding 2's fix landed on `fix/coverage-positive-control-windows-path-sep` (commit `668dc25`), TDD-verified red→green, with the full `unit` stage re-run green (946 passed, 0 failed). This document itself makes no `src/` change — the fix lives on its own branch per CLAUDE.md's one-task-per-branch rule.
+**Audience:** whichever operator/agent reviews this triage and the linked fix branch.
+**Authorized by:** `docs/decision-log.md` RB-011 (triage) and RB-011a (Finding 1 resolution + Finding 2 fix landed).
 **Measured at:** `main` @ `84d45ed` (fast-forwarded from `63413f8`; 21 commits), branch `qa/full-suite-triage` cut from the same commit with zero diff — so every result below applies unchanged to both.
 **Host:** Windows, dual-GPU (NVIDIA RTX 5060 Ti 16 GB + RTX 5060 8 GB, driver 596.49, CUDA runtime ceiling 13.2), Docker Desktop (server 29.4.2), Git for Windows (MSYS `sh.exe` used for all `ci/checks.sh` invocations — WSL's `bash`/`sh` were deliberately NOT used, since `ci/checks.sh` is written against MSYS-specific path-conversion behavior).
 **Environment note (not a defect, but load-bearing context):** the pre-existing `.venv` carries `torch==2.12.0.dev20260408+cu128` (a CUDA-enabled nightly build with a verified real CUDA kernel launch) rather than the pinned `torch==2.13.0`. A `pip install -e ".[dev]" --dry-run` showed the pinned version would resolve to a wheel with **no `nvidia-cu*` runtime dependencies** — almost certainly a CPU-only build — which would have silently disabled every GPU-gated test via vacuous `capability-guard:` skips. To keep the GPU tiers meaningful, the full `[dev]` install was **not** run; only the three genuinely-missing packages (`httpx2==2.12.0`, `httpcore2==2.12.0`, `truststore==0.10.4`) plus the local editable package were installed, leaving `torch`/`torchvision` untouched. This choice is why Finding 1 below carries an environment caveat.
@@ -14,45 +14,44 @@
 | specs | PASS | no structural issues |
 | projections | PASS | no byte-drift |
 | lint | PASS | ruff clean, 163 files formatted |
-| typecheck | **FAIL** | 2 errors, see Finding 1 (environment-caveated) |
+| typecheck | FAIL on this host / PASSES on the pinned dependency | 2 errors, see Finding 1 — confirmed environmental, resolved, no code change |
 | dead | PASS | vulture clean |
 | audit | PASS | no known vulnerabilities (benign PyPI-resolution skips for torch/torchvision/orbital-drift, expected given the environment note above) |
 | traceability | PASS | no problems |
 | governance | PASS | 163 passed |
 | contract | PASS | 37 passed, 1 benign warning |
 | smoke | PASS | declared-empty, tolerated |
-| unit | **FAIL** | 943 passed, 2 failed (Finding 2), 2 legitimate capability-guard skips |
+| unit | FAIL at baseline / PASS after fix | 943 passed, 2 failed (Finding 2) at baseline; 946 passed, 0 failed on `fix/coverage-positive-control-windows-path-sep` (new regression test included); 2 legitimate capability-guard skips throughout |
 | gitleaks | PASS | clean |
 | hooks | PASS | `pre-commit run --all-files` clean |
-| coverage | **FAIL** | 1153 passed, 2 failed (same as Finding 2), 2 legitimate skips; global floor met at 98.89% (≥85% required); **GPU tiers (sanity/integration/e2e) executed for real and all passed** |
+| coverage | FAIL at baseline (fix not yet re-measured under this stage) | 1153 passed, 2 failed (same as Finding 2), 2 legitimate skips; global floor met at 98.89% (≥85% required); **GPU tiers (sanity/integration/e2e) executed for real and all passed** |
 | live STAC probe (ad-hoc, uncommitted) | PASS | real Earth Search endpoint, 5 scenes in 0.46 s |
 
-Net: **2 finding-classes**, everything else green, including all live GPU tests and the live STAC boundary. Zero-skip guard held throughout — the only skips seen across every stage were the two enumerated `capability-guard:` MSYS entries already in the closed allowlist (`tests/unit/test_checks_sh_behaviour.py:1340,1516`), not a new or unauthorized skip.
+Net: **2 finding-classes, both resolved** — Finding 1 needed no code change (confirmed environmental against the pinned release's real source); Finding 2's fix is TDD-verified and unit-stage-green on its own branch. Everything else was green from the baseline, including all live GPU tests and the live STAC boundary. Zero-skip guard held throughout — the only skips seen across every stage were the two enumerated `capability-guard:` MSYS entries already in the closed allowlist (`tests/unit/test_checks_sh_behaviour.py:1340,1516`), not a new or unauthorized skip.
 
 ---
 
-## Finding 1 — mypy: `torch.amp` attr-defined errors (ENVIRONMENT-CAVEATED, not confirmed as a real source defect)
+## Finding 1 — mypy: `torch.amp` attr-defined errors (RESOLVED — confirmed environmental, no source defect)
+
+**Update (2026-09-03, same-day follow-up):** confirmed via direct comparison against the pinned release's real source. **No `src/` change is needed for this finding.**
 
 **Symptom:**
 ```
 src\orbital_drift\train\baseline.py:279: error: Module "torch.amp" does not explicitly export attribute "GradScaler"  [attr-defined]
 src\orbital_drift\train\baseline.py:285: error: Module "torch.amp" does not explicitly export attribute "autocast"  [attr-defined]
 ```
-Reproduced identically in the standalone `typecheck` stage (only stage that runs mypy).
 
-**Root cause analysis:** mypy's implicit-reexport check depends on how the **installed** `torch` package's `torch/amp/__init__.py`/`.pyi` declares `__all__` for `GradScaler`/`autocast`. The installed build is `torch==2.12.0.dev20260408+cu128` (a nightly dev snapshot), not the pinned `torch==2.13.0` stable release. Nightly builds are known to have incomplete or transiently-differing stub/export declarations. Both symbols exist and work correctly at runtime (exercised successfully by the live GPU e2e/integration tests in this same triage run), so this is very likely a stub-surface artifact of the version mismatch described in the environment note above, not a defect in `src/orbital_drift/train/baseline.py`.
+**Confirmed root cause:** the installed `torch==2.12.0.dev20260408+cu128`'s `torch/amp/__init__.py` imports `GradScaler`/`autocast` from their submodules with **no `__all__` declaration at all** — so mypy's implicit-reexport check (part of `--strict`) correctly refuses to treat them as part of the module's public surface for that specific build. Fetched the pinned release's actual source (`https://raw.githubusercontent.com/pytorch/pytorch/v2.13.0/torch/amp/__init__.py`) and confirmed it **does** declare:
+```python
+__all__ = ["autocast", "custom_bwd", "custom_fwd", "is_autocast_available", "GradScaler"]
+```
+So `src/orbital_drift/train/baseline.py:279,285` is correct code against the pinned dependency — the error is produced only by the environment's stale nightly torch build (assembled before this triage, pre-dating this triage's understanding of the pin) lacking a re-export declaration that the pinned stable release has. mypy will not raise this error in CI (which installs the exact `torch==2.13.0` pin) or on any host with a correctly-pinned install.
 
-**Blast radius:** `typecheck` gate only; does not affect runtime behavior (GPU training tests using these exact APIs passed).
-
-**Cannot confirm real-vs-environmental from this host alone.** Recommended before treating as actionable:
-- Re-run `sh ci/checks.sh typecheck` against a correctly-pinned `torch==2.13.0` CUDA build (or trust the Linux CI runner's own typecheck result, which installs the exact pin), OR
-- If reproducible against the correct pin too: fix by importing `GradScaler`/`autocast` from their fully-qualified submodule path (e.g. `torch.cuda.amp.GradScaler` / `torch.cuda.amp.autocast`, or whatever the 2.13.0 stable public API path is) instead of the top-level `torch.amp` re-export, or add a narrow `# type: ignore[attr-defined]` with a comment citing this finding.
-
-**Proposed regression test:** none until confirmed real — a regression test asserting mypy cleanliness of this exact import would only be meaningful once the pin mismatch is eliminated from the equation.
-
-**Proposed AQA:** none proposed yet, pending confirmation. If confirmed real, add the fix inline; if confirmed environmental, consider a `tests/unit/test_version_pins.py`-style check that fails fast when the installed `torch` version doesn't match `ci/versions.env`/`pyproject.toml`'s pin exactly (would have caught the mismatch immediately instead of requiring this investigation).
+**Resolution:** no source or test change. **Recommendation for the local dev environment only:** when convenient, reinstall `torch`/`torchvision` to match the exact `pyproject.toml` pin (`torch==2.13.0`) with a CUDA-enabled build from the correct index (not the default PyPI Windows wheel, which resolves to CPU-only — see the environment note at the top of this report) to eliminate this false positive permanently. Until then, this specific mypy failure on this host is a known, understood, and harmless artifact — not a task-tracked defect.
 
 ---
+
+
 
 ## Finding 2 — Windows path-separator bug in `test_coverage_positive_control.py` (CONFIRMED, reproducible, Windows-only)
 
@@ -81,7 +80,7 @@ assert 'probe_pkg/mod.py' in {'probe_pkg\\__init__.py': {...}, 'probe_pkg\\mod.p
 
 - **Live GPU tiers** — `tests/sanity/test_gpu_sanity.py` (3 tests, incl. the RTX-5060-Ti-specific VRAM > 12 GB hard assertion), `tests/integration/test_gpu_pipeline_live.py` (3 tests), `tests/e2e/test_dual_gpu_e2e_live.py` (1 test), `tests/e2e/test_user_journey_ct_loop.py` (1 test) — all executed for real (confirmed via log inspection: no `capability-guard:` skip lines for any of them) and all passed on the first attempt. No flakiness observed, so the planned 3× flake-rerun protocol was not needed (it only triggers on a failing GPU test).
 - **Live STAC boundary** — an ad-hoc, uncommitted probe (`STACClient().search_scenes(...)` with a real `requests.Session` against the live Earth Search endpoint) returned 5 valid scenes in 0.46 s. Confirms the mock-vs-live seam (`session` constructor injection) works correctly in both directions. Not committed under `tests/` — a committed live-network test would need a governed capability-guard allowlist addition, which is out of scope for this triage per the earlier plan discussion.
-- **Coverage floors** — global 98.89% (≥85% required, comfortably clear); per-file table shows every file ≥95% (comfortably clear of the 90% per-file floor too), though `covcheck` itself did not get a chance to run this pass since `ci/checks.sh` aborts on the pytest-level failure (Finding 2) before reaching that step — re-run once Finding 2 is fixed to get an authoritative per-file floor result.
+- **Coverage floors** — global 98.89% (≥85% required, comfortably clear); per-file table shows every file ≥95% (comfortably clear of the 90% per-file floor too), though `covcheck` itself did not get a chance to run this pass since `ci/checks.sh` aborts on the pytest-level failure (Finding 2) before reaching that step — re-run `sh ci/checks.sh coverage` on `fix/coverage-positive-control-windows-path-sep` for an authoritative per-file floor result post-fix.
 - **Zero-skip guard** — held throughout; the only skips seen anywhere were the two enumerated `capability-guard:` MSYS entries, not a new or unauthorized one.
 - **Secrets / hygiene** — `gitleaks` and `hooks` (`pre-commit run --all-files`) both clean.
 
@@ -91,6 +90,11 @@ The pre-existing local `.venv` has `torchvision==0.27.0.dev20260407+cu128` insta
 
 ---
 
+## Fix branches
+
+- **Finding 1:** no fix branch — resolved by investigation alone (confirmed environmental; the pinned `torch==2.13.0` source already declares the correct `__all__`).
+- **Finding 2:** `fix/coverage-positive-control-windows-path-sep` (commit `668dc25`), cut from `main`. Normalizes path separators in `_summary()` and adds `test_summary_lookup_is_path_separator_agnostic`, a synthetic OS-independent regression test. TDD-verified red→green; full `unit` stage re-run green (946 passed, 0 failed, same 2 legitimate capability-guard skips). Not yet merged — awaiting review/merge decision.
+
 ## Review gate
 
-This report is the deliverable of the triage branch `qa/full-suite-triage`. **No `src/` change has been made.** Per RB-011's explicit limit and the plan this branch executes under: each finding above requires separate reviewer sign-off before any fix work begins, and each approved fix ships as its own task/PR with a failing regression test authored first (TDD), never bundled with this triage branch or with each other.
+This report is the deliverable of the triage branch `qa/full-suite-triage`, updated same-day once Finding 1's investigation concluded. **No `src/` change has been made on this branch** — the Finding 2 fix lives entirely on its own branch, per CLAUDE.md's one-task-per-branch rule and RB-011's explicit limit. Remaining action: review and merge `fix/coverage-positive-control-windows-path-sep`.
