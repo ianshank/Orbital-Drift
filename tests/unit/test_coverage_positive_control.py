@@ -364,12 +364,9 @@ def _summary(root: Path, filename: str) -> dict[str, Any]:
     """
     report: dict[str, Any] = json.loads((root / "coverage.json").read_text(encoding="utf-8"))
     files = report["files"]
-    # coverage.py keys `files` by the OS-NATIVE path separator (backslash on
-    # Windows), but every call site below passes a POSIX-style literal.
-    # Normalizing both sides makes the lookup platform-independent instead of
-    # silently Linux-only (this repo's CI runs ubuntu-24.04 exclusively, so the
-    # bug this fixes was invisible there — see docs/incidents/2026-09-03).
-    normalized = {Path(key).as_posix(): value for key, value in files.items()}
+    # String replace, not Path(...).as_posix(): on POSIX a backslash is a legal
+    # filename character, so as_posix() would leave Windows-style keys untouched.
+    normalized = {key.replace("\\", "/"): value for key, value in files.items()}
     assert filename in normalized, f"{filename} absent from the report: {sorted(normalized)}"
     summary: dict[str, Any] = normalized[filename]["summary"]
     # coverage.py OMITS the branch counts entirely from a summary measured
@@ -386,24 +383,22 @@ def _summary(root: Path, filename: str) -> dict[str, Any]:
     return summary
 
 
-def test_summary_lookup_is_path_separator_agnostic(tmp_path: Path) -> None:
-    """``_summary()`` must find a file's entry regardless of which separator
-    ``coverage.json`` used to key it.
+@pytest.mark.parametrize("sep", ["/", "\\"])
+def test_summary_lookup_is_path_separator_agnostic(tmp_path: Path, sep: str) -> None:
+    """``_summary()`` must find a file's entry whichever separator the report used.
 
-    coverage.py keys ``report["files"]`` by the OS-NATIVE separator — backslash
-    on Windows, forward slash on Linux/macOS — but every caller in this module
-    passes a POSIX-style literal (e.g. ``"probe_pkg/mod.py"``). A literal-string
-    lookup with no normalization is therefore silently Linux-only: this repo's
-    CI runs ubuntu-24.04 exclusively, so a backslash-keyed report was never
-    exercised until this test was written on a Windows host (docs/incidents/
-    2026-09-03-full-suite-triage.md), where both real-engine callers failed.
-    This synthetic report reproduces that shape without needing a Windows CI
-    runner to catch a regression.
+    coverage.py keys ``report["files"]`` by the OS-native separator (backslash on
+    Windows), while callers pass POSIX-style literals. The parametrized ``sep``
+    makes both key shapes fail identically on every host if the lookup stops
+    normalizing — the first version of this test hardcoded the backslash shape
+    against a ``Path.as_posix()`` normalization, which is a no-op on POSIX and
+    so reddened Linux CI while staying green on Windows (PR #19, run
+    33784050330); both shapes are pinned now so the trap cannot recur.
     """
     payload = {
         "files": {
-            "probe_pkg\\__init__.py": {"summary": {"num_statements": 0}},
-            "probe_pkg\\mod.py": {
+            f"probe_pkg{sep}__init__.py": {"summary": {"num_statements": 0}},
+            f"probe_pkg{sep}mod.py": {
                 "summary": {
                     "covered_lines": 1,
                     "num_statements": 1,
