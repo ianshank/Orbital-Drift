@@ -93,7 +93,7 @@ The pre-existing local `.venv` has `torchvision==0.27.0.dev20260407+cu128` insta
 ## Fix branches
 
 - **Finding 1:** no fix branch — resolved by investigation alone (confirmed environmental; the pinned `torch==2.13.0` source already declares the correct `__all__`).
-- **Finding 2:** `fix/coverage-positive-control-windows-path-sep` (commit `668dc25`), cut from `main`. Normalizes path separators in `_summary()` and adds `test_summary_lookup_is_path_separator_agnostic`, a synthetic OS-independent regression test. TDD-verified red→green; full `unit` stage re-run green (946 passed, 0 failed, same 2 legitimate capability-guard skips). Not yet merged — awaiting review/merge decision.
+- **Finding 2:** `fix/coverage-positive-control-windows-path-sep` (latest commit `149cc85`), cut from `main`. Normalizes the report-key lookup in `_summary()` via a string-level `key.replace("\\", "/")` and parametrizes `test_summary_lookup_is_path_separator_agnostic` over BOTH separators. The first iteration (`668dc25`) used `Path(...).as_posix()`, which is a no-op for backslashes under POSIX semantics — it passed locally on Windows but was correctly reddened by Linux CI (PR #19 run 33784050330), the inverse of the original bug; the second iteration is deterministic on every OS. TDD-verified red→green; full `unit` stage re-run green (947 passed, 0 failed, same 2 legitimate capability-guard skips). Not yet merged — awaiting review/merge decision.
 
 ## Review gate
 
