@@ -355,6 +355,17 @@ def test_the_repository_threshold_is_a_value_the_engine_accepts(
 # =============================================================================
 
 
+def _posix_report_key(path: str) -> str:
+    """Map a coverage.py file key (or a caller path) onto POSIX separators.
+
+    coverage.py keys ``report["files"]`` by the OS-native separator. Callers in
+    this module pass POSIX literals. String replace, not ``Path(...).as_posix()``:
+    on POSIX a backslash is a legal filename character, so ``as_posix()`` would
+    leave Windows-style keys (and Windows-style lookups) untouched.
+    """
+    return path.replace("\\", "/")
+
+
 def _summary(root: Path, filename: str) -> dict[str, Any]:
     """The per-file ``summary`` block coverage.py wrote into ``coverage.json``.
 
@@ -364,8 +375,10 @@ def _summary(root: Path, filename: str) -> dict[str, Any]:
     """
     report: dict[str, Any] = json.loads((root / "coverage.json").read_text(encoding="utf-8"))
     files = report["files"]
-    assert filename in files, f"{filename} absent from the report: {sorted(files)}"
-    summary: dict[str, Any] = files[filename]["summary"]
+    needle = _posix_report_key(filename)
+    normalized = {_posix_report_key(key): value for key, value in files.items()}
+    assert needle in normalized, f"{filename} absent from the report: {sorted(normalized)}"
+    summary: dict[str, Any] = normalized[needle]["summary"]
     # coverage.py OMITS the branch counts entirely from a summary measured
     # without branch tracking. Named here rather than left to surface as a
     # KeyError three assertions later, so "the run was not measuring branches"
@@ -378,6 +391,44 @@ def _summary(root: Path, filename: str) -> dict[str, Any]:
         f"asserted about branch arithmetic: {summary!r}"
     )
     return summary
+
+
+@pytest.mark.parametrize("report_sep", ["/", "\\"])
+@pytest.mark.parametrize("lookup_sep", ["/", "\\"])
+def test_summary_lookup_is_path_separator_agnostic(
+    tmp_path: Path, report_sep: str, lookup_sep: str
+) -> None:
+    """``_summary()`` must find a file's entry whichever separator either side used.
+
+    coverage.py keys ``report["files"]`` by the OS-native separator (backslash on
+    Windows). Callers today pass POSIX-style literals, but a future helper that
+    builds the needle from ``os.sep`` would still have to match. Parametrizing
+    BOTH sides pins every combination on every host: the first version of this
+    test hardcoded the backslash report shape against a ``Path.as_posix()``
+    normalization, which is a no-op on POSIX and so reddened Linux CI while
+    staying green on Windows (PR #19, run 33784050330); both shapes on both
+    sides are pinned now so that trap cannot recur.
+    """
+    payload = {
+        "files": {
+            f"probe_pkg{report_sep}__init__.py": {"summary": {"num_statements": 0}},
+            f"probe_pkg{report_sep}mod.py": {
+                "summary": {
+                    "covered_lines": 1,
+                    "num_statements": 1,
+                    "percent_covered": 100.0,
+                    "covered_branches": 0,
+                    "num_branches": 0,
+                    "percent_branches_covered": 100.0,
+                }
+            },
+        }
+    }
+    (tmp_path / "coverage.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    summary = _summary(tmp_path, f"probe_pkg{lookup_sep}mod.py")
+
+    assert summary["num_statements"] == 1
 
 
 def test_cov_branch_is_what_turns_an_untaken_arc_into_a_failing_build(tmp_path: Path) -> None:
