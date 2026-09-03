@@ -1,8 +1,8 @@
 # Full-Suite QA Triage — Baseline, RCA, and Fixes
 
-**Status:** BOTH FINDINGS RESOLVED. Finding 1 required no code change (confirmed environmental). Finding 2's fix landed on `fix/coverage-positive-control-windows-path-sep` (commit `668dc25`), TDD-verified red→green, with the full `unit` stage re-run green (946 passed, 0 failed). This document itself makes no `src/` change — the fix lives on its own branch per CLAUDE.md's one-task-per-branch rule.
+**Status:** BOTH FINDINGS RESOLVED. Finding 1 required no code change (confirmed environmental). Finding 2's final fix is commit `149cc85` on `fix/coverage-positive-control-windows-path-sep` (v1 `668dc25` was superseded after Linux CI), TDD-verified red→green, with the full `unit` stage re-run green (947 passed, 0 failed). This document itself makes no `src/` change — the fix lives on its own branch per CLAUDE.md's one-task-per-branch rule.
 **Audience:** whichever operator/agent reviews this triage and the linked fix branch.
-**Authorized by:** `docs/decision-log.md` RB-011 (triage) and RB-011a (Finding 1 resolution + Finding 2 fix landed).
+**Authorized by:** `docs/decision-log.md` RB-011 (triage authorization). Execution records: RB-011a (Finding 1 disposition + v1 Finding 2 fix) and RB-011b (POSIX correction in `149cc85`, final Finding 2 disposition).
 **Measured at:** `main` @ `84d45ed` (fast-forwarded from `63413f8`; 21 commits), branch `qa/full-suite-triage` cut from the same commit with zero diff — so every result below applies unchanged to both.
 **Host:** Windows, dual-GPU (NVIDIA RTX 5060 Ti 16 GB + RTX 5060 8 GB, driver 596.49, CUDA runtime ceiling 13.2), Docker Desktop (server 29.4.2), Git for Windows (MSYS `sh.exe` used for all `ci/checks.sh` invocations — WSL's `bash`/`sh` were deliberately NOT used, since `ci/checks.sh` is written against MSYS-specific path-conversion behavior).
 **Environment note (not a defect, but load-bearing context):** the pre-existing `.venv` carries `torch==2.12.0.dev20260408+cu128` (a CUDA-enabled nightly build with a verified real CUDA kernel launch) rather than the pinned `torch==2.13.0`. A `pip install -e ".[dev]" --dry-run` showed the pinned version would resolve to a wheel with **no `nvidia-cu*` runtime dependencies** — almost certainly a CPU-only build — which would have silently disabled every GPU-gated test via vacuous `capability-guard:` skips. To keep the GPU tiers meaningful, the full `[dev]` install was **not** run; only the three genuinely-missing packages (`httpx2==2.12.0`, `httpcore2==2.12.0`, `truststore==0.10.4`) plus the local editable package were installed, leaving `torch`/`torchvision` untouched. This choice is why Finding 1 below carries an environment caveat.
@@ -21,7 +21,7 @@
 | governance | PASS | 163 passed |
 | contract | PASS | 37 passed, 1 benign warning |
 | smoke | PASS | declared-empty, tolerated |
-| unit | FAIL at baseline / PASS after fix | 943 passed, 2 failed (Finding 2) at baseline; 946 passed, 0 failed on `fix/coverage-positive-control-windows-path-sep` (new regression test included); 2 legitimate capability-guard skips throughout |
+| unit | FAIL at baseline / PASS after fix | 943 passed, 2 failed (Finding 2) at baseline; 947 passed, 0 failed on `fix/coverage-positive-control-windows-path-sep` after the RB-011b correction in `149cc85` (v1 `668dc25`, new regression test included); 2 legitimate capability-guard skips throughout |
 | gitleaks | PASS | clean |
 | hooks | PASS | `pre-commit run --all-files` clean |
 | coverage | FAIL at baseline (fix not yet re-measured under this stage) | 1153 passed, 2 failed (same as Finding 2), 2 legitimate skips; global floor met at 98.89% (≥85% required); **GPU tiers (sanity/integration/e2e) executed for real and all passed** |
