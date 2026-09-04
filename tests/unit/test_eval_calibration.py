@@ -54,6 +54,29 @@ def test_single_class_labels_are_handled_by_sklearn_calibration_curve() -> None:
     assert 0.0 <= result.expected_calibration_error <= 1.0
 
 
+def test_ece_never_exceeds_one_when_a_quantile_bin_collapses() -> None:
+    """Regression for the round-2 ECE>1 defect (RB-012 Finding 2).
+
+    Deterministic minimal case the hypothesis fuzzer surfaced:
+    ``labels=[False, False, False]``, ``probabilities=[1.0, 0.5, 0.5]`` with
+    ``bin_count=2``, ``strategy="quantile"``. sklearn's equal-mass binning puts
+    the two ``0.5`` scores in bin 0 and ``1.0`` in bin 1, but
+    ``_bin_weights``'s ``searchsorted``-based reconstruction assigned the
+    ``0.5`` points to the wrong side of the collapsed boundary, so a bin
+    sklearn treated as empty still received weight and ECE summed past 1.0
+    (measured 1.5). ECE is a probability-weighted mean of per-bin deviations,
+    each in ``[0, 1]`` with weights summing to 1, so a value above 1.0 is a
+    defect. This must hold on every OS, independent of fuzz ordering.
+    """
+    result = calibration_error(
+        np.asarray([False, False, False]),
+        np.asarray([1.0, 0.5, 0.5]),
+        bin_count=2,
+        strategy="quantile",
+    )
+    assert 0.0 <= result.expected_calibration_error <= 1.0
+
+
 @given(
     st.lists(st.booleans(), min_size=2, max_size=20),
     st.lists(st.floats(min_value=0.0, max_value=1.0, allow_nan=False), min_size=2, max_size=20),

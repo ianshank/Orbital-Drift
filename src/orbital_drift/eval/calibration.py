@@ -19,15 +19,13 @@ silently selecting.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final, Literal
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
 from sklearn.calibration import calibration_curve
 
 type FloatArray = NDArray[np.float64]
-PERCENT_SCALE: Final[float] = 100.0  # pin: numpy.percentile accepts percentile, not quantile units
-"""Converts a unit-interval quantile into the percentile unit ``numpy.percentile`` requires."""
 
 CalibrationStrategy = Literal["uniform", "quantile"]
 
@@ -63,17 +61,39 @@ def _bin_weights(
     their counts. This helper mirrors only its documented strategy boundaries to
     calculate ECE's required sample weights; the calibration fractions and means
     themselves remain exclusively the values supplied by scikit-learn.
+
+    Boundary fidelity matters: a naive ``percentile`` + ``searchsorted``
+    reconstruction disagrees with sklearn's equal-mass split whenever a quantile
+    boundary collapses onto duplicated scores (``side="right"`` then credits a
+    bin sklearn treats as empty), which let ECE's weights sum past 1 and the
+    estimate exceed 1.0 — the round-2 RB-012 Finding 2 defect. The reconstructions
+    below match sklearn's two documented strategies directly.
     """
     if strategy == "uniform":
+        # Mirror ``sklearn.calibration.calibration_curve``'s uniform path: bins
+        # are the half-open equal-width intervals ``[lo, hi)`` except the last,
+        # which closes on 1.0 (``np.digitize`` convention with the right edge).
         boundaries = np.linspace(0.0, 1.0, bin_count + 1)
+        bin_indices = np.clip(
+            np.searchsorted(boundaries, probabilities, side="right") - 1,
+            0,
+            bin_count - 1,
+        )
     else:
-        quantiles = np.linspace(0.0, 1.0, bin_count + 1)
-        boundaries = np.percentile(probabilities, quantiles * PERCENT_SCALE)
-    bin_indices = np.clip(
-        np.searchsorted(boundaries, probabilities, side="right") - 1,
-        0,
-        bin_count - 1,
-    )
+        # Mirror sklearn's quantile (equal-mass) path: it sorts the scores and
+        # cuts them into ``bin_count`` contiguous groups whose sizes differ by at
+        # most one. Reconstructing by rank (argsort) — not by re-deriving
+        # percentile edges — assigns every point to the same bin sklearn used,
+        # including duplicates on a collapsed boundary.
+        order = np.argsort(probabilities, kind="stable")
+        group_sizes = np.full(bin_count, probabilities.size // bin_count)
+        group_sizes[: probabilities.size % bin_count] += 1
+        bin_indices = np.empty(probabilities.size, dtype=np.intp)
+        start = 0
+        for index, size in enumerate(group_sizes):
+            if size > 0:
+                bin_indices[order[start : start + size]] = index
+                start += size
     counts = np.bincount(bin_indices, minlength=bin_count)
     return counts[counts > 0] / probabilities.size
 
