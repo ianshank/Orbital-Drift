@@ -21,15 +21,27 @@ RB-012 nothing checked that claim — measured instance: ``SC-002`` (the
 specification's only performance budget) was declared by the spec and carried by
 no row, invisible to this stage because the linter read the matrix alone.
 
-HONEST SCOPE of that rule, so no reader over-trusts it: it compares which
-requirement IDS appear on each side. It does NOT check that a row's summary
+HONEST SCOPE of that rule, so no reader over-trusts it: it compares **which
+requirement ids** appear on each side. It does NOT check that a row's summary
 faithfully compresses the spec text for that id — the matrix's summaries are
 deliberate compressions ("summaries below are compressions, not restatements"),
 and no regex separates a good compression from a wrong one. Summary fidelity
 stays reviewer-enforced; see ``docs/decisions/013-plan-artifact-reconciliation.md``.
 
-Stdlib-only, no I/O beyond the matrix file, the spec file, and one pytest
-subprocess, so it can never drift with the environment.
+I/O BOUNDARY, stated as what it is rather than as a guarantee it is not: stdlib
+only, and nothing is read beyond the matrix file, the spec file, and one
+``pytest --collect-only`` subprocess.
+
+An earlier version of this paragraph added "so it can never drift with the
+environment". That was false, and measurably so — the subprocess and both file
+reads are exactly where the environment gets in. MEASURED during RB-012: in a
+container missing the project's optional dependencies, ``pytest --collect-only``
+exited 2 with 25 import errors, and this linter reported a collection failure on
+an unchanged, correct matrix. What the design actually buys is that each such
+failure is REPORTED and distinguishable — :func:`_collected_node_ids` and
+:func:`spec_requirement_ids` both return an error string rather than an empty
+set, precisely so an environment fault is never rendered as "your matrix is
+wrong". That is a fail-closed property, not environment invariance.
 """
 
 from __future__ import annotations
