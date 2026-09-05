@@ -1,8 +1,14 @@
 """Projection integrity tests (adopt-governance-kit design D9).
 
 The cannot-disagree property: planning projections are byte-generated from
-roadmap_data.py, and every story's trace cites a task id that exists in
-specs/001-orbital-drift-ct/tasks.md with a status matching the checkbox state.
+roadmap_data.py, and task-id scope agrees in both directions with
+specs/001-orbital-drift-ct/tasks.md -- every story cites a task that exists
+there, and every task there has a story.
+
+CORRECTED 2026-09-05 (RB-012): this docstring previously claimed the cited task
+is checked "with a status matching the checkbox state". No test asserts that,
+and none can -- Story carries no status field. The claim is removed rather than
+implemented; see roadmap_data.py's module docstring for the same correction.
 """
 
 from __future__ import annotations
@@ -20,8 +26,17 @@ from orbital_drift.planning import roadmap_data
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 TASKS: Final = REPO_ROOT / "specs" / "001-orbital-drift-ct" / "tasks.md"
 
-_TASK_LINE = re.compile(r"^- \[(?P<done>[ x])\] (?P<task_id>T\d{3})\b", re.MULTILINE)
-_TRACE_TASK = re.compile(r"\bT\d{3}\b")
+#: WIDENED 2026-09-05 (RB-012): the trailing `[a-z]?` is load-bearing.
+#:
+#: Both patterns previously ended `T\d{3}\b`. `\b` cannot match between `1` and
+#: `a`, so `T001a`, `T001b` and `T004a` matched NEITHER pattern — three real
+#: tasks (two of them checked `[x]`, one carrying its own FR-011b) were invisible
+#: to both parity assertions below. `test_every_agent_task_has_a_story` therefore
+#: could not report their missing stories, and the projections under-reported the
+#: backlog by three items while asserting they "cannot disagree with the plan".
+#: Measured at the widening: exactly those three appeared, and stories were added.
+_TASK_LINE = re.compile(r"^- \[(?P<done>[ x])\] (?P<task_id>T\d{3}[a-z]?)\b", re.MULTILINE)
+_TRACE_TASK = re.compile(r"\bT\d{3}[a-z]?\b")
 
 
 def _task_states() -> dict[str, bool]:

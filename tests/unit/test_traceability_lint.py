@@ -18,11 +18,45 @@ HEADER = (
 )
 
 
-def _lint_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> list[str]:
+def _spec_declaring(*requirement_ids: str) -> str:
+    """A minimal spec.md body declaring exactly these requirement ids.
+
+    Written in the real file's bullet shape (``- **FR-001** text``) so the
+    fixture exercises the same parser the committed spec does.
+    """
+    return "## Functional Requirements\n" + "".join(
+        f"- **{requirement_id}** fixture requirement text.\n" for requirement_id in requirement_ids
+    )
+
+
+def _lint_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    body: str,
+    spec: str | None = None,
+) -> list[str]:
+    """Lint ``body`` as the matrix, against ``spec`` as the specification.
+
+    When `spec` is omitted the fixture spec is DERIVED from the ids the body
+    uses, so the requirement-parity rule contributes nothing and each test
+    below keeps testing the one rule it names. Parity has its own tests, which
+    pass the two sides explicitly.
+    """
     matrix = tmp_path / "REQUIREMENT-TRACEABILITY.md"
     matrix.write_text(HEADER + body, encoding="utf-8")
     monkeypatch.setattr(traceability, "MATRIX", matrix)
+
+    spec_file = tmp_path / "spec.md"
+    spec_file.write_text(
+        spec if spec is not None else _spec_declaring(*_REQUIREMENT_IDS_IN.findall(body)),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(traceability, "SPEC", spec_file)
     return traceability.lint()
+
+
+#: First column of each fixture row — how `_lint_text` derives its spec fixture.
+_REQUIREMENT_IDS_IN = re.compile(r"^\|\s*((?:FR|SC)-\d+[a-z]?)\s*\|", re.MULTILINE)
 
 
 def test_clean_matrix_lints_clean(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -107,6 +141,15 @@ def test_main_nonzero_and_named_problems_on_violation(
         encoding="utf-8",
     )
     monkeypatch.setattr(traceability, "MATRIX", matrix)
+    # Point SPEC at a fixture too. Left at the real spec.md this still passed,
+    # but for the wrong reason: main() returned 1 over 22 problems, 21 of them
+    # parity noise about a fixture matrix that traces none of the real
+    # requirements. The exit code was over-determined and the test no longer
+    # isolated the enum violation it names.
+    spec = tmp_path / "spec.md"
+    spec.write_text(_spec_declaring("FR-900"), encoding="utf-8")
+    monkeypatch.setattr(traceability, "SPEC", spec)
+
     assert traceability.main([]) == 1
     assert "outside the enum" in capsys.readouterr().err
 
@@ -363,3 +406,253 @@ def test_a_matrix_that_is_not_valid_utf8_is_a_named_violation(
 
     assert any("could not be read" in problem for problem in problems), problems
     assert any("REQUIREMENT-TRACEABILITY.md" in problem for problem in problems), problems
+
+
+# ── Requirement parity with spec.md (RB-012) ────────────────────────────────
+#
+# The matrix's own header names `specs/001-orbital-drift-ct/spec.md` as its
+# source of truth. Nothing checked that claim until these tests: the linter
+# read the matrix alone, so a requirement declared in the spec and traced
+# nowhere was invisible to the `traceability` CI stage. Measured instance
+# (RB-012, docs/decisions/013-*.md F-A): spec.md's SC-002 — the only
+# performance budget in the specification — had no row carrying its content.
+#
+# HONEST SCOPE, stated so no reader over-trusts these: parity checks WHICH
+# requirement ids appear on each side. It does NOT check that a row's summary
+# faithfully compresses the spec text for that id, because the matrix's summaries
+# are deliberate compressions and no regex separates a good compression from a
+# wrong one. That half stays reviewer-enforced; see docs/decisions/013-*.md.
+
+
+def test_a_spec_requirement_with_no_matrix_row_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE MUTATION THAT REDDENS THIS: delete the `missing_rows` branch in
+    `traceability.lint()`. SC-002 is then declared by the spec, traced by
+    nothing, and the lint reports clean."""
+    problems = _lint_text(
+        tmp_path,
+        monkeypatch,
+        "| SC-001 | thing | `src/x.py` | `tests/unit/test_x.py` | M5 | Planned-gated | - |\n",
+        spec=_spec_declaring("SC-001", "SC-002"),
+    )
+
+    assert any("SC-002" in problem for problem in problems), problems
+    assert any("no row" in problem for problem in problems), problems
+    assert not any("SC-001" in problem for problem in problems), problems
+
+
+def test_a_matrix_row_for_an_undeclared_requirement_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other direction: a row inventing a requirement the spec never states.
+
+    THE MUTATION THAT REDDENS THIS: delete the `undeclared` branch in
+    `traceability.lint()`.
+    """
+    problems = _lint_text(
+        tmp_path,
+        monkeypatch,
+        "| FR-001 | real | `src/x.py` | `tests/unit/test_x.py` | M1 | Planned-gated | - |\n"
+        "| FR-777 | invented | `src/y.py` | `tests/unit/test_y.py` | M1 | Planned-gated | - |\n",
+        spec=_spec_declaring("FR-001"),
+    )
+
+    assert any("FR-777" in problem for problem in problems), problems
+    assert any("does not declare" in problem for problem in problems), problems
+    assert not any("FR-001" in problem for problem in problems), problems
+
+
+def test_parity_is_clean_when_both_sides_agree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Guard the guard: parity must not fire on a matrix that is correct, or
+    the two tests above would pass for the wrong reason."""
+    problems = _lint_text(
+        tmp_path,
+        monkeypatch,
+        "| FR-001 | a | `src/x.py` | `tests/unit/test_x.py` | M1 | Planned-gated | - |\n"
+        "| FR-011a | b | `src/y.py` | `tests/unit/test_y.py` | M0 | Planned-gated | - |\n",
+        spec=_spec_declaring("FR-001", "FR-011a"),
+    )
+
+    assert problems == []
+
+
+def test_the_suffixed_requirement_shape_is_parsed_not_truncated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`FR-011a`/`FR-011b` are real ids in this spec, not `FR-011` plus noise.
+
+    A parser stopping at the digits would read both as `FR-011`, collapsing
+    three distinct requirements into one and making parity silently vacuous
+    for the two CI-gate requirements added after the original spec draft.
+    """
+    problems = _lint_text(
+        tmp_path,
+        monkeypatch,
+        "| FR-011 | six gates | `ci/checks.sh` | `tests/unit/t.py` | M0 | Planned-gated | - |\n",
+        spec=_spec_declaring("FR-011", "FR-011a"),
+    )
+
+    assert any("FR-011a" in problem for problem in problems), problems
+
+
+def test_a_missing_spec_file_is_a_named_violation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deleted or moved spec must fail the gate loudly, never fail open into
+    "no declared requirements, so every row is undeclared" or into silence."""
+    matrix = tmp_path / "REQUIREMENT-TRACEABILITY.md"
+    matrix.write_text(
+        HEADER + "| FR-001 | a | `src/x.py` | `tests/unit/t.py` | M1 | Planned-gated | - |\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(traceability, "MATRIX", matrix)
+    monkeypatch.setattr(traceability, "SPEC", tmp_path / "absent.md")
+    monkeypatch.setattr(traceability, "REPO_ROOT", tmp_path)
+
+    problems = traceability.lint()
+
+    assert any("is missing" in problem for problem in problems), problems
+    assert any("absent.md" in problem for problem in problems), problems
+    # THE POINT OF THIS TEST, and the assertion the first version forgot: the
+    # docstring promises it does not fail open into "no declared requirements,
+    # so every row is undeclared". Without this line, mutating lint()'s `else:`
+    # guard to `if True:` leaves the whole file green while FR-001 is reported
+    # undeclared by a spec that merely could not be read. Mirrors
+    # test_a_collection_failure_is_reported_instead_of_blaming_every_green_row.
+    assert not any("does not declare" in problem for problem in problems), problems
+
+
+def test_a_spec_with_no_canonical_declarations_is_refused_as_vacuous(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The anti-vacuity branch, pinned directly.
+
+    It is the rule's most important safety property — what stops parity going
+    silently empty if spec.md's format changes wholesale — and it is
+    unreachable through `lint()`, which early-returns on a matrix that parses
+    to zero rows before parity ever runs. So it is exercised here against
+    `spec_requirement_ids()`.
+
+    THE MUTATION THAT REDDENS THIS: change `if not ids:` to `if False:`.
+    """
+    spec = tmp_path / "spec.md"
+    spec.write_text("# Spec\n\nProse only. No bulleted requirement declarations.\n", "utf-8")
+    monkeypatch.setattr(traceability, "SPEC", spec)
+    monkeypatch.setattr(traceability, "REPO_ROOT", tmp_path)
+
+    ids, error = traceability.spec_requirement_ids()
+
+    assert ids == frozenset()
+    assert error is not None
+    assert "vacuous" in error, error
+
+
+def test_a_spec_that_is_not_valid_utf8_is_a_named_violation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The spec-side twin of `test_a_matrix_that_is_not_valid_utf8_...`.
+
+    THE MUTATION THAT REDDENS THIS: change the `OSError`/`UnicodeDecodeError`
+    handler in `spec_requirement_ids` to `return frozenset(), None`. The
+    undecodable spec then reports no error and every matrix row is blamed.
+    """
+    spec = tmp_path / "spec.md"
+    spec.write_bytes(b"- **FR-001** \xff\xfe not valid utf-8\n")
+    monkeypatch.setattr(traceability, "SPEC", spec)
+    monkeypatch.setattr(traceability, "REPO_ROOT", tmp_path)
+
+    ids, error = traceability.spec_requirement_ids()
+
+    assert ids == frozenset()
+    assert error is not None
+    assert "could not be read" in error, error
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "  - **SC-002** indented two spaces",
+        "* **SC-002** asterisk bullet",
+        "> - **SC-002** inside a blockquote",
+        "1. **SC-002** ordered list",
+        "__SC-002__ underscore emphasis",
+        "-\t**SC-002** tab after the dash",
+    ],
+)
+def test_a_near_miss_declaration_is_reported_not_silently_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, declaration: str
+) -> None:
+    """The measured fail-open this guard was rewritten to close.
+
+    `_SPEC_REQUIREMENT` matches ONE markdown shape. Before this, indenting a
+    declaration by two spaces removed it from the declared set, so deleting its
+    matrix row lint()ed CLEAN — reproducing the untraced-performance-budget
+    defect (D-013/03b) THROUGH the guard written to prevent it. Reproduced
+    end-to-end against the committed files before the fix.
+
+    THE MUTATION THAT REDDENS THIS: delete the `_SPEC_NEAR_MISS` loop in
+    `spec_requirement_ids`. Every parametrization then returns no error.
+    """
+    spec = tmp_path / "spec.md"
+    spec.write_text(f"- **SC-001** canonical.\n{declaration}\n", encoding="utf-8")
+    monkeypatch.setattr(traceability, "SPEC", spec)
+    monkeypatch.setattr(traceability, "REPO_ROOT", tmp_path)
+
+    ids, error = traceability.spec_requirement_ids()
+
+    assert error is not None, f"{declaration!r} was silently dropped"
+    assert "canonical" in error, error
+    assert ids == frozenset(), "a near-miss must fail closed, not partially parse"
+
+
+def test_a_matrix_row_outside_the_parity_prefixes_is_not_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Parity covers FR-/SC- only, and must not invent an unsatisfiable rule.
+
+    `_REQUIREMENT_ID` (the row parser) also recognises `NFR`, `C`, `R` and
+    `DEC`. Charter constraints and risks are declared in the charter and
+    plan.md, which this module does not read — so reporting a `C-1` row as
+    "spec.md does not declare this" would be a finding no edit to spec.md could
+    ever clear.
+
+    THE MUTATION THAT REDDENS THIS: drop the `_PARITY_PREFIX` filter in
+    `lint()`; the C-1 row is then reported as undeclared.
+    """
+    problems = _lint_text(
+        tmp_path,
+        monkeypatch,
+        "| FR-001 | a | `src/x.py` | `tests/unit/t.py` | M1 | Planned-gated | - |\n"
+        "| C-1 | charter constraint | `charter/` | `tests/governance/t.py` "
+        "| M0 | N/A-by-design | - |\n",
+        spec=_spec_declaring("FR-001"),
+    )
+
+    assert problems == [], problems
+
+
+def test_the_committed_matrix_traces_every_committed_spec_requirement() -> None:
+    """The real files through the REAL entry point.
+
+    Deliberately calls `lint()` rather than re-deriving parity from
+    `spec_requirement_ids()` + `_parse_rows()`. The first version did re-derive
+    it, which made it a consistency check between two artifacts under the SAME
+    possibly-wrong parser — by construction it could not have detected the
+    near-miss fail-open, because both sides would have shared the blind spot.
+    """
+    problems = [
+        problem
+        for problem in traceability.lint()
+        # `Green` rows shell out to pytest --collect-only; that path has its own
+        # tests and is environment-sensitive. Parity is what this test is for.
+        if "collect" not in problem
+    ]
+
+    assert problems == [], problems
+
+    spec_ids, error = traceability.spec_requirement_ids()
+    assert error is None, error
+    assert spec_ids, "spec.md parsed to zero requirements — the assertion above would be vacuous"

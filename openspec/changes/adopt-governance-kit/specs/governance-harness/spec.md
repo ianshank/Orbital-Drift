@@ -89,10 +89,45 @@ output generated from `src/orbital_drift/planning/roadmap_data.py` (design D9).
 - **THEN** the consistency test SHALL fail naming the story and the missing/contradicted
   task ID
 
+> **PARTIALLY IMPLEMENTED — recorded 2026-09-05 under RB-012, owner T064.** The
+> task-ID half is implemented and mutation-checked in both directions
+> (`tests/unit/test_projections.py`). The **status half is implemented by nothing**:
+> `Story` (`src/orbital_drift/planning/roadmap_data.py`) carries no status field, so
+> "its status contradicts the checkbox state" can never fail. `roadmap_data.py` and
+> the test module both *claimed* it was checked; RB-012 removed that false claim, and
+> this note exists so removing the claim does not quietly turn a specified requirement
+> into an invisible gap — the failure mode `RB-008a(e)` documented. The scenario is
+> deliberately NOT weakened to match the implementation; T064 closes it.
+
 ### Requirement: Traceability matrix is linted
 `traceability/REQUIREMENT-TRACEABILITY.md` SHALL use only the fixed status enum, carry
-no empty cells, and every `Green` row SHALL cite at least one pytest node id that
-collects.
+no empty cells, every `Green` row SHALL cite at least one pytest node id that
+collects, and the set of `FR-`/`SC-` requirement IDs it carries SHALL equal the set
+`specs/001-orbital-drift-ct/spec.md` declares.
+
+The last clause is added under RB-012 (`docs/decision-log.md`), following the T001a and
+T001b precedent that a new merge-blocking gate rule needs a requirement rather than an
+RB citation alone. The matrix's header has always named `spec.md` as its source of
+truth; until RB-012 nothing checked that claim, and the linter read the matrix alone.
+
+#### Scenario: Requirement declared but traced nowhere
+- **WHEN** `spec.md` declares an `FR-` or `SC-` requirement that no matrix row carries
+- **THEN** the `traceability` stage SHALL exit non-zero naming the requirement ID
+
+#### Scenario: Row cites a requirement the spec never declares
+- **WHEN** a matrix row's `FR-`/`SC-` requirement ID is absent from `spec.md`
+- **THEN** the `traceability` stage SHALL exit non-zero naming the row
+- **AND** rows using other recognised prefixes (`NFR-`, `C-`, `R-`, `DEC-`) SHALL be
+  excluded from this comparison, because those are declared in the charter and plan,
+  which this linter does not read — a rule no edit to `spec.md` could satisfy
+
+#### Scenario: A declaration the parser cannot see fails closed
+- **WHEN** a line in `spec.md` is shaped like a requirement declaration but is not in
+  the canonical `- **FR-001** ...` form (indented, a different list marker, inside a
+  blockquote, or differently emphasised)
+- **THEN** the linter SHALL exit non-zero naming the line — never silently shrink the
+  declared set, which would let a requirement go untraced past the gate written to
+  catch exactly that
 
 #### Scenario: Green row must collect
 - **WHEN** a row is marked `Green` and cites a pytest node id that

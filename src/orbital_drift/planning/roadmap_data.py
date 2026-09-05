@@ -15,9 +15,17 @@ which fails if either committed projection does not BYTE-MATCH what this module
 emits — so the backlog literally cannot disagree with the plan (design D9).
 
 Scope stays owned by ``specs/001-orbital-drift-ct/tasks.md``: every story's
-``trace`` names its task id, and ``tests/unit/test_projections.py`` asserts the
-cited task exists there and that story status matches the checkbox state — the
-cannot-disagree property without parsing markdown at runtime.
+``trace`` names its task id, and ``tests/unit/test_projections.py`` asserts
+scope parity in BOTH directions — every cited task exists in that file, and
+every task there has a story.
+
+CORRECTED 2026-09-05 (RB-012). This paragraph previously claimed the tests also
+assert "that story status matches the checkbox state". They do not, and cannot:
+:class:`Story` has no status field and no test in the suite asserts anything
+about status. The headline property below ("cannot disagree with the plan") was
+half-mechanized and documented as fully mechanized — the exact over-claim this
+repo removes guards for. What IS mechanized is set parity of task ids; what is
+not is whether a story's acceptance text still describes what its task says.
 
 Design rules (donor template, kept):
 1. Pure data plus small pure helpers; stdlib only; no I/O.
@@ -58,6 +66,10 @@ LABELS: Final[frozenset[str]] = frozenset(
         "drift",
         "serve",
         "dashboards",
+        # Added 2026-09-05 (RB-012): the governance/review track had no label, so
+        # T057 (RB-010's retroactive review of T013-T052) had nowhere honest to
+        # sit. Every other candidate ("infra", "tdd") mis-groups it on a board.
+        "governance",
     }
 )
 
@@ -140,6 +152,12 @@ EPICS: tuple[Epic, ...] = (
         "High",
     ),
     Epic(
+        "E6",
+        "E6 Reconciliation and Integration Hardening",
+        "Phase 6 (RB-012): defects found in already-remediated code, RB-010 findings assigned to no part, adapter convergence, gate integrity. Exit: T057 complete and roadmap Tracks A-E closed.",
+        "High",
+    ),
+    Epic(
         "E7",
         "E7 Operator and Decision Gates",
         "Operator-side critical path: HUMAN tasks, phase gates G-x, DEC sign-offs (Constitution I/VI).",
@@ -151,8 +169,11 @@ EPICS: tuple[Epic, ...] = (
 STORIES: tuple[Story, ...] = (
     # E0 — Substrate (T002-T012)
     Story("S0.2", "S0.2 Host-prep runbook (driver+CUDA, Blackwell)", "E0", "AC: docs/runbooks/00-host-prep.md merged with pinned driver/operator versions and verification block. Trace: T002.", (_L, "runbook"), 3, "Highest"),
+    Story("S0.1a", "S0.1a Coverage gate plus CI defect fixes", "E0", "AC: the coverage stage enforces FR-011a as one combined statement+branch rate, threshold pinned in ci/versions.env, with positive controls proving it fails a run whose tests all pass. Trace: T001a.", (_L, "infra"), 5, "High"),
+    Story("S0.1b", "S0.1b terraform fmt pre-commit hook", "E0", "AC: FR-011b canonical Terraform formatting runs as a pre-commit hook and in the hooks CI stage against a digest-pinned image, with positive, negative and guard-the-guard controls. Trace: T001b.", (_L, "infra"), 3, "Medium"),
     Story("S0.3", "S0.3 Execute host prep on node A", "E7", "AC: runbook verification block filled with measured driver/CUDA versions; G-1 logged. Owner story. Trace: T003.", (_L, "owner"), None, "Highest"),
     Story("S0.4", "S0.4 k3s install runbook", "E0", "AC: docs/runbooks/01-k3s-install.md merged (single node, GPU labels, nvidia runtime). Trace: T004.", (_L, "runbook"), 3, "High"),
+    Story("S0.4a", "S0.4a containerd config-v3 template", "E0", "AC: infra/k3s/config-v3.toml.tmpl encodes the nvidia containerd runtime stanza and keeps the NRI plugin off, per D-000/D-02b. Trace: T004a.", (_L, "infra"), 3, "High"),
     Story("S0.5", "S0.5 Install k3s on node A", "E7", "AC: k3s up per runbook; kubeconfig location note committed; G-2 logged. Owner story. Trace: T005.", (_L, "owner"), None, "Highest"),
     Story("S0.6", "S0.6 GPU Operator values + Terraform", "E0", "AC: pinned infra/helm-values/gpu-operator.yaml + infra/terraform/gpu_operator.tf; AUTHORED-PROVISIONAL until re-reviewed against T003/T005 verification blocks. Trace: T006.", (_L, "infra"), 5, "High"),
     Story("S0.7", "S0.7 SeaweedFS + lakeFS + CloudNativePG infra", "E0", "AC: pinned values + Terraform releases under infra/ per D-000/D-04+D-05. Trace: T007.", (_L, "infra"), 5, "High"),
@@ -206,6 +227,21 @@ STORIES: tuple[Story, ...] = (
     Story("S5.5", "S5.5 P40 node join (optional lesson)", "E7", "AC: training job scheduled to node B; heterogeneous-GPU pain documented as incident (R-05). Owner story. Trace: T050.", (_L, "owner"), None, "Low"),
     Story("S5.6", "S5.6 Rebuild-runbook verification", "E7", "AC: platform torn down and rebuilt once from docs (SC-006). Owner story. Trace: T051.", (_L, "owner"), None, "High"),
     Story("S5.7", "S5.7 Six-week soak", "E7", "AC: Constitution VI definition of done - 6 weeks operated, 1 organic drift retrain, 3 incident postmortems, 1 rollback drill; only the operator marks done. Owner story. Trace: T052.", (_L, "owner"), None, "Highest"),
+    # E6 - Reconciliation and integration hardening (T053-T065, RB-012).
+    # Declaring these does NOT unlock them; RB-012 authorizes execution of none.
+    Story("S6.1", "S6.1 Serving startup wiring and a healthy container", "E6", "AC: a production model is loaded outside tests, /healthz reports ok in the shipped image, and the Dockerfile port env names match the config fields they claim to set. Trace: T053.", (_L, "serve"), 5, "High"),
+    Story("S6.2", "S6.2 Structured-logging rollout and message redaction", "E6", "AC: configure_logging runs at every production entrypoint and credential redaction covers the message path, not only extra= fields. Trace: T054.", (_L, "infra"), 5, "High"),
+    Story("S6.3", "S6.3 Real request-body size limit", "E6", "AC: an oversized /predict body is rejected before it is read and parsed, proven by a test that measures the allocation rather than the comparison operator. Trace: T055.", (_L, "serve"), 3, "Medium"),
+    Story("S6.4", "S6.4 Honest lakeFS simulation", "E6", "AC: commit ids are deterministic for a given scene, and every log line naming a lakeFS object says SIMULATED until a real client exists. Trace: T056.", (_L, "data"), 3, "High"),
+    Story("S6.5", "S6.5 Retroactive review of T013-T052", "E6", "AC: every T013-T052 task carries a recorded spec-guardian and adversarial-reviewer outcome, and the tasks that pass are checked off. Required by RB-010 and owned by no part until RB-012. Trace: T057.", (_L, "governance"), 8, "Highest"),
+    Story("S6.6", "S6.6 Close the import-linter contract hole", "E6", "AC: a port importing its own concrete counterpart breaks a contract, and a positive control proves lint-imports exits non-zero on a planted violation. Trace: T058.", (_L, "infra"), 3, "High"),
+    Story("S6.7", "S6.7 Real MLflow adapter behind ModelRegistryPort", "E6", "AC: gated on the operator adapter-disposition decision; one port-conformance suite pins both the in-memory fake and the adapter. Trace: T059.", (_L, "registry"), 5, "Medium"),
+    Story("S6.8", "S6.8 Real lakeFS adapter behind DataVersionPort", "E6", "AC: gated on the same operator decision; depends on T056 and on a composition root existing. Trace: T060.", (_L, "data"), 5, "Medium"),
+    Story("S6.9", "S6.9 Close the D-012 config-wiring gaps", "E6", "AC: F1 through F5 of docs/decisions/012 are wired, drift/trigger.py first since its config fields already exist and name that file in their own descriptions. Trace: T061.", (_L, "config"), 3, "Medium"),
+    Story("S6.10", "S6.10 Lock the registry rollback path", "E6", "AC: rollback_production either takes the lock or transition_stage stops promising an invariant it cannot hold. Trace: T062.", (_L, "registry"), 2, "Medium"),
+    Story("S6.11", "S6.11 Fix the ECE weight shape mismatch", "E6", "AC: calibration_error asserts its weights and deviations are the same shape instead of letting numpy broadcast, expected calibration error is bounded in zero to one for every input, and the Hypothesis property test stops reddening CI intermittently. Trace: T063.", (_L, "train"), 3, "High"),
+    Story("S6.12", "S6.12 Implement or amend the story-status scenario", "E6", "AC: the governance-harness scenario that requires a story status contradicting the checkbox state to fail is either implemented or amended under its own authorization; it is currently implemented by nothing. Trace: T064.", (_L, "governance"), 3, "Medium"),
+    Story("S6.13", "S6.13 Govern the docs/development directory", "E6", "AC: docs/development is covered by governed_path_globs with an owning task, or its content is folded into the governed documents and the directory removed. Trace: T065.", (_L, "governance"), 2, "Medium"),
 )
 # fmt: on
 
