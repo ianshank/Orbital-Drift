@@ -521,6 +521,56 @@ Recorded so `NEXT_STEPS.md`'s "evidence for every claim here is D-013" header is
   "the caller forgot `mark_retraining_failed()`" from "the job is still running" and assumes
   the former. **Reported, not reproduced by this session**; T057's review of T036 settles it.
 
+## D-013/09 — Review round 2: the CI failure, and what it was not
+
+The RB-012 PR's first CI run reddened one check, `coverage`. It was **not** the ECE defect
+of D-013/02e, and diagnosing it produced a third pre-existing flake nobody had named.
+
+**Failing test:** `tests/unit/test_serving_edge_cases.py::test_predict_400_masks_internal_exception_detail`.
+It plants a model that raises a marker string, and asserts the marker reaches the server log
+but not the HTTP response. CI showed a real `RuntimeError: Given input size: (32x1x1)` — a
+genuine `SimpleUNet` shape error, i.e. **a different model ran than the one planted**.
+
+**Why `coverage` and not `unit`:** that stage runs every suite in one pytest process, so it is
+the only stage where module-level state crosses suite boundaries. The stage's own diagnostic
+says to check whether the ordinary stage agrees; it did — `unit` was green on the same commit.
+
+**Mechanism — two production defects meeting, neither in the RB-012 diff:**
+
+1. `ModelContainer.set_models` assigns `staging_model` only when one is **passed**
+   (`serve/app.py:157`), while setting `canary_ratio` **unconditionally** to its `0.10`
+   fallback. A caller loading only a production model therefore inherits whatever staging
+   model was set before, at a 10% traffic share it did not ask for.
+2. Canary routing draws from the unseeded process-global `random.random()`
+   (`serve/app.py:263`) — inconsistent with RB-010 Part 5c, which made `drift/metrics`
+   *require* a seeded `Generator` for reproducibility.
+
+So one request in ten was routed to a stale staging model, the planted raiser never ran, and
+the marker never reached the log.
+
+**Measured, not asserted — and this is what makes it not this PR's:**
+
+| tree | failures |
+|---|---|
+| `main` at `4b6ac35` (base) | **2 / 30** |
+| RB-012 branch | 4 / 30 |
+| after the fixture below | **0 / 40** |
+
+Same defect at the same rate within sampling noise, present before this change touched
+anything. The RB-012 diff modifies no file under `serve/` and no serving test.
+
+**Disposition.** The cross-test leak is cured by an autouse fixture resetting the shared
+`container` in that file — test-only, no production behaviour changed, no assertion weakened,
+and every test still runs. That is deliberately *not* quarantining: the rule against skipping
+a failing test protects tests that are finding real defects, and this one was finding a
+**state-isolation** defect that the fixture removes at its source. **Both production defects
+survive and are now owned by T053**, which rewires `set_models` regardless.
+
+**What is NOT fixed, and must not be:** the ECE defect (D-013/02e) still reddens roughly one
+run in ten, and that test is *correctly* failing — it found real broken arithmetic. Making it
+pass without fixing `eval/calibration.py` would be quarantining. It stays red until T063,
+which needs the operator's Principle II ruling first.
+
 ## Follow-ups found during this review, NOT fixed here
 
 Each is unscheduled beyond the task IDs noted; listing is not agreement to do them.

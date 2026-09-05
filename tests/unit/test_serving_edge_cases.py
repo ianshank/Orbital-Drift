@@ -37,6 +37,48 @@ def _build_config(**overrides: object) -> OrbitalDriftConfig:
     )
 
 
+@pytest.fixture(autouse=True)
+def _reset_the_module_level_container() -> None:
+    """Isolate every test in this file from the SHARED module-level `container`.
+
+    MEASURED FLAKE THIS CURES (RB-012 review round 2; the CI failure on this
+    file was `coverage`, not `unit`, because that stage runs every suite in one
+    process): `test_predict_400_masks_internal_exception_detail` failed
+    **2 of 30 runs on `main` at 4b6ac35** and 4 of 30 on the RB-012 branch —
+    the same rate, so it is pre-existing and not that change's.
+
+    THE MECHANISM, which is two production defects meeting:
+    1. `ModelContainer.set_models` only assigns `staging_model` when a staging
+       model is PASSED (`serve/app.py:157`), so a staging model left by an
+       earlier test survives into the next one; but it unconditionally sets
+       `canary_ratio` to its `0.10` fallback.
+    2. Canary routing draws from the unseeded process-global
+       `random.random()` (`serve/app.py:263`).
+
+    So a test that calls `set_models(production=...)` with no staging model
+    still gets a 10% chance of its request being routed to a STALE staging
+    model from a previous test. In the exception-masking test that means the
+    planted `_RaisingModel` never runs and a real `SimpleUNet` raises a torch
+    shape error instead, so the secret marker never reaches the log and the
+    assertion fails.
+
+    This fixture removes the cross-test leak. It does NOT fix either production
+    defect — those are real, are recorded in `docs/decisions/013-*.md`, and are
+    owned by T053, which rewires `set_models` anyway. Resetting shared state
+    between tests is not quarantining a test: the assertions are untouched and
+    every one of them still runs.
+    """
+    container.production_model = None
+    container.staging_model = None
+    container.canary_ratio = 0.0
+    container.metrics = {
+        "requests_total": 0,
+        "requests_production": 0,
+        "requests_staging": 0,
+        "total_latency_ms": 0.0,
+    }
+
+
 def test_predict_503_when_no_production_model_loaded() -> None:
     """Verifies that predict returns 503 if no model is loaded in container."""
     container.production_model = None
