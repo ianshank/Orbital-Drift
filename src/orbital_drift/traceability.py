@@ -11,10 +11,25 @@ Failures (exit 1, each named in the report):
 * a status outside the fixed enum;
 * an empty cell;
 * a ``Green`` row citing a pytest node id that ``pytest --collect-only`` does
-  not actually collect (the rule that matters as milestones close).
+  not actually collect (the rule that matters as milestones close);
+* a requirement declared in ``spec.md`` with no row in the matrix, or a row
+  citing a requirement ``spec.md`` never declares (RB-012).
 
-Stdlib-only, no I/O beyond the matrix file and one pytest subprocess, so it can
-never drift with the environment.
+The last rule is the only one that reads a second file. The matrix's own header
+names ``specs/001-orbital-drift-ct/spec.md`` as its source of truth, and until
+RB-012 nothing checked that claim — measured instance: ``SC-002`` (the
+specification's only performance budget) was declared by the spec and carried by
+no row, invisible to this stage because the linter read the matrix alone.
+
+HONEST SCOPE of that rule, so no reader over-trusts it: it compares which
+requirement IDS appear on each side. It does NOT check that a row's summary
+faithfully compresses the spec text for that id — the matrix's summaries are
+deliberate compressions ("summaries below are compressions, not restatements"),
+and no regex separates a good compression from a wrong one. Summary fidelity
+stays reviewer-enforced; see ``docs/decisions/013-plan-artifact-reconciliation.md``.
+
+Stdlib-only, no I/O beyond the matrix file, the spec file, and one pytest
+subprocess, so it can never drift with the environment.
 """
 
 from __future__ import annotations
@@ -31,6 +46,9 @@ from typing import Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 MATRIX: Final = REPO_ROOT / "traceability" / "REQUIREMENT-TRACEABILITY.md"
+#: The specification the matrix declares as its source of truth, read so that
+#: claim is checked rather than trusted (RB-012).
+SPEC: Final = REPO_ROOT / "specs" / "001-orbital-drift-ct" / "spec.md"
 
 #: Ceiling for the node-id collection subprocess. A hung collection would
 #: otherwise hang the `traceability` CI stage until the job's own 20-minute
@@ -55,6 +73,14 @@ _NODE_ID = re.compile(r"tests/[\w./-]+\.py(?:::[\w.\-\[\]=: ]+)+")
 #: :class:`Row`, so a literal here would be the fourth copy of the number this
 #: module just finished removing three of.)
 _REQUIREMENT_ID = re.compile(r"^(?:FR|NFR|SC|C|R|DEC)-\d+", re.IGNORECASE)
+#: A requirement declaration in spec.md: ``- **FR-011a** CI enforces...``.
+#:
+#: The trailing ``[a-z]?`` is load-bearing, not defensive. ``FR-011a`` and
+#: ``FR-011b`` are real, distinct requirements added after the original draft
+#: (T001a, T001b); a pattern stopping at the digits reads all three as
+#: ``FR-011``, collapsing them into one and making parity silently vacuous for
+#: exactly the two CI-gate requirements most likely to be edited.
+_SPEC_REQUIREMENT = re.compile(r"^- \*\*((?:FR|SC)-\d+[a-z]?)\*\*", re.MULTILINE)
 
 
 def _relative(path: Path) -> str:
@@ -167,6 +193,30 @@ def _collected_node_ids() -> tuple[frozenset[str], str | None]:
     return frozenset(line.strip() for line in proc.stdout.splitlines() if "::" in line), None
 
 
+def spec_requirement_ids() -> tuple[frozenset[str], str | None]:
+    """Every requirement id ``spec.md`` declares, plus an error when it could not.
+
+    Returns the error rather than an empty set for the same reason
+    :func:`_collected_node_ids` does: the two are indistinguishable downstream
+    and mean opposite things. An empty set makes EVERY matrix row report
+    "spec.md does not declare this", pointing the operator at twenty correct
+    rows when the real fault is a moved, deleted, or unreadable spec.
+    """
+    if not SPEC.is_file():
+        return frozenset(), f"{_relative(SPEC)} is missing (the matrix's declared source of truth)"
+    try:
+        text = SPEC.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        return frozenset(), f"{_relative(SPEC)} could not be read: {error}"
+    ids = frozenset(_SPEC_REQUIREMENT.findall(text))
+    if not ids:
+        return frozenset(), (
+            f"{_relative(SPEC)} declares no requirements in the expected "
+            "'- **FR-001** ...' shape — parity would be vacuous"
+        )
+    return ids, None
+
+
 def lint() -> list[str]:
     """Return every violation as a human-readable string; empty means clean."""
     if not MATRIX.is_file():
@@ -184,6 +234,21 @@ def lint() -> list[str]:
 
     seen: dict[str, int] = {}
     collected: frozenset[str] | None = None
+
+    declared, spec_error = spec_requirement_ids()
+    if spec_error is not None:
+        problems.append(spec_error)
+    else:
+        traced = {row.requirement for row in rows}
+        problems += [
+            f"requirement {requirement_id!r} is declared in {_relative(SPEC)} "
+            "but has no row in the matrix"
+            for requirement_id in sorted(declared - traced)
+        ]
+        problems += [
+            f"row {requirement_id!r}: {_relative(SPEC)} does not declare this requirement"
+            for requirement_id in sorted(traced - declared)
+        ]
 
     for row in rows:
         where = f"row {row.requirement!r} (line {row.line})"
