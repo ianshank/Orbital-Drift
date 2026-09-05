@@ -56,6 +56,15 @@ SPEC: Final = REPO_ROOT / "specs" / "001-orbital-drift-ct" / "spec.md"
 #: sets one; this is production code, so it matters most here.
 COLLECT_TIMEOUT: Final = 300.0  # pin: subprocess timeout ceiling, see doc comment above
 
+#: How much of an offending spec line to echo back in a near-miss report.
+#:
+#: A display width, not a configuration value: it exists so one malformed line
+#: cannot flood the gate's output, and no behaviour depends on it. Pinned rather
+#: than made configurable for that reason — RB-012 itself found that `# pin:`
+#: is used in this repo to launder genuinely config-shaped values (D-013/05
+#: item 3), so this one says explicitly which kind it is.
+_ECHO_WIDTH: Final = 80  # pin: operator-facing truncation width, see doc comment above
+
 STATUS_ENUM: Final = frozenset(
     {"Planned-gated", "In-progress", "Green", "Uncured-see-owner", "N/A-by-design"}
 )
@@ -73,14 +82,47 @@ _NODE_ID = re.compile(r"tests/[\w./-]+\.py(?:::[\w.\-\[\]=: ]+)+")
 #: :class:`Row`, so a literal here would be the fourth copy of the number this
 #: module just finished removing three of.)
 _REQUIREMENT_ID = re.compile(r"^(?:FR|NFR|SC|C|R|DEC)-\d+", re.IGNORECASE)
+#: The prefixes parity covers. NARROWER than :data:`_REQUIREMENT_ID`, which the
+#: row parser uses, and the difference is deliberate: ``spec.md`` declares only
+#: ``FR-`` and ``SC-``. Charter constraints (``C-n``) and risks (``R-nn``) are
+#: declared in `charter/PROJECT-CHARTER.md` and `plan.md`, which this module does
+#: not read — so demanding a spec declaration for a ``C-1`` row would be a rule
+#: no edit to `spec.md` could satisfy. Matrix rows outside these prefixes are
+#: therefore skipped by parity rather than reported as undeclared.
+_PARITY_PREFIX = re.compile(r"^(?:FR|SC)-", re.IGNORECASE)
+
 #: A requirement declaration in spec.md: ``- **FR-011a** CI enforces...``.
 #:
 #: The trailing ``[a-z]?`` is load-bearing, not defensive. ``FR-011a`` and
 #: ``FR-011b`` are real, distinct requirements added after the original draft
-#: (T001a, T001b); a pattern stopping at the digits reads all three as
-#: ``FR-011``, collapsing them into one and making parity silently vacuous for
-#: exactly the two CI-gate requirements most likely to be edited.
+#: (T001a, T001b). MEASURED, because the first version of this comment guessed
+#: wrong and said the opposite: dropping ``[a-z]?`` does NOT collapse the three
+#: into one ``FR-011`` — the trailing ``\*\*`` then fails to match, so
+#: ``FR-011a`` and ``FR-011b`` are DROPPED entirely and the committed matrix
+#: goes loudly red (6 tests). Loud, not silent; the pattern is still required,
+#: for the opposite reason to the one originally recorded.
 _SPEC_REQUIREMENT = re.compile(r"^- \*\*((?:FR|SC)-\d+[a-z]?)\*\*", re.MULTILINE)
+
+#: A line that LOOKS like a requirement declaration but may not be canonical.
+#:
+#: WHY THIS EXISTS — a measured fail-open, found by adversarial review of the
+#: very change that added the parity rule. :data:`_SPEC_REQUIREMENT` matches ONE
+#: markdown shape. Indenting a single declaration by two spaces
+#: (``  - **SC-002**``) removed it from the declared set, so deleting its matrix
+#: row lint()ed CLEAN — reproducing D-013/03b, the untraced performance budget,
+#: THROUGH the guard written to prevent it. Also invisible: ``* **FR-x**``,
+#: ``> - **FR-x**``, ``1. **FR-x**``, ``__FR-x__``, a tab after the dash.
+#:
+#: This module's contract is that every failure to understand is a reported
+#: problem — :func:`_parse_rows` already honours it for partially-malformed
+#: matrix rows. Parity now honours it for partially-malformed declarations:
+#: anything matching here and NOT :data:`_SPEC_REQUIREMENT` is reported, so a
+#: near-miss fails the gate loudly instead of shrinking the declared set.
+_SPEC_NEAR_MISS = re.compile(
+    r"^[ \t>]*(?:[-*+]|\d+[.)])?[ \t]*(?:\*\*|__)?[ \t]*"
+    r"(?:FR|NFR|SC|C|R|DEC)-\d+[a-z]?",
+    re.MULTILINE | re.IGNORECASE,
+)
 
 
 def _relative(path: Path) -> str:
@@ -208,7 +250,23 @@ def spec_requirement_ids() -> tuple[frozenset[str], str | None]:
         text = SPEC.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as error:
         return frozenset(), f"{_relative(SPEC)} could not be read: {error}"
+
     ids = frozenset(_SPEC_REQUIREMENT.findall(text))
+
+    # Fail CLOSED on a near-miss, mirroring _parse_rows' malformed-row branch:
+    # a declaration the canonical pattern cannot see would otherwise shrink the
+    # declared set SILENTLY, which is the measured fail-open this guard exists
+    # for. Reported as an error rather than added to `ids`, because guessing
+    # what a malformed line meant is how a linter starts inventing requirements.
+    for line_number, raw in enumerate(text.splitlines(), start=1):
+        if _SPEC_NEAR_MISS.match(raw) and _SPEC_REQUIREMENT.match(raw) is None:
+            return frozenset(), (
+                f"{_relative(SPEC)} line {line_number}: "
+                f"{raw.strip()[:_ECHO_WIDTH]!r} looks like a "
+                "requirement declaration but is not in the canonical "
+                "'- **FR-001** ...' shape, so parity cannot see it"
+            )
+
     if not ids:
         return frozenset(), (
             f"{_relative(SPEC)} declares no requirements in the expected "
@@ -239,7 +297,9 @@ def lint() -> list[str]:
     if spec_error is not None:
         problems.append(spec_error)
     else:
-        traced = {row.requirement for row in rows}
+        # Only FR-/SC- rows take part: see _PARITY_PREFIX for why demanding a
+        # spec.md declaration for a C-n or R-nn row would be unsatisfiable.
+        traced = {row.requirement for row in rows if _PARITY_PREFIX.match(row.requirement)}
         problems += [
             f"requirement {requirement_id!r} is declared in {_relative(SPEC)} "
             "but has no row in the matrix"

@@ -8,7 +8,7 @@ changes here except the traceability linter, which gains one check.
 
 **Audience:** the operator (every Critical finding in D-013/02 is theirs to schedule, and
 three open decisions in D-013/04 are theirs to make), and whichever agent picks up the
-T053-T060 block this record creates.
+T053-T065 block this record creates.
 
 **Provenance, stated precisely.** The review was run on 2026-09-05 against HEAD `4b6ac35`
 (== `origin/main`, clean tree) by five reviewers working in parallel: `adversarial-reviewer`
@@ -22,7 +22,7 @@ when its task is picked up. The operator has approved no code fix in D-013/02.
 
 **Decision-ID namespace:** this file's `D-013/D-nn` series is independent of every other
 `docs/decisions/*.md` series, of `plan.md`'s `D-01…D-05`, and of `docs/decision-log.md`'s
-`DEC-`/`RB-`/`G-` namespace (decision-log rule 3). Cross-references read `D-013/D-nn`.
+`DEC-`/`RB-`/`G-` namespace (decision-log rule 3). Cross-references read `D-013/nn`, matching this file's headings.
 
 **Environment limit, disclosed up front.** The session ran in a fresh Linux container, not
 the operator's dual-GPU host. `sh ci/checks.sh all` was NOT run to completion here: Docker
@@ -151,11 +151,22 @@ number.
    **Constitution II compliant** because it delegates to `sklearn`. It does delegate — and
    then post-processes the result with hand-rolled weights that do not line up. Compliance was
    assessed by checking the import, not the arithmetic.
-2. **CI is intermittently red and nobody knows it.** `@settings(max_examples=20)` means the
-   pathological case is drawn only sometimes, so this test can redden an unrelated PR at
-   random. It was green on the RB-011 full-suite triage (2026-09-03) — that triage's report
-   records the whole suite passing — so the draw that fails is recent luck, not a new
-   regression.
+2. **CI is intermittently red and nobody knows it — MEASURED, and a contradiction resolved.**
+   `@settings(max_examples=20)` means the pathological case is drawn only sometimes.
+   Measured on the pinned toolchain, `.hypothesis/` removed before each run:
+   **2 failures in 20 runs (~10%)**. The RB-012 adversarial review reported the opposite —
+   "8/8 failures, deterministic" — and both observations are correct once Hypothesis's
+   example database is accounted for: the first failing draw is written to `.hypothesis/`
+   and **replayed on every subsequent run from that directory**, so a reviewer who hits it
+   once sees determinism thereafter unless the database is cleared at the location actually
+   in use. Fresh runs are ~10%; a machine that has seen it once is 100% until its database
+   is cleared.
+   Two consequences: this test can redden an unrelated PR at random, and a developer who
+   hits it locally cannot make it go away by re-running. It is also consistent with the
+   RB-011 triage (2026-09-03) recording the whole suite green — a 90%-per-run pass rate
+   makes one clean sweep unremarkable, so this is draw luck rather than a new regression.
+   **`main` is therefore red roughly one run in ten at `4b6ac35`, and was before this
+   change.**
 3. It is a promotion-adjacent statistic. An ECE that can exceed its own bound is not usable as
    evidence in a promotion decision.
 
@@ -366,7 +377,7 @@ Relayed for the operator's scheduling; not repaired here beyond D-013/07.
 ## D-013/06 — What this change does, and what it deliberately does not
 
 **Does:** repairs the false plan artifacts (D-013/03), creates the forward roadmap that two
-merged documents already cite (D-013/04d), gives the unowned work task IDs T053-T062 with
+merged documents already cite (D-013/04d), gives the unowned work task IDs T053-T065 with
 owning agents, adds one mechanical check (D-013/07), and records everything above.
 
 **Does not:** fix any Critical or Major code defect in D-013/02 or D-013/05; flip any
@@ -409,6 +420,106 @@ exits 2 because 25 test modules cannot import without the full dependency set. L
 authoritative and this change is not claimed green until CI says so.
 
 ---
+
+## D-013/08 — Review round 1 on THIS change, and what it cost
+
+Per CLAUDE.md's collaboration protocol the RB-012 diff went to `spec-guardian` and
+`adversarial-reviewer`. **Both returned BLOCK.** Recorded here because the most important
+finding is one this document would otherwise have claimed the opposite of.
+
+### The finding that mattered: the new guard failed OPEN on the defect it was written for
+
+`adversarial-reviewer` C1, **reproduced by this session before accepting it**: indenting one
+declaration in `spec.md` by two spaces (`  - **SC-002**`) removed it from the declared set,
+so deleting its matrix row lint()ed **clean**. That is D-013/03b — the untraced performance
+budget — reproduced *through the guard added to prevent it*. `_SPEC_REQUIREMENT` matched one
+markdown shape; `* **FR-x**`, `> - **FR-x**`, `1. **FR-x**`, `__FR-x__` and a tab after the
+dash were all silently invisible.
+
+The module's stated contract is that every failure to understand is a reported problem, and
+`_parse_rows` already honoured it for partially-malformed matrix rows. Parity did not.
+Fixed: `_SPEC_NEAR_MISS` reports any declaration-shaped line the canonical pattern cannot
+see, so a near-miss fails the gate loudly instead of shrinking the declared set. Six
+parametrized regression cases; the fix was verified by re-running the original reproduction.
+
+**The lesson is about this document, not the regex.** D-013/07 told a reader the rule's only
+limit was summary fidelity. That was false in a second, worse way, and the honest-scope
+paragraph made it *more* likely to be trusted. A guard's disclaimer is itself a claim needing
+a test.
+
+### Also fixed in round 1
+
+| Finding | Disposition |
+|---|---|
+| C2 / guardian 2: new merge-blocking rule with no governing requirement | **Fixed.** Three scenarios added to the "Traceability matrix is linted" requirement in the governance-harness delta, per the T001a→FR-011a / T001b→FR-011b precedent. Both reviewers noted the change indicted four other gates for this at D-013/05 item 4 while doing it a fifth time; they were right. |
+| M1: `lint()`'s `else:` guard mutation-transparent | **Fixed.** The missing negative assertion added; mutating `else:`→`if True:` now reddens. |
+| M2: anti-vacuity branch dead and uncovered | **Fixed.** Pinned directly against `spec_requirement_ids()`, since `lint()` early-returns before parity on an empty matrix. |
+| M3: coverage regression, spec-side error paths untested | **Fixed.** The undecodable-spec twin of the matrix test added. |
+| M4: disclaimer disclaimed the wrong axis | **Fixed.** Parity was reporting `NFR-`/`C-`/`R-`/`DEC-` rows as undeclared with **no way to satisfy the finding**, since those are declared in the charter and plan, which this linter does not read. `_PARITY_PREFIX` now scopes both sides to `FR-`/`SC-`, and the limit is stated in the code, the matrix header and the new spec scenario. |
+| M5: the `[a-z]?` rationale stated a mechanism that does not occur | **Fixed.** Measured: dropping it makes `FR-011a`/`FR-011b` match *nothing* and the committed matrix go loudly red — not "collapse into one, silently vacuous" as originally written. Comment corrected to the measurement. |
+| M6 / guardian 6: a specified scenario silently de-mechanized | **Fixed, and it was the right catch.** Removing the false "status matches the checkbox state" docstring claim would have converted a *governing requirement* into an invisible gap. The scenario is annotated PARTIALLY IMPLEMENTED and owned by **T064**; it is deliberately not weakened to match the code. |
+| guardian 1 / m1: "13 of 14 remediation parts" | **Fixed.** It is 12 — Part 5 landed as three commits, which is not three parts. |
+| guardian 3: scope beyond RB-012's enumeration | **Fixed by RB-012a**, an execution record naming each unenumerated item, per the RB-007a/RB-008a precedent. |
+| guardian 4: an unverified claim planted in the plan of record | **Fixed.** The `max_retraining_scenes` re-dispatch claim now carries its demonstration below, or the sentence would have been deleted. |
+| guardian 5: three defect claims in NEXT_STEPS with no evidence | **Fixed.** Recorded below, so the file's "evidence for every claim here" header is true. |
+| guardian 7: root cause diagnosed then left unowned | **Fixed.** `docs/development/**` being outside `governed_path_globs` is now **T065**. |
+| guardian 10: two Phase-6 owners off-roster | **Fixed** for T063 (`eval/` is spec-implementer's per CLAUDE.md). T061 keeps `spec-implementer` as coordinator because its five sites span four owners; the per-module handoffs are named in the task. |
+| m2 / 8, 9, 11, 13: ranges, ordering, ID convention, list break | **Fixed.** |
+
+### Two findings REJECTED on measurement, with the evidence
+
+Recorded because a review finding accepted without checking is worth as little as a claim
+made without checking.
+
+1. **C3 — "the ECE failure is deterministic, 8/8, not intermittent."** Not reproducible.
+   Measured here: **2 failures in 20 runs with `.hypothesis/` removed before each**. The
+   reviewer's observation and this one reconcile through Hypothesis's example database,
+   which replays a found counterexample on every later run from that directory — see
+   D-013/02e, which now carries both the rate and the mechanism. The "intermittent" framing
+   stands, made precise. The reviewer's underlying point — that `main` is red and this batch
+   does not fix it — stands untouched and is stated plainly in D-013/02e.
+2. **M7 — "RB-012's budget exemption is self-granted."** The reviewer rates this [Likely] and
+   names the counter-precedent itself: RB-009 used the identical formula. The distinction it
+   draws (RB-009 added no new *enforced rule*) is real, and the question of whether a new
+   gate rule consumes the M0 feature budget is genuinely the operator's. **Escalated, not
+   resolved:** flagged in the PR description for an operator ruling rather than argued away.
+
+### Round-1 items deliberately NOT actioned
+
+- **m7 (stale `file:line` citations in test docstrings).** Real, and pre-existing at
+  `4b6ac35`; this change shifts the anchors further. Chasing them is a mechanical sweep that
+  belongs in its own PR, not in a batch already spanning thirteen files.
+- **m5 (`SPEC` hardcodes the `001-orbital-drift-ct` slug).** True; it fails open by staleness
+  once a feature 002 exists. No second feature exists, and inventing a discovery rule now
+  would be speculative. Named here so it is not discovered late.
+- **m6 (`_TRACE_TASK` extracts ids from anywhere in the acceptance text, not just after
+  `Trace:`).** Pre-existing shape, widened slightly by this change. A real weakness in the
+  parity direction; not this batch's to redesign.
+
+### Evidence for the claims round 1 found unsupported
+
+Recorded so `NEXT_STEPS.md`'s "evidence for every claim here is D-013" header is true.
+
+- **STAC has retry/backoff but no rate limiting.** `ingest/stac_client.py` builds
+  `requests.Session()` with no `HTTPAdapter`, no `urllib3.Retry`, no token bucket; the
+  backoff is a per-call attempt budget, which is a different thing.
+- **Cloud fraction uses a different denominator than the threshold's other consumer.**
+  `ingest/cloud.py:100` divides by `valid_pixels` (excluding NO_DATA and SATURATED) while
+  `ingest/stac_client.py` filters on scene-wide `eo:cloud_cover`, and RB-010 Part 5a wired
+  both to the same `cloud_cover_max_threshold`. A swath-edge tile that is 60% NO_DATA and
+  30% cloud reads as 0.75 locally and 30% at the STAC boundary, so edge tiles are
+  systematically over-excluded — cloud starvation caused by the metric.
+- **Tile-store writes are not atomic.** `ingest/tile_store.py` writes band `.npy` files one
+  at a time with `metadata.json` last and no temp-file-plus-rename. A power cut mid-save
+  leaves a scene directory `list_scenes()` skips (it requires `metadata.json`), so the
+  pipeline believes the scene is absent — the spec's own home-lab-restart edge case.
+- **`drift/trigger.py`'s staleness net can re-dispatch a retrain that is still running**
+  (the claim guardian finding 4 objected to). Demonstrated by the adversarial lens with
+  `hysteresis_window=2, cooldown_scenes=2, max_retraining_scenes=3`: with a retrain
+  dispatched at scene 2 and still in flight, triggers fire again at scenes 5 and 8 — three
+  dispatches where queue-depth-1 coalescing promises one. The manager cannot distinguish
+  "the caller forgot `mark_retraining_failed()`" from "the job is still running" and assumes
+  the former. **Reported, not reproduced by this session**; T057's review of T036 settles it.
 
 ## Follow-ups found during this review, NOT fixed here
 

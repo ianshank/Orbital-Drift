@@ -107,6 +107,8 @@ Phase 6 (RB-012): defects found in already-remediated code, RB-010 findings assi
 | S6.9 Close the D-012 config-wiring gaps | 3 | Medium | AC: F1 through F5 of docs/decisions/012 are wired, drift/trigger.py first since its config fields already exist and name that file in their own descriptions. Trace: T061. |
 | S6.10 Lock the registry rollback path | 2 | Medium | AC: rollback_production either takes the lock or transition_stage stops promising an invariant it cannot hold. Trace: T062. |
 | S6.11 Fix the ECE weight shape mismatch | 3 | High | AC: calibration_error asserts its weights and deviations are the same shape instead of letting numpy broadcast, expected calibration error is bounded in zero to one for every input, and the Hypothesis property test stops reddening CI intermittently. Trace: T063. |
+| S6.12 Implement or amend the story-status scenario | 3 | Medium | AC: the governance-harness scenario that requires a story status contradicting the checkbox state to fail is either implemented or amended under its own authorization; it is currently implemented by nothing. Trace: T064. |
+| S6.13 Govern the docs/development directory | 2 | Medium | AC: docs/development is covered by governed_path_globs with an owning task, or its content is folded into the governed documents and the directory removed. Trace: T065. |
 
 ## E7 Operator and Decision Gates (Highest)
 

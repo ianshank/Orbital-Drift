@@ -24,7 +24,10 @@ was not in the repository. This is now that file.
 Phase 0 of 6. Ten of the task checkboxes are complete (T001, T001a, T001b, T002, T004, T004a,
 T007-T010) — all Phase-0 authoring. Separately, PR#16/#17 landed most of the Phase 1-4
 application code ungated; RB-010 marked all of T013-T052 `AUTHORED-PROVISIONAL` pending
-retroactive review, and 13 of its 14 remediation parts have shipped.
+retroactive review, and 12 of its 14 remediation parts have shipped (Parts 1, 2, 4, 5, 6-13;
+Part 5 landed as three commits 5a/5b/5c, which is not three parts). Parts 3 and 14 remain —
+see §2 D-1. Part 12 shipped only half its text: the Dockerfile fix landed, the `checks.sh`
+docker stage did not (D-013/04e).
 
 The honest summary of what that code is:
 

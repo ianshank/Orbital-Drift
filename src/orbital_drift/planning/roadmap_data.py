@@ -227,7 +227,7 @@ STORIES: tuple[Story, ...] = (
     Story("S5.5", "S5.5 P40 node join (optional lesson)", "E7", "AC: training job scheduled to node B; heterogeneous-GPU pain documented as incident (R-05). Owner story. Trace: T050.", (_L, "owner"), None, "Low"),
     Story("S5.6", "S5.6 Rebuild-runbook verification", "E7", "AC: platform torn down and rebuilt once from docs (SC-006). Owner story. Trace: T051.", (_L, "owner"), None, "High"),
     Story("S5.7", "S5.7 Six-week soak", "E7", "AC: Constitution VI definition of done - 6 weeks operated, 1 organic drift retrain, 3 incident postmortems, 1 rollback drill; only the operator marks done. Owner story. Trace: T052.", (_L, "owner"), None, "Highest"),
-    # E6 - Reconciliation and integration hardening (T053-T062, RB-012).
+    # E6 - Reconciliation and integration hardening (T053-T065, RB-012).
     # Declaring these does NOT unlock them; RB-012 authorizes execution of none.
     Story("S6.1", "S6.1 Serving startup wiring and a healthy container", "E6", "AC: a production model is loaded outside tests, /healthz reports ok in the shipped image, and the Dockerfile port env names match the config fields they claim to set. Trace: T053.", (_L, "serve"), 5, "High"),
     Story("S6.2", "S6.2 Structured-logging rollout and message redaction", "E6", "AC: configure_logging runs at every production entrypoint and credential redaction covers the message path, not only extra= fields. Trace: T054.", (_L, "infra"), 5, "High"),
@@ -240,6 +240,8 @@ STORIES: tuple[Story, ...] = (
     Story("S6.9", "S6.9 Close the D-012 config-wiring gaps", "E6", "AC: F1 through F5 of docs/decisions/012 are wired, drift/trigger.py first since its config fields already exist and name that file in their own descriptions. Trace: T061.", (_L, "config"), 3, "Medium"),
     Story("S6.10", "S6.10 Lock the registry rollback path", "E6", "AC: rollback_production either takes the lock or transition_stage stops promising an invariant it cannot hold. Trace: T062.", (_L, "registry"), 2, "Medium"),
     Story("S6.11", "S6.11 Fix the ECE weight shape mismatch", "E6", "AC: calibration_error asserts its weights and deviations are the same shape instead of letting numpy broadcast, expected calibration error is bounded in zero to one for every input, and the Hypothesis property test stops reddening CI intermittently. Trace: T063.", (_L, "train"), 3, "High"),
+    Story("S6.12", "S6.12 Implement or amend the story-status scenario", "E6", "AC: the governance-harness scenario that requires a story status contradicting the checkbox state to fail is either implemented or amended under its own authorization; it is currently implemented by nothing. Trace: T064.", (_L, "governance"), 3, "Medium"),
+    Story("S6.13", "S6.13 Govern the docs/development directory", "E6", "AC: docs/development is covered by governed_path_globs with an owning task, or its content is folded into the governed documents and the directory removed. Trace: T065.", (_L, "governance"), 2, "Medium"),
 )
 # fmt: on
 
