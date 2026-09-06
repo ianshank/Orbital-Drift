@@ -173,9 +173,7 @@ def test_bin_weight_mismatch_raises_runtime_error(monkeypatch: pytest.MonkeyPatc
 
 @given(
     st.lists(st.booleans(), min_size=10, max_size=100),
-    st.lists(
-        st.floats(min_value=0.0, max_value=1.0, allow_nan=False), min_size=10, max_size=100
-    ),
+    st.lists(st.floats(min_value=0.0, max_value=1.0, allow_nan=False), min_size=10, max_size=100),
     st.integers(min_value=2, max_value=20),
     st.sampled_from(["uniform", "quantile"]),
 )

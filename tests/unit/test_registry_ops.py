@@ -353,9 +353,7 @@ class TestRollbackProductionConcurrency:
             reg.transition_stage("rollback-model", v, "Production")
 
         # Slow down the scan to force thread interleaving
-        reg._mock_registry["rollback-model"] = _SlowItemsDict(
-            reg._mock_registry["rollback-model"]
-        )
+        reg._mock_registry["rollback-model"] = _SlowItemsDict(reg._mock_registry["rollback-model"])
 
         barrier = threading.Barrier(thread_count)
         results: queue.Queue[int | None] = queue.Queue()

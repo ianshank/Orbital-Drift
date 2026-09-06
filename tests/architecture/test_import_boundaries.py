@@ -113,6 +113,9 @@ def test_ports_isolation_contract_would_catch_violation() -> None:
         "orbital_drift.drift",
         "orbital_drift.eval",
         "orbital_drift.ingest",
+        "orbital_drift.observability",
+        "orbital_drift.planning",
+        "orbital_drift.quality",
         "orbital_drift.registry",
         "orbital_drift.serve",
         "orbital_drift.train",
@@ -154,8 +157,7 @@ def test_ports_isolation_contract_catches_planted_violation() -> None:
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
         assert "ports_isolation" in result.stdout or "BROKEN" in result.stdout, (
-            f"Expected ports_isolation contract failure in output.\n"
-            f"stdout: {result.stdout}"
+            f"Expected ports_isolation contract failure in output.\nstdout: {result.stdout}"
         )
     finally:
         violation_file.unlink(missing_ok=True)
@@ -199,8 +201,8 @@ def test_no_ports_currently_import_application_modules() -> None:
                 and node.module is not None
                 and node.module.startswith("orbital_drift.")
             ):
-                    subpackage = node.module.split(".")[1]
-                    assert subpackage not in application_packages, (
-                        f"{module_path.relative_to(REPOSITORY_ROOT)} imports forbidden "
-                        f"orbital_drift.{subpackage}"
-                    )
+                subpackage = node.module.split(".")[1]
+                assert subpackage not in application_packages, (
+                    f"{module_path.relative_to(REPOSITORY_ROOT)} imports forbidden "
+                    f"orbital_drift.{subpackage}"
+                )

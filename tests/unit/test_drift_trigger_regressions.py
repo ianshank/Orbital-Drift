@@ -249,9 +249,7 @@ class TestDriftTriggerConfigWiring:
 
     def test_explicit_args_override_config(self) -> None:
         cfg = _build_config(drift_hysteresis_window=7, drift_cooldown_scenes=12)
-        manager = DriftTriggerManager(
-            hysteresis_window=2, cooldown_scenes=3, config=cfg
-        )
+        manager = DriftTriggerManager(hysteresis_window=2, cooldown_scenes=3, config=cfg)
         assert manager.hysteresis_window == 2
         assert manager.cooldown_scenes == 3
 

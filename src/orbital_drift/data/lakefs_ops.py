@@ -13,9 +13,15 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any
+from typing import Any, Final
 
 logger = logging.getLogger(__name__)
+
+# Configurable hash truncation lengths for simulated commit IDs and tags.
+# These are NOT cryptographic guarantees - they're just readability choices
+# for the simulation. Production lakeFS uses full commit hashes.
+SIMULATED_COMMIT_ID_LENGTH: Final[int] = 16  # pin: simulated commit ID hex-char count
+SIMULATED_TAG_COMMIT_PREFIX_LENGTH: Final[int] = 8  # pin: simulated tag commit prefix length
 
 
 class LakeFSOps:
@@ -60,7 +66,7 @@ class LakeFSOps:
         # T056: Deterministic payload - no timestamp, same inputs = same ID
         meta_str = json.dumps(meta_dict, sort_keys=True)
         payload = f"{self.repository}:{target_branch}:{scene_id}:{meta_str}"
-        commit_id = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+        commit_id = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:SIMULATED_COMMIT_ID_LENGTH]
 
         logger.info(
             "[SIMULATED] lakeFS commit %s on repo '%s' branch '%s' for scene '%s'",
@@ -102,7 +108,7 @@ class LakeFSOps:
         the simulation was called, not part of the determinism guarantee for
         commit IDs (which represent the "what", not "when").
         """
-        tag = tag_name or f"snapshot-{commit_id[:8]}"
+        tag = tag_name or f"snapshot-{commit_id[:SIMULATED_TAG_COMMIT_PREFIX_LENGTH]}"
         snapshot_meta = {
             "repository": self.repository,
             "commit_id": commit_id,
