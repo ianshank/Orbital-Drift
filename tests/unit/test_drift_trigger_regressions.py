@@ -22,10 +22,14 @@ from __future__ import annotations
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from orbital_drift.drift.trigger import DriftTriggerManager, TriggerDecision
+
+if TYPE_CHECKING:
+    from orbital_drift.config import OrbitalDriftConfig
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Finding: stuck-breaker -- is_retraining_active has no failure-path reset
@@ -204,3 +208,61 @@ class TestConcurrentProcessSceneVerdictCoalescing:
         TestMoranThreadSafety.test_moran_lock_is_a_threading_lock."""
         manager = DriftTriggerManager()
         assert isinstance(manager._lock, type(threading.Lock()))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# T061: Config wiring for hysteresis_window and cooldown_scenes
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Not real credentials -- fixed test doubles for the required lakeFS fields,
+# matching tests/unit/test_config.py's `_construct_with_valid_credentials` pattern.
+_TEST_ACCESS_KEY = "unit-test-access-value"
+_TEST_SECRET_KEY = "unit-test-secret-value"  # noqa: S105 -- test double, not a real secret
+
+
+def _build_config(**overrides: Any) -> OrbitalDriftConfig:
+    """Build an OrbitalDriftConfig with test credential defaults."""
+    from orbital_drift.config import OrbitalDriftConfig
+
+    return OrbitalDriftConfig(
+        lakefs_access_key=_TEST_ACCESS_KEY,
+        lakefs_secret_key=_TEST_SECRET_KEY,
+        **overrides,
+    )
+
+
+class TestDriftTriggerConfigWiring:
+    """T061: hysteresis_window and cooldown_scenes resolve with precedence:
+    explicit argument > config field > pre-existing hardcoded default."""
+
+    def test_default_values_unchanged_without_config(self) -> None:
+        """Positive control: the exact pre-existing zero-arg defaults."""
+        manager = DriftTriggerManager()
+        assert manager.hysteresis_window == 3
+        assert manager.cooldown_scenes == 5
+
+    def test_config_supplies_values_when_args_omitted(self) -> None:
+        cfg = _build_config(drift_hysteresis_window=7, drift_cooldown_scenes=12)
+        manager = DriftTriggerManager(config=cfg)
+        assert manager.hysteresis_window == 7
+        assert manager.cooldown_scenes == 12
+
+    def test_explicit_args_override_config(self) -> None:
+        cfg = _build_config(drift_hysteresis_window=7, drift_cooldown_scenes=12)
+        manager = DriftTriggerManager(hysteresis_window=2, cooldown_scenes=3, config=cfg)
+        assert manager.hysteresis_window == 2
+        assert manager.cooldown_scenes == 3
+
+    def test_partial_override_works(self) -> None:
+        """Explicit arg for one, config for the other."""
+        cfg = _build_config(drift_hysteresis_window=7, drift_cooldown_scenes=12)
+        manager = DriftTriggerManager(hysteresis_window=2, config=cfg)
+        assert manager.hysteresis_window == 2
+        assert manager.cooldown_scenes == 12  # from config
+
+    def test_config_without_args_still_uses_config_defaults(self) -> None:
+        """Config with default values should behave same as no config."""
+        cfg = _build_config()  # uses defaults (3 and 5)
+        manager = DriftTriggerManager(config=cfg)
+        assert manager.hysteresis_window == 3
+        assert manager.cooldown_scenes == 5
