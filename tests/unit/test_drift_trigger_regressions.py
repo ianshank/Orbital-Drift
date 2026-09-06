@@ -22,10 +22,14 @@ from __future__ import annotations
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from orbital_drift.drift.trigger import DriftTriggerManager, TriggerDecision
+
+if TYPE_CHECKING:
+    from orbital_drift.config import OrbitalDriftConfig
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Finding: stuck-breaker -- is_retraining_active has no failure-path reset
@@ -216,9 +220,8 @@ _TEST_ACCESS_KEY = "unit-test-access-value"
 _TEST_SECRET_KEY = "unit-test-secret-value"  # noqa: S105 -- test double, not a real secret
 
 
-def _build_config(  # type: ignore[no-untyped-def]
-    **overrides,
-):
+def _build_config(**overrides: Any) -> OrbitalDriftConfig:
+    """Build an OrbitalDriftConfig with test credential defaults."""
     from orbital_drift.config import OrbitalDriftConfig
 
     return OrbitalDriftConfig(

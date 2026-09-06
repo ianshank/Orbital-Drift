@@ -16,6 +16,40 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
+### Fixed — Tech Debt Remediation Sprint (2026-09-06, Comprehensive Review Branch)
+
+- **T063: ECE calibration bug.** `_bin_weights` in `src/orbital_drift/eval/calibration.py`
+  used `side="right"` for `np.searchsorted` while sklearn's `calibration_curve` uses the
+  default `side="left"`. This caused bin assignment divergence at boundary values, producing
+  mathematically incorrect ECE values (potentially > 1.0). Fixed by aligning the `side`
+  parameter and adding a defensive runtime check. Three regression tests added including a
+  hypothesis property-based test.
+
+- **T053: Kubernetes health probe separation.** The `/healthz` endpoint returned 503 until a
+  model was loaded, causing Kubernetes CrashLoopBackOff. Separated into `/livez` (always 200),
+  `/readyz` (503 without model), with `/healthz` aliasing `/readyz` for backward compatibility.
+  Migrated from deprecated `@app.on_event("startup")` to modern `lifespan` context manager.
+  Five new tests verify the Kubernetes probe separation pattern.
+
+- **T062: Registry rollback race condition.** `rollback_production` in `registry/ops.py` had
+  a read-modify-write pattern without locking, allowing concurrent rollbacks to corrupt the
+  single-Production invariant. Added `threading.Lock` serialization. Concurrency regression
+  test with `_SlowItemsDict` verifies the fix.
+
+- **T058: Import-linter ports isolation.** Closed the architectural contract hole: added
+  `ports_isolation` forbidden contract to `.importlinter` preventing `orbital_drift.ports`
+  from importing any application-layer modules. Positive control test and AST-based sanity
+  check verify the contract configuration.
+
+- **T061 (F3): DriftTriggerManager config wiring.** Wired `hysteresis_window` and
+  `cooldown_scenes` to `OrbitalDriftConfig` with precedence: explicit argument > config field >
+  hardcoded default. Four new tests cover the config resolution logic.
+
+- **T056: LakeFS simulation honesty.** Made the lakeFS simulation explicitly honest:
+  removed `time.time()` from hash payloads for deterministic commit IDs, prefixed all log
+  messages with `[SIMULATED]`, added `simulated: True` marker to snapshot metadata. New test
+  verifies commit ID determinism for identical inputs.
+
 ### Added — hexagonal architecture & governance hardening (Phase 0-R, 2026-08-23)
 
 - `src/orbital_drift/domain/`: Pure domain layer zero-dependency primitives (`geometry.py`, `temporal.py`, `scene.py`, `lineage.py`, `errors.py`) with strict timezone-awareness and canonical JSON SHA-256 hashing.

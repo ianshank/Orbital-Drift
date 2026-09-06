@@ -117,7 +117,7 @@ def test_ports_isolation_contract_would_catch_violation() -> None:
         "orbital_drift.serve",
         "orbital_drift.train",
     }
-    actual_forbidden = set(line.strip() for line in forbidden_modules.split("\n") if line.strip())
+    actual_forbidden = {line.strip() for line in forbidden_modules.split("\n") if line.strip()}
     missing = expected_forbidden - actual_forbidden
     assert not missing, f"forbidden_modules is missing application packages: {missing}"
 
@@ -155,8 +155,11 @@ def test_no_ports_currently_import_application_modules() -> None:
         # Also check for orbital_drift.* imports
         tree = ast.parse(module_path.read_text(), filename=str(module_path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module is not None:
-                if node.module.startswith("orbital_drift."):
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module is not None
+                and node.module.startswith("orbital_drift.")
+            ):
                     subpackage = node.module.split(".")[1]
                     assert subpackage not in application_packages, (
                         f"{module_path.relative_to(REPOSITORY_ROOT)} imports forbidden "
