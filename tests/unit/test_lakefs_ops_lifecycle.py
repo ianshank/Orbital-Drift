@@ -27,7 +27,8 @@ def test_lakefs_ops_commit_scene_default_branch(caplog: pytest.LogCaptureFixture
 
     assert isinstance(commit_id, str)
     assert len(commit_id) == 16
-    assert "Created lakeFS commit" in caplog.text
+    # T056: log messages now include [SIMULATED] prefix
+    assert "[SIMULATED] lakeFS commit" in caplog.text
     assert "for scene 'scene-001'" in caplog.text
 
 
@@ -67,7 +68,9 @@ def test_lakefs_ops_pin_dataset_snapshot_default_tag(caplog: pytest.LogCaptureFi
     assert meta["commit_id"] == commit_id
     assert meta["tag"] == "snapshot-01234567"
     assert "pinned_at" in meta
-    assert "Pinned lakeFS dataset snapshot" in caplog.text
+    assert meta.get("simulated") is True  # T056: explicit simulation marker
+    # T056: log messages now include [SIMULATED] prefix
+    assert "[SIMULATED] lakeFS snapshot" in caplog.text
 
 
 def test_lakefs_ops_pin_dataset_snapshot_custom_tag(caplog: pytest.LogCaptureFixture) -> None:
@@ -78,4 +81,29 @@ def test_lakefs_ops_pin_dataset_snapshot_custom_tag(caplog: pytest.LogCaptureFix
         meta = ops.pin_dataset_snapshot(commit_id, tag_name="v1.0.0-gold")
 
     assert meta["tag"] == "v1.0.0-gold"
-    assert "Pinned lakeFS dataset snapshot 'v1.0.0-gold'" in caplog.text
+    # T056: log messages now include [SIMULATED] prefix
+    assert "[SIMULATED] lakeFS snapshot 'v1.0.0-gold'" in caplog.text
+
+
+def test_commit_scene_produces_deterministic_ids() -> None:
+    """T056: Same inputs must produce the same commit ID for reproducibility.
+
+    Prior to T056, commit_scene included time.time() in the hash payload,
+    making IDs non-deterministic and breaking test reproducibility.
+    """
+    ops = LakeFSOps(repository="test-repo", main_branch="main")
+    metadata = {"cloud_cover": 0.05}
+
+    # Call twice with identical inputs
+    id1 = ops.commit_scene("scene-001", metadata=metadata, branch="dev")
+    id2 = ops.commit_scene("scene-001", metadata=metadata, branch="dev")
+
+    # Must be identical
+    assert id1 == id2, "commit IDs should be deterministic given same inputs"
+
+    # Different inputs must produce different IDs
+    id3 = ops.commit_scene("scene-002", metadata=metadata, branch="dev")
+    assert id1 != id3, "different scene_id should produce different commit ID"
+
+    id4 = ops.commit_scene("scene-001", metadata={"cloud_cover": 0.10}, branch="dev")
+    assert id1 != id4, "different metadata should produce different commit ID"

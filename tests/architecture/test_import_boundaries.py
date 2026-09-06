@@ -113,13 +113,54 @@ def test_ports_isolation_contract_would_catch_violation() -> None:
         "orbital_drift.drift",
         "orbital_drift.eval",
         "orbital_drift.ingest",
+        "orbital_drift.observability",
+        "orbital_drift.planning",
+        "orbital_drift.quality",
         "orbital_drift.registry",
         "orbital_drift.serve",
         "orbital_drift.train",
     }
-    actual_forbidden = set(line.strip() for line in forbidden_modules.split("\n") if line.strip())
+    actual_forbidden = {line.strip() for line in forbidden_modules.split("\n") if line.strip()}
     missing = expected_forbidden - actual_forbidden
     assert not missing, f"forbidden_modules is missing application packages: {missing}"
+
+
+def test_ports_isolation_contract_catches_planted_violation() -> None:
+    """T058 true positive control: prove the contract fails on a real violation.
+
+    This test plants an actual import violation in ports/, runs lint-imports,
+    and verifies it returns non-zero. Without this, we only prove the contract
+    *exists* syntactically, not that it *works* at runtime.
+    """
+    executable = shutil.which("lint-imports")
+    if executable is None:
+        pytest.skip("lint-imports not available for positive control")
+
+    violation_file = SOURCE_ROOT / "ports" / "_test_violation_t058.py"
+    try:
+        violation_file.write_text(
+            "# T058 positive control: planted violation - DO NOT COMMIT\n"
+            "from orbital_drift.data import lakefs_ops  # noqa: F401\n"
+        )
+
+        result = subprocess.run(
+            [executable, "--config", ".importlinter"],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode != 0, (
+            "import-linter should reject ports → data import, but it passed. "
+            "The ports_isolation contract may be misconfigured.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        assert "ports_isolation" in result.stdout or "BROKEN" in result.stdout, (
+            f"Expected ports_isolation contract failure in output.\nstdout: {result.stdout}"
+        )
+    finally:
+        violation_file.unlink(missing_ok=True)
 
 
 def test_no_ports_currently_import_application_modules() -> None:
@@ -155,10 +196,13 @@ def test_no_ports_currently_import_application_modules() -> None:
         # Also check for orbital_drift.* imports
         tree = ast.parse(module_path.read_text(), filename=str(module_path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module is not None:
-                if node.module.startswith("orbital_drift."):
-                    subpackage = node.module.split(".")[1]
-                    assert subpackage not in application_packages, (
-                        f"{module_path.relative_to(REPOSITORY_ROOT)} imports forbidden "
-                        f"orbital_drift.{subpackage}"
-                    )
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module is not None
+                and node.module.startswith("orbital_drift.")
+            ):
+                subpackage = node.module.split(".")[1]
+                assert subpackage not in application_packages, (
+                    f"{module_path.relative_to(REPOSITORY_ROOT)} imports forbidden "
+                    f"orbital_drift.{subpackage}"
+                )

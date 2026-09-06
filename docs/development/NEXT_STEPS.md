@@ -47,9 +47,11 @@ Two consequences worth stating plainly, because a reader skimming the "Built" co
 otherwise miss them:
 
 - **The container cannot become healthy.** `/healthz` returns 503 until a production model is
-  loaded, and nothing outside tests loads one. See Track E / T053.
+  loaded, and nothing outside tests loads one. ~~See Track E / T053.~~ **Fixed (2026-09-06):**
+  T053 separated `/livez` and `/readyz` probes; the container is now liveness-healthy at boot.
 - **lakeFS commit IDs are fabricated and logged as if real.** They feed the reproducibility
-  triple. See Track B / T056.
+  triple. ~~See Track B / T056.~~ **Fixed (2026-09-06):** T056 made commit IDs deterministic
+  and prefixed all log messages with `[SIMULATED]`.
 
 ---
 
@@ -108,6 +110,9 @@ Cheapest first step, and it touches no production code: close the `.importlinter
 hole. Measured, the current contract set does **not** catch a port importing its own concrete
 counterpart. Until it does, every adapter added is un-policed.
 
+**Status (2026-09-06):** T058 closed the contract hole. The `ports_isolation` forbidden
+contract now prevents `orbital_drift.ports` from importing application-layer modules.
+
 ### Track B — Replace the simulations (T056, T059, T060)
 
 lakeFS and MLflow are simulated in-process with no SDK, no dependency, and no server.
@@ -137,25 +142,29 @@ from `pyproject.toml` with every existing test still green. `hardcode` is green 
 suppression — 0 findings with pins honoured, 121 without. Four gates enforce rules traceable
 to no requirement, which this repo has twice ruled insufficient (FR-011a, FR-011b).
 
+**Status (2026-09-06):** T061 (F3) wired `hysteresis_window` and `cooldown_scenes` to config.
+T062 added locking to `rollback_production`, fixing the read-modify-write race condition.
+
 ### Track E — Deployment reality (T053, T054, T055)
 
 Three defects in already-remediated code that no gate can see, because the docker job builds
 the image and never runs it: the permanently-unhealthy container, the redaction fix that never
 executes in production, and the request-size bound that runs after the body is parsed.
 
+**Status (2026-09-06):** T053 (health probes) completed — separated `/livez` and `/readyz`.
+T054 (structured logging rollout) and T055 (request-size limit) remain pending.
+
 ---
 
 ## 4. Suggested sequence
 
 1. **Log D-1.** One decision-log line. Unblocks Parts 3 and 14.
-2. **T053 + T054** (Track E). The container cannot serve and logs are unredacted; both are
-   cheap relative to their blast radius, and T053's startup wiring is a prerequisite for any
-   real deployment.
-3. **Close the `.importlinter` hole** (Track A, first step). ~6 lines, no production change,
-   and it stops the decay before adapters land.
+2. ~~**T053 + T054** (Track E).~~ **T053 completed (2026-09-06)**, T054 remaining. Logs are
+   still unredacted in production; T054 is the next Track E priority.
+3. ~~**Close the `.importlinter` hole** (Track A, first step).~~ **T058 completed (2026-09-06).**
 4. **T057** (Track C). Until the retroactive review runs, no Phase 1-4 checkbox can flip and
    the plan of record cannot show progress.
-5. **Decide D-2**, then Track B.
+5. **Decide D-2**, then Track B (T056 completed 2026-09-06 — commit IDs are now deterministic).
 6. **T003 → G-1 → T006 → T011** whenever hardware time allows. Independent of 1-5.
 
 Budget note: DEC-002's M0 counter stands at 4/4 on the RB-007(b) baseline, so a genuine

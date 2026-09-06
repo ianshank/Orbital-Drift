@@ -10,6 +10,8 @@ import logging
 import random
 import time
 import uuid
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import Any, Final
 
 import numpy as np
@@ -22,10 +24,39 @@ from orbital_drift.config import OrbitalDriftConfig
 
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    """Application lifespan handler - runs on startup and shutdown.
+
+    T053: Logs the current model loading state so operators can diagnose
+    why /readyz returns 503. Real model loading from MLflow is deferred
+    pending T059 (real MLflow adapter).
+
+    TODO(T059): When real MLflow adapter is implemented, this startup handler
+    should call registry.get_production_model() and load it into container.
+    """
+    logger.info(
+        "Orbital-Drift serving started on device=%s, production_model=%s",
+        container.device,
+        "loaded" if container.production_model is not None else "NOT_LOADED",
+    )
+    if container.production_model is None:
+        logger.warning(
+            "No production model loaded at startup. Service will return 503 on "
+            "/readyz and /healthz until set_models() is called. For Kubernetes "
+            "deployments, ensure livenessProbe uses /livez (not /healthz) to "
+            "prevent CrashLoopBackOff."
+        )
+    yield
+    logger.info("Orbital-Drift serving shutting down")
+
+
 app = FastAPI(
     title="Orbital-Drift Land-Cover Serving API",
     description="Inference service with canary routing and Prometheus observability",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # RB-010 Part 13 (baseline hardening): `InferenceRequest.image_array` had no
@@ -202,9 +233,51 @@ dev = _resolve_serve_device()
 container = ModelContainer(device=dev)
 
 
+@app.get("/livez")  # pin: REST endpoint path, protocol format literal
+def livez() -> dict[str, str]:
+    """Kubernetes liveness probe - confirms process is alive.
+
+    T053: Separated from readiness to prevent CrashLoopBackOff when no model
+    is loaded. Liveness probes should ALWAYS return 200 if the process can
+    handle HTTP requests, regardless of whether it's ready to serve traffic.
+
+    Configure Kubernetes like:
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: 8000
+    """
+    return {"status": "alive", "service": "orbital-drift-serving"}
+
+
+@app.get("/readyz")  # pin: REST endpoint path, protocol format literal
+def readyz(response: Response) -> dict[str, str]:
+    """Kubernetes readiness probe - confirms service can handle requests.
+
+    T053: Returns 503 until a production model is loaded. Kubernetes should
+    exclude this pod from load balancer traffic until ready, but NOT restart
+    it (that's what liveness is for).
+
+    Configure Kubernetes like:
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8000
+          initialDelaySeconds: 30  # Give time for model loading
+    """
+    if container.production_model is None:
+        response.status_code = 503  # pin: well-known HTTP status code (Service Unavailable)
+        return {
+            "status": "not_ready",
+            "service": "orbital-drift-serving",
+            "reason": "no production model loaded",
+        }
+    return {"status": "ready", "service": "orbital-drift-serving"}
+
+
 @app.get("/healthz")  # pin: REST endpoint path, protocol format literal
 def healthz(response: Response) -> dict[str, str]:
-    """Liveness/readiness probe.
+    """Legacy combined health endpoint - DEPRECATED, use /livez and /readyz.
 
     RB-010 Part 13: previously reported "ok" unconditionally, even before
     any model was loaded -- `container.production_model` is `None` from
@@ -214,6 +287,9 @@ def healthz(response: Response) -> dict[str, str]:
     balancer polling this endpoint would have routed live traffic to an
     instance that cannot serve a single real `/predict` request. Now
     reports a degraded, non-200 status until a production model is loaded.
+
+    T053: This endpoint now aliases /readyz behavior. For Kubernetes deployments,
+    prefer using /livez for livenessProbe and /readyz for readinessProbe.
     """
     if container.production_model is None:
         response.status_code = 503  # pin: well-known HTTP status code (Service Unavailable)
