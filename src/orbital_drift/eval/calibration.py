@@ -60,20 +60,23 @@ def _bin_weights(
     """Recover bin occupancy for weighting sklearn's returned calibration values.
 
     ``calibration_curve`` intentionally returns only non-empty bin means, not
-    their counts. This helper mirrors only its documented strategy boundaries to
-    calculate ECE's required sample weights; the calibration fractions and means
-    themselves remain exclusively the values supplied by scikit-learn.
+    their counts. This helper mirrors sklearn's exact binning logic (interior
+    edges with default ``side="left"``) to ensure the same bin assignments and
+    thus the same populated-bin count.
+
+    T063 fix: The prior implementation used (1) full boundaries with clip instead
+    of interior edges, and (2) ``side="right"`` instead of sklearn's default
+    ``side="left"``. Both caused bin assignment divergence at boundary values,
+    leading to shape mismatches that numpy would silently broadcast, producing
+    mathematically incorrect ECE values (potentially > 1.0).
     """
     if strategy == "uniform":
         boundaries = np.linspace(0.0, 1.0, bin_count + 1)
     else:
         quantiles = np.linspace(0.0, 1.0, bin_count + 1)
         boundaries = np.percentile(probabilities, quantiles * PERCENT_SCALE)
-    bin_indices = np.clip(
-        np.searchsorted(boundaries, probabilities, side="right") - 1,
-        0,
-        bin_count - 1,
-    )
+    # Match sklearn's exact logic: interior edges only, default side="left"
+    bin_indices = np.searchsorted(boundaries[1:-1], probabilities)
     counts = np.bincount(bin_indices, minlength=bin_count)
     return counts[counts > 0] / probabilities.size
 
@@ -111,6 +114,18 @@ def calibration_error(
     )
     weights = _bin_weights(scores, bin_count=bin_count, strategy=strategy)
     deviations = np.abs(fraction_of_positives - mean_predicted_value)
+
+    # T063 defensive check: shapes must match to avoid silent broadcasting errors.
+    # With aligned binning logic this should never trigger, but belt-and-suspenders
+    # ensures we fail fast rather than produce ECE > 1.0 if edge cases exist.
+    if weights.size != deviations.size:
+        raise RuntimeError(
+            f"Internal calibration bin-count mismatch: _bin_weights returned "
+            f"{weights.size} populated bins but sklearn's calibration_curve returned "
+            f"{deviations.size}; this indicates a binning logic divergence that "
+            f"would cause incorrect ECE via numpy broadcasting"
+        )
+
     ece = float(np.sum(weights * deviations))
     return CalibrationResult(
         expected_calibration_error=ece,

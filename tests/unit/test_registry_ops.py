@@ -346,16 +346,14 @@ class TestRollbackProductionConcurrency:
         thread_count = 2  # Two threads are sufficient to trigger the race
         reg = ModelRegistryOps()
 
-        # Create versions: v1->Production, v2->Production (archives v1), v3->Production (archives v2)
-        # End state: v3=Production, v2=Archived, v1=Archived
+        # Create versions: v1->Production, v2->Production (archives v1),
+        # v3->Production (archives v2). End state: v3=Production, v2=Archived, v1=Archived
         for i in range(1, 4):
             v = reg.register_model_version("rollback-model", f"run-{i}")
             reg.transition_stage("rollback-model", v, "Production")
 
         # Slow down the scan to force thread interleaving
-        reg._mock_registry["rollback-model"] = _SlowItemsDict(
-            reg._mock_registry["rollback-model"]
-        )
+        reg._mock_registry["rollback-model"] = _SlowItemsDict(reg._mock_registry["rollback-model"])
 
         barrier = threading.Barrier(thread_count)
         results: queue.Queue[int | None] = queue.Queue()
@@ -392,10 +390,11 @@ class TestRollbackProductionConcurrency:
         # depend on ordering, but both should be valid version numbers (not None,
         # since we have enough archived versions, and not duplicates which would
         # indicate a lost-update race).
-        assert all(v is not None for v in returned_versions), (
+        non_none_versions = [v for v in returned_versions if v is not None]
+        assert len(non_none_versions) == len(returned_versions), (
             f"rollback returned None unexpectedly: {returned_versions}"
         )
-        assert all(1 <= v <= 3 for v in returned_versions), (
+        assert all(1 <= v <= 3 for v in non_none_versions), (
             f"rollback returned invalid version: {returned_versions}"
         )
 

@@ -199,7 +199,11 @@ class ModelRegistryOps:
                 for v, data in sorted(self._mock_registry[model_name].items(), reverse=True):
                     if data["stage"] == "Archived" and v != curr_prod:
                         data["stage"] = "Production"
-                        logger.info("Rolled back model '%s': promoted v%d to Production", model_name, v)
+                        logger.info(
+                            "Rolled back model '%s': promoted v%d to Production",
+                            model_name,
+                            v,
+                        )
                         return v
 
             return None
