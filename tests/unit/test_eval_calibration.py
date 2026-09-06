@@ -127,6 +127,50 @@ def test_ece_bounded_quantile_with_ties() -> None:
     )
 
 
+def test_ece_bounded_rb012_reproduction_case() -> None:
+    """Exact RB-012 reproduction case: ECE must not exceed 1.0.
+
+    This is the exact input that was documented in RB-012 as producing ECE=1.5
+    before the T063 fix. The old code used side="right" for searchsorted while
+    sklearn uses side="left", causing bin assignment divergence.
+    """
+    y_true = np.array([False, False, False])
+    y_prob = np.array([1.0, 0.5, 0.5])
+
+    result = calibration_error(y_true, y_prob, bin_count=2, strategy="quantile")
+    assert 0.0 <= result.expected_calibration_error <= 1.0, (
+        f"ECE={result.expected_calibration_error} exceeds valid [0,1] range; "
+        "this is the exact RB-012 reproduction case"
+    )
+
+
+def test_bin_weight_mismatch_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """T063 defensive check: RuntimeError when bin counts mismatch.
+
+    The defensive check at calibration_error:121-127 ensures we fail fast rather
+    than silently broadcast misaligned arrays. This test verifies the check works
+    by monkeypatching _bin_weights to return wrong-sized output.
+    """
+    import orbital_drift.eval.calibration as cal_module
+
+    original_bin_weights = cal_module._bin_weights
+
+    def mock_bin_weights(*args: object, **kwargs: object) -> np.ndarray:
+        # Return weights with deliberately wrong size (1 extra element)
+        real_weights = original_bin_weights(*args, **kwargs)  # type: ignore[arg-type]
+        return np.append(real_weights, [0.1])
+
+    monkeypatch.setattr(cal_module, "_bin_weights", mock_bin_weights)
+
+    with pytest.raises(RuntimeError, match="Internal calibration bin-count mismatch"):
+        calibration_error(
+            np.array([0, 1, 0, 1]),
+            np.array([0.1, 0.4, 0.6, 0.9]),
+            bin_count=2,
+            strategy="quantile",
+        )
+
+
 @given(
     st.lists(st.booleans(), min_size=10, max_size=100),
     st.lists(
