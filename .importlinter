@@ -20,6 +20,26 @@ layers =
     orbital_drift.ports
     orbital_drift.domain
 
+# T058: Close the contract hole - ports must not import application-layer modules.
+# The layers contract only enforces ports → domain; a port can still import registry,
+# drift, data, etc. without failing. This forbidden contract closes that gap.
+[importlinter:contract:ports_isolation]
+name = Ports must not import application-layer adapters
+type = forbidden
+source_modules =
+    orbital_drift.ports
+forbidden_modules =
+    orbital_drift.data
+    orbital_drift.drift
+    orbital_drift.eval
+    orbital_drift.ingest
+    orbital_drift.observability
+    orbital_drift.planning
+    orbital_drift.quality
+    orbital_drift.registry
+    orbital_drift.serve
+    orbital_drift.train
+
 [importlinter:contract:forbidden]
 name = Domain and ports do not depend on third-party runtime libraries
 type = forbidden

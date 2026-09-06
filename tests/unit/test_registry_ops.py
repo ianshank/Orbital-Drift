@@ -317,6 +317,89 @@ class TestArchiveExistingFalseDuplicateProduction:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# T062: rollback_production concurrency regression test. The method has the
+# same read-modify-write shape as register_model_version and transition_stage
+# (scan for current Production, archive it, scan for latest Archived, promote
+# it), but was not included in RB-010 Part 10's locking fix.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestRollbackProductionConcurrency:
+    """Regression test (T062) for the read-modify-write race in rollback_production.
+
+    Without locking, concurrent rollbacks could:
+    1. Both see the same current Production version
+    2. Both archive it
+    3. Both promote different (or the same) Archived versions
+    4. Leave registry in an inconsistent state (two Production versions)
+    """
+
+    def test_concurrent_rollbacks_maintain_single_production_invariant(self) -> None:
+        """Concurrent rollbacks must not leave multiple Production versions.
+
+        The critical invariant is that at most ONE version can be Production at
+        any time. With locking, rollbacks serialize and each sees the result of
+        the previous one. Without locking, two threads could both see the same
+        Production version, both archive it, and both promote different Archived
+        versions, leaving TWO versions in Production simultaneously.
+        """
+        thread_count = 2  # Two threads are sufficient to trigger the race
+        reg = ModelRegistryOps()
+
+        # Create versions: v1->Production, v2->Production (archives v1),
+        # v3->Production (archives v2). End state: v3=Production, v2=Archived, v1=Archived
+        for i in range(1, 4):
+            v = reg.register_model_version("rollback-model", f"run-{i}")
+            reg.transition_stage("rollback-model", v, "Production")
+
+        # Slow down the scan to force thread interleaving
+        reg._mock_registry["rollback-model"] = _SlowItemsDict(reg._mock_registry["rollback-model"])
+
+        barrier = threading.Barrier(thread_count)
+        results: queue.Queue[int | None] = queue.Queue()
+
+        def _rollback() -> None:
+            barrier.wait()
+            results.put(reg.rollback_production("rollback-model"))
+
+        threads = [threading.Thread(target=_rollback) for _ in range(thread_count)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+            assert not t.is_alive(), "thread did not complete within the join timeout"
+
+        # The critical invariant: AT MOST one Production version exists
+        # (could be zero if all were exhausted by sequential rollbacks)
+        production_versions = [
+            v
+            for v, data in reg._mock_registry["rollback-model"].items()
+            if data["stage"] == "Production"
+        ]
+        assert len(production_versions) <= 1, (
+            f"invariant violated: expected at most 1 Production version, "
+            f"got {len(production_versions)}: {production_versions}. "
+            f"This indicates concurrent rollbacks both promoted a version without "
+            f"archiving the other, which is the race condition T062 fixes."
+        )
+
+        # Collect results - both threads should have returned valid version numbers
+        returned_versions = [results.get_nowait() for _ in range(thread_count)]
+
+        # With locking, rollbacks serialize correctly. The exact versions returned
+        # depend on ordering, but both should be valid version numbers (not None,
+        # since we have enough archived versions, and not duplicates which would
+        # indicate a lost-update race).
+        non_none_versions = [v for v in returned_versions if v is not None]
+        assert len(non_none_versions) == len(returned_versions), (
+            f"rollback returned None unexpectedly: {returned_versions}"
+        )
+        assert all(1 <= v <= 3 for v in non_none_versions), (
+            f"rollback returned invalid version: {returned_versions}"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # RB-010 Part 5: per-module config wiring. `tracking_uri` resolves with
 # precedence: explicit constructor argument > `config.mlflow_tracking_uri` >
 # the pre-existing hardcoded `"http://localhost:5000"` default -- so a caller

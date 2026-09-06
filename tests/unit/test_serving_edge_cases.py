@@ -244,6 +244,107 @@ def test_healthz_reports_ok_once_production_model_loaded() -> None:
     assert response.json()["status"] == "ok"
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# T053: Separate liveness and readiness probes to prevent CrashLoopBackOff
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_livez_always_returns_200_even_without_model() -> None:
+    """T053: /livez is a liveness probe that confirms the process is alive.
+
+    It should ALWAYS return 200 regardless of model loading state, so
+    Kubernetes doesn't restart the pod just because the model isn't loaded yet.
+    """
+    container.production_model = None
+    client = TestClient(app)
+
+    response = client.get("/livez")
+    assert response.status_code == 200
+    assert response.json()["status"] == "alive"
+
+
+def test_livez_returns_200_with_model_loaded() -> None:
+    """T053: /livez should still return 200 when model is loaded."""
+    model = SimpleUNet(in_channels=1, num_classes=2, init_features=8)
+    container.set_models(production=model, prod_version=1)
+    client = TestClient(app)
+
+    response = client.get("/livez")
+    assert response.status_code == 200
+    assert response.json()["status"] == "alive"
+
+
+def test_readyz_returns_503_without_model() -> None:
+    """T053: /readyz is a readiness probe that confirms the service can handle requests.
+
+    It should return 503 when no model is loaded, so Kubernetes excludes
+    this pod from load balancer traffic but does NOT restart it.
+    """
+    container.production_model = None
+    client = TestClient(app)
+
+    response = client.get("/readyz")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "not_ready"
+    assert body["reason"] == "no production model loaded"
+
+
+def test_readyz_returns_200_with_model_loaded() -> None:
+    """T053: /readyz should return 200 when model is loaded."""
+    model = SimpleUNet(in_channels=1, num_classes=2, init_features=8)
+    container.set_models(production=model, prod_version=1)
+    client = TestClient(app)
+
+    response = client.get("/readyz")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+
+
+def test_kubernetes_probe_separation_pattern() -> None:
+    """T053: Verifies the correct Kubernetes probe pattern.
+
+    The key insight: with no model loaded, /livez returns 200 (don't kill the pod)
+    while /readyz returns 503 (don't route traffic to it). This prevents
+    CrashLoopBackOff while still protecting users from getting 503s on /predict.
+    """
+    container.production_model = None
+    client = TestClient(app)
+
+    # Liveness probe: process is alive
+    livez_response = client.get("/livez")
+    assert livez_response.status_code == 200, "Liveness probe should pass even without model"
+
+    # Readiness probe: service not ready
+    readyz_response = client.get("/readyz")
+    assert readyz_response.status_code == 503, "Readiness probe should fail without model"
+
+    # Legacy healthz: same as readyz for backward compatibility
+    healthz_response = client.get("/healthz")
+    assert healthz_response.status_code == 503, "Legacy healthz should behave like readyz"
+
+
+def test_lifespan_handler_logs_startup_state(caplog: pytest.LogCaptureFixture) -> None:
+    """T053: lifespan handler logs startup state for operator diagnostics.
+
+    The lifespan handler should log at startup to help operators diagnose
+    why /readyz returns 503 (no model loaded). This test verifies the
+    startup logging executes.
+    """
+    container.production_model = None
+
+    with (
+        caplog.at_level(logging.INFO, logger="orbital_drift.serve.app"),
+        TestClient(app),
+    ):
+        pass  # Just entering and exiting triggers lifespan
+
+    # Verify startup log message was emitted
+    assert any("Orbital-Drift serving" in record.message for record in caplog.records), (
+        "Expected startup log message from lifespan handler"
+    )
+
+
 def test_default_request_id_is_server_generated_and_not_the_old_fixture_value() -> None:
     """Item 4: request_id no longer defaults to the fixed 'req-001'
     fixture-looking value; the server generates a fresh, unique identifier

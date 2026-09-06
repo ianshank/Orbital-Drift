@@ -23,7 +23,8 @@ def test_lakefs_ops_creates_experiment_branch_from_requested_source(
         )
 
     assert branch_name == "exp-cloud-mask-v2"
+    # T056: log messages now include [SIMULATED] prefix
     assert (
-        "Created lakeFS experiment branch 'exp-cloud-mask-v2' from 'validated-scenes' "
+        "[SIMULATED] lakeFS experiment branch 'exp-cloud-mask-v2' from 'validated-scenes' "
         "on repository 'scene-repository'"
     ) in caplog.messages
