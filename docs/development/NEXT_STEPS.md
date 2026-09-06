@@ -47,11 +47,11 @@ Two consequences worth stating plainly, because a reader skimming the "Built" co
 otherwise miss them:
 
 - **The container cannot become healthy.** `/healthz` returns 503 until a production model is
-  loaded, and nothing outside tests loads one. ~~See Track E / T053.~~ **Fixed (2026-09-06):**
-  T053 separated `/livez` and `/readyz` probes; the container is now liveness-healthy at boot.
+  loaded, and nothing outside tests loads one. See Track E / T053 (partially addressed in PR #29
+  by separating `/livez` and `/readyz` probes; full startup wiring awaiting operator authorization).
 - **lakeFS commit IDs are fabricated and logged as if real.** They feed the reproducibility
-  triple. ~~See Track B / T056.~~ **Fixed (2026-09-06):** T056 made commit IDs deterministic
-  and prefixed all log messages with `[SIMULATED]`.
+  triple. See Track B / T056 (addressed in PR #29 with deterministic hashes and `[SIMULATED]` logs;
+  awaiting operator decision D-2 for full adapter disposition).
 
 ---
 
@@ -110,7 +110,7 @@ Cheapest first step, and it touches no production code: close the `.importlinter
 hole. Measured, the current contract set does **not** catch a port importing its own concrete
 counterpart. Until it does, every adapter added is un-policed.
 
-**Status (2026-09-06):** T058 closed the contract hole. The `ports_isolation` forbidden
+**Status (PR #29):** T058 closed the contract hole. The `ports_isolation` forbidden
 contract now prevents `orbital_drift.ports` from importing application-layer modules.
 
 ### Track B — Replace the simulations (T056, T059, T060)
@@ -142,7 +142,7 @@ from `pyproject.toml` with every existing test still green. `hardcode` is green 
 suppression — 0 findings with pins honoured, 121 without. Four gates enforce rules traceable
 to no requirement, which this repo has twice ruled insufficient (FR-011a, FR-011b).
 
-**Status (2026-09-06):** T061 (F3) wired `hysteresis_window` and `cooldown_scenes` to config.
+**Status (PR #29):** T061 (F3) wired `hysteresis_window` and `cooldown_scenes` to config.
 T062 added locking to `rollback_production`, fixing the read-modify-write race condition.
 
 ### Track E — Deployment reality (T053, T054, T055)
@@ -151,7 +151,7 @@ Three defects in already-remediated code that no gate can see, because the docke
 the image and never runs it: the permanently-unhealthy container, the redaction fix that never
 executes in production, and the request-size bound that runs after the body is parsed.
 
-**Status (2026-09-06):** T053 (health probes) completed — separated `/livez` and `/readyz`.
+**Status (PR #29):** T053 probe separation implemented — separated `/livez` and `/readyz`.
 T054 (structured logging rollout) and T055 (request-size limit) remain pending.
 
 ---
@@ -159,12 +159,12 @@ T054 (structured logging rollout) and T055 (request-size limit) remain pending.
 ## 4. Suggested sequence
 
 1. **Log D-1.** One decision-log line. Unblocks Parts 3 and 14.
-2. ~~**T053 + T054** (Track E).~~ **T053 completed (2026-09-06)**, T054 remaining. Logs are
-   still unredacted in production; T054 is the next Track E priority.
-3. ~~**Close the `.importlinter` hole** (Track A, first step).~~ **T058 completed (2026-09-06).**
+2. **T053 + T054** (Track E). T053 health probe separation is delivered in PR #29; T054
+   logging and remaining startup wiring remain.
+3. **Close the `.importlinter` hole** (Track A, first step; delivered in PR #29 via T058).
 4. **T057** (Track C). Until the retroactive review runs, no Phase 1-4 checkbox can flip and
    the plan of record cannot show progress.
-5. **Decide D-2**, then Track B (T056 completed 2026-09-06 — commit IDs are now deterministic).
+5. **Decide D-2**, then Track B (T056 determinism delivered in PR #29).
 6. **T003 → G-1 → T006 → T011** whenever hardware time allows. Independent of 1-5.
 
 Budget note: DEC-002's M0 counter stands at 4/4 on the RB-007(b) baseline, so a genuine

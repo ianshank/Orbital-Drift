@@ -16,7 +16,9 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
-### Fixed — Tech Debt Remediation Sprint (2026-09-06, Comprehensive Review Branch)
+### Fixed — Tech Debt Remediation Sprint (PR #29, Comprehensive Review Branch)
+
+*Note: Remediations for T053/T056/T058/T061/T062/T063 are delivered on branch `cursor/comprehensive-review-d864` (PR #29) for operator evaluation and integration; task checkboxes in `specs/001-orbital-drift-ct/tasks.md` remain unchecked pending formal operator RB execution authorization per governance rules.*
 
 - **T063: ECE calibration bug.** `_bin_weights` in `src/orbital_drift/eval/calibration.py`
   used `side="right"` for `np.searchsorted` while sklearn's `calibration_curve` uses the

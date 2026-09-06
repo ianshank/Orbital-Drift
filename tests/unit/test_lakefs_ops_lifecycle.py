@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from orbital_drift.data.lakefs_ops import LakeFSOps
+from orbital_drift.data.lakefs_ops import SIMULATED_COMMIT_ID_LENGTH, LakeFSOps
 
 
 def test_lakefs_ops_initialization_defaults() -> None:
@@ -26,7 +26,7 @@ def test_lakefs_ops_commit_scene_default_branch(caplog: pytest.LogCaptureFixture
         commit_id = ops.commit_scene("scene-001")
 
     assert isinstance(commit_id, str)
-    assert len(commit_id) == 16
+    assert len(commit_id) == SIMULATED_COMMIT_ID_LENGTH
     # T056: log messages now include [SIMULATED] prefix
     assert "[SIMULATED] lakeFS commit" in caplog.text
     assert "for scene 'scene-001'" in caplog.text
@@ -42,7 +42,7 @@ def test_lakefs_ops_commit_scene_custom_branch_and_metadata(
         commit_id = ops.commit_scene("scene-002", metadata=metadata, branch="staging")
 
     assert isinstance(commit_id, str)
-    assert len(commit_id) == 16
+    assert len(commit_id) == SIMULATED_COMMIT_ID_LENGTH
     assert "branch 'staging'" in caplog.text
     assert "for scene 'scene-002'" in caplog.text
 

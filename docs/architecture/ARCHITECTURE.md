@@ -25,13 +25,13 @@ audit, here is what is actually true today:
   `specs/001-orbital-drift-ct/tasks.md`'s per-task status annotations (T013–T045) for
   exactly what each does and does not cover; most are PARTIAL against their original
   task scope.
-- **Simulated, not real, backends.** `data/lakefs_ops.py` fabricates commit IDs via
-  `hashlib.sha256` — no `lakefs`/`lakefs-sdk` import or dependency exists anywhere in
-  the repo (confirmed by search). `registry/ops.py` is a pure in-process dict
-  simulation (`self._mock_registry`) — no `mlflow` import or dependency exists anywhere
-  in the repo (confirmed by search). The diagrams below label these containers/
-  components "lakefs-sdk" and "MLflow" as their **target** technology, annotated
-  inline as not-yet-real.
+- **Simulated, not real, backends.** `data/lakefs_ops.py` simulates commit IDs via
+  `hashlib.sha256` (deterministic, prefixed with `[SIMULATED]`) — no `lakefs`/`lakefs-sdk`
+  import or dependency exists anywhere in the repo (confirmed by search). `registry/ops.py`
+  is an in-process dict simulation (`self._mock_registry`) with thread-safe locking —
+  no `mlflow` import or dependency exists anywhere in the repo (confirmed by search).
+  The diagrams below label these containers/components "lakefs-sdk" and "MLflow" as their
+  **target** technology, annotated inline as not-yet-real.
 - **The hexagonal layer is disconnected.** `domain/`, `ports/`, `eval/`,
   `observability/`, and `quality/` (added by PR#17, "Phase 0-R") exist, but of the five
   `ports/*.py` Protocols (`catalog`, `compute`, `dataversion`, `registry`, `tiles`),
@@ -39,13 +39,14 @@ audit, here is what is actually true today:
   in-memory stdlib fake (`InMemorySceneCatalog`, `InMemoryCompute`,
   `InMemoryDataVersion`, `InMemoryModelRegistry`, `InMemoryTileStore`), and no module
   under `ingest/`, `data/`, `train/`, `registry/`, or `serve/` imports anything from
-  `orbital_drift.ports` (confirmed by search — only `ports/__init__.py` itself
-  references them). The Component diagram's "Implements protocols" relationship
-  (section 3) is therefore aspirational, not built.
+  `orbital_drift.ports` (enforced via `.importlinter`'s `ports_isolation` contract).
+  The Component diagram's "Implements protocols" relationship (section 3) is therefore
+  aspirational, not built.
 - **No orchestration layer.** `dags/` and `workflows/` each contain only `.gitkeep` —
   no Airflow DAG and no Argo Workflow exists anywhere in the repo.
 - **No observability stack.** No Prometheus or Grafana is deployed anywhere; `serve/
-  app.py`'s `/metrics` endpoint returns hand-rolled JSON (a `dict[str, Any]`), not real
+  app.py` features separated `/livez` and `/readyz` probes for Kubernetes liveness/readiness,
+  while its `/metrics` endpoint returns hand-rolled JSON (a `dict[str, Any]`), not real
   Prometheus exposition format, and zero `prometheus_client` usage exists anywhere in
   `src/` (confirmed by search).
 - **No deployed cluster.** T003/T005/T012 (`specs/001-orbital-drift-ct/tasks.md`) —
@@ -257,5 +258,5 @@ The governance harness enforces architectural integrity and reproducibility via 
 
 - **Zero-Skip Policy**: Every test in the multi-tier suite must execute deterministically without unexcused skips.
 - **Traceability Linter**: `src/orbital_drift/traceability.py` ensures requirement-to-test mapping in `REQUIREMENT-TRACEABILITY.md`.
-- **Per-File & Global Coverage Floor**: `src/orbital_drift/covcheck.py` mandates strict coverage thresholds (measured $\ge 95\%$).
+- **Per-File & Global Coverage Floor**: `src/orbital_drift/covcheck.py` mandates strict coverage thresholds (ratified 85% global + 90% per-file).
 - **Secret Scanning**: `ci/gitleaks.toml` enforces pre-commit and CI secret scanning with zero global path exemptions.

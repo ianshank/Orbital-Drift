@@ -73,6 +73,7 @@ sh ci/checks.sh governance    # tests/governance/: guard corpus, meta-tests
 sh ci/checks.sh deps          # dependency contract: pyproject.toml vs src/ imports
 sh ci/checks.sh architecture  # tests/architecture/: import-linter boundary contract
 sh ci/checks.sh hardcode      # orbital_drift.quality.hardcode_scan: no hardcoded values (Principle III)
+sh ci/checks.sh docker-build  # docker build production container smoke test
 ```
 
 `lint`, `typecheck`, `unit`, `contract`, `smoke` and `gitleaks` are FR-011's six
@@ -119,7 +120,7 @@ contract under the adopt-governance-kit change (see
 `charter/PROJECT-CHARTER.md` and `openspec/changes/adopt-governance-kit/`).
 Three more, `hardcode`, `deps` and `architecture`, extend it again under
 RB-010 Parts 6-8 (`docs/decision-log.md`) rather than under
-adopt-governance-kit itself. Run
+adopt-governance-kit itself, alongside `docker-build` (RB-010 Part 12). Run
 `sh ci/checks.sh` with an unrecognized stage name to print the current,
 authoritative stage list — it is generated from `STAGE_LABELS` inside the
 script, never hand-copied, so this README cannot silently disagree with what
@@ -251,9 +252,10 @@ D1–D14, spec deltas, and task record):
   over `src/orbital_drift` (Constitution Principle III, "No Hardcoded
   Values"); `deps` reconciles `pyproject.toml`'s declared dependencies
   against the imports `src/orbital_drift` actually makes
-  (`orbital_drift.quality.dep_contract`); and `architecture` runs
+  (`orbital_drift.quality.dep_contract`); `architecture` runs
   `tests/architecture/` — the import-linter `.importlinter` boundary contract,
-  independently re-derived via AST.
+  independently re-derived via AST; and `docker-build` runs a multi-stage
+  container build smoke test.
 - **Control plane.** `charter/PROJECT-CHARTER.md` (constraints C-1…C-6,
   subordinate to the constitution) + `docs/decision-log.md` (the mechanical
   gate ledger — gates presence-check IDs there; prose unlocks nothing) +

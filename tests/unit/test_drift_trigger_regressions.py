@@ -266,3 +266,18 @@ class TestDriftTriggerConfigWiring:
         manager = DriftTriggerManager(config=cfg)
         assert manager.hysteresis_window == 3
         assert manager.cooldown_scenes == 5
+
+    def test_config_only_construction_runtime_verdict(self) -> None:
+        """T061: construct with config-only and verify process_scene_verdict runs.
+
+        Verifies that scenes_since_last_trigger was initialized to an int
+        (self.cooldown_scenes) rather than None (the raw cooldown_scenes parameter),
+        preventing TypeError: unsupported operand type(s) for +=: 'NoneType' and 'int'.
+        """
+        cfg = _build_config(drift_hysteresis_window=2, drift_cooldown_scenes=4)
+        manager = DriftTriggerManager(config=cfg)
+        assert manager.scenes_since_last_trigger == 4
+        # First non-drifted scene must increment scenes_since_last_trigger without error
+        decision = manager.process_scene_verdict(False, "scene-config-test-001")
+        assert decision.should_trigger is False
+        assert manager.scenes_since_last_trigger == 5
