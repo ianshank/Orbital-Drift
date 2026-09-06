@@ -93,3 +93,71 @@ def test_ece_rejects_invalid_inputs(
             bin_count=bin_count,
             strategy=cast(CalibrationStrategy, strategy),
         )
+
+
+def test_ece_bounded_with_boundary_values() -> None:
+    """Regression test (T063): ECE must stay in [0,1] even with values at bin boundaries.
+
+    Prior to T063 fix, _bin_weights used different binning logic than sklearn's
+    calibration_curve, causing shape mismatches that numpy silently broadcast,
+    producing ECE > 1.0 for this input.
+    """
+    y_true = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1])
+    y_prob = np.array([0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 1.0, 1.0, 1.0, 1.0])
+
+    result = calibration_error(y_true, y_prob, bin_count=10, strategy="uniform")
+    assert 0.0 <= result.expected_calibration_error <= 1.0, (
+        f"ECE={result.expected_calibration_error} is out of bounds; "
+        "this indicates a bin-weight/calibration-curve shape mismatch"
+    )
+
+
+def test_ece_bounded_quantile_with_ties() -> None:
+    """Regression test (T063): quantile strategy with tied values must stay bounded.
+
+    Tied probabilities can cause quantile bin boundaries to collapse, potentially
+    causing different bin assignments between _bin_weights and calibration_curve.
+    """
+    y_true = np.array([0, 0, 0, 1, 1, 1, 0, 0, 1, 1])
+    y_prob = np.array([0.2, 0.2, 0.2, 0.2, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8])
+
+    result = calibration_error(y_true, y_prob, bin_count=5, strategy="quantile")
+    assert 0.0 <= result.expected_calibration_error <= 1.0, (
+        f"ECE={result.expected_calibration_error} is out of bounds"
+    )
+
+
+@given(
+    st.lists(st.booleans(), min_size=10, max_size=100),
+    st.lists(
+        st.floats(min_value=0.0, max_value=1.0, allow_nan=False), min_size=10, max_size=100
+    ),
+    st.integers(min_value=2, max_value=20),
+    st.sampled_from(["uniform", "quantile"]),
+)
+@settings(max_examples=50)
+def test_ece_bounded_property(
+    labels: list[bool],
+    probabilities: list[float],
+    bin_count: int,
+    strategy: str,
+) -> None:
+    """Property test (T063): ECE must always be in [0, 1] for valid inputs.
+
+    This is a stronger version of the existing hypothesis test, with larger
+    inputs and variable bin counts to stress-test the bin-weight alignment.
+    """
+    size = min(len(labels), len(probabilities))
+    if size < 2:
+        return  # Skip trivial inputs
+
+    result = calibration_error(
+        np.asarray(labels[:size]),
+        np.asarray(probabilities[:size]),
+        bin_count=bin_count,
+        strategy=cast(CalibrationStrategy, strategy),
+    )
+    assert 0.0 <= result.expected_calibration_error <= 1.0, (
+        f"ECE={result.expected_calibration_error} out of bounds for "
+        f"{size} samples, {bin_count} bins, {strategy} strategy"
+    )
