@@ -28,7 +28,10 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
+
+if TYPE_CHECKING:
+    from orbital_drift.config import OrbitalDriftConfig
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +50,16 @@ class DriftTriggerManager:
 
     def __init__(
         self,
-        hysteresis_window: int = 3,  # pin: follow-up D-012 F3 (config field exists, unwired)
-        cooldown_scenes: int = 5,  # pin: follow-up D-012 F3 (config field exists, unwired)
+        hysteresis_window: int | None = None,
+        cooldown_scenes: int | None = None,
         max_retraining_scenes: int | None = None,
+        config: OrbitalDriftConfig | None = None,
     ) -> None:
         """Configures the hysteresis/cooldown state machine.
+
+        T061: `hysteresis_window` and `cooldown_scenes` resolve with precedence:
+        explicit argument > `config.drift_hysteresis_window`/`drift_cooldown_scenes`
+        > pre-existing hardcoded defaults (3 and 5 respectively).
 
         Args:
             hysteresis_window: consecutive drifted scenes required before a
@@ -71,9 +79,26 @@ class DriftTriggerManager:
                 this manager does not invent a production duration default;
                 callers that want the safety net should size it to their own
                 retrain cadence.
+            config: optional OrbitalDriftConfig for sourcing default values.
         """
-        self.hysteresis_window = hysteresis_window
-        self.cooldown_scenes = cooldown_scenes
+        self.hysteresis_window = (
+            hysteresis_window
+            if hysteresis_window is not None
+            else (
+                config.drift_hysteresis_window
+                if config is not None
+                else 3  # pin: pre-config-wiring default, unchanged for no-arg callers
+            )
+        )
+        self.cooldown_scenes = (
+            cooldown_scenes
+            if cooldown_scenes is not None
+            else (
+                config.drift_cooldown_scenes
+                if config is not None
+                else 5  # pin: pre-config-wiring default, unchanged for no-arg callers
+            )
+        )
         self.max_retraining_scenes = max_retraining_scenes
         self.consecutive_drifted_count: int = 0
         self.scenes_since_last_trigger: int = cooldown_scenes  # Start ready
