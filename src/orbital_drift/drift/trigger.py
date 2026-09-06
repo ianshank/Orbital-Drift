@@ -101,7 +101,7 @@ class DriftTriggerManager:
         )
         self.max_retraining_scenes = max_retraining_scenes
         self.consecutive_drifted_count: int = 0
-        self.scenes_since_last_trigger: int = cooldown_scenes  # Start ready
+        self.scenes_since_last_trigger: int = self.cooldown_scenes  # Start ready
         self._is_retraining_active: bool = False
         self.total_triggers_emitted: int = 0
         # Guards every read-then-write of the attributes above.
