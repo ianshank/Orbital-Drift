@@ -185,22 +185,21 @@ class ModelRegistryOps:
     def rollback_production(self, model_name: str) -> int | None:
         """Rolls back Production stage to the most recent Archived version.
 
-        Not guarded by self._lock. RB-010 Part 10 scopes locking to the two
-        confirmed races in register_model_version and transition_stage; this
-        method has the same read-then-write shape against self._mock_registry
-        but concurrent-safety here is out of scope for that fix and is not
-        claimed.
+        Thread-safe (T062): the archive-current-production then promote-archived
+        sequence is serialised by self._lock, so concurrent rollbacks cannot
+        interleave and corrupt the single-Production invariant.
         """
-        curr_prod = self.get_stage_version(model_name, "Production")
-        if curr_prod is not None:
-            self._mock_registry[model_name][curr_prod]["stage"] = "Archived"
+        with self._lock:
+            curr_prod = self.get_stage_version(model_name, "Production")
+            if curr_prod is not None:
+                self._mock_registry[model_name][curr_prod]["stage"] = "Archived"
 
-        # Find latest archived version to promote
-        if model_name in self._mock_registry:
-            for v, data in sorted(self._mock_registry[model_name].items(), reverse=True):
-                if data["stage"] == "Archived" and v != curr_prod:
-                    data["stage"] = "Production"
-                    logger.info("Rolled back model '%s': promoted v%d to Production", model_name, v)
-                    return v
+            # Find latest archived version to promote
+            if model_name in self._mock_registry:
+                for v, data in sorted(self._mock_registry[model_name].items(), reverse=True):
+                    if data["stage"] == "Archived" and v != curr_prod:
+                        data["stage"] = "Production"
+                        logger.info("Rolled back model '%s': promoted v%d to Production", model_name, v)
+                        return v
 
-        return None
+            return None
