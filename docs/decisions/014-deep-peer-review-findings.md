@@ -21,12 +21,12 @@ This document records findings from a deep peer review of the 13 critical/high-p
 
 ## Finding 1: Container Cannot Become Healthy (CRITICAL)
 
-**Task:** T053  
+**Task:** T053
 **Files:** `src/orbital_drift/serve/app.py`, `Dockerfile`
 
 ### Root Cause
 
-```python
+```text
 # serve/app.py:200-202 — Module-level singleton created at import time
 dev = _resolve_serve_device()
 container = ModelContainer(device=dev)
@@ -71,12 +71,12 @@ The ENTRYPOINT **ignores** the env var it defines. The config reads a **differen
 
 ## Finding 2: ECE Can Exceed 1.0 (CRITICAL)
 
-**Task:** T063  
+**Task:** T063
 **File:** `src/orbital_drift/eval/calibration.py`
 
 ### Root Cause
 
-```python
+```text
 # calibration.py:57-78 — _bin_weights derives occupancy with its own rule
 bin_indices = np.clip(
     np.searchsorted(boundaries, probabilities, side="right") - 1,
@@ -95,7 +95,7 @@ ece = float(np.sum(weights * deviations))  # numpy BROADCASTS!
 
 ### Reproduction
 
-```python
+```text
 labels = [False, False, False]
 probabilities = [1.0, 0.5, 0.5]
 bin_count = 2
@@ -107,7 +107,7 @@ When `_bin_weights` returns 1 element and `deviations` has 2 elements, numpy bro
 
 ### Fix Recommendation
 
-```python
+```text
 # Add shape assertion before multiplication
 if weights.shape != deviations.shape:
     raise ValueError(
@@ -124,7 +124,7 @@ The Hypothesis test (`max_examples=20`) fails ~2 in 20 runs due to this bug, cau
 
 ## Finding 3: Import-Linter Contract Hole (MAJOR)
 
-**Task:** T058  
+**Task:** T058
 **File:** `.importlinter`, `tests/architecture/test_import_boundaries.py`
 
 ### Current Contract Coverage
@@ -174,7 +174,7 @@ layers =
 
 ## Finding 4: Logging Redaction Never Runs in Production (MAJOR)
 
-**Task:** T054  
+**Task:** T054
 **Files:** `src/orbital_drift/observability/logging.py`, all pipeline modules
 
 ### Evidence
@@ -199,13 +199,13 @@ src/orbital_drift/eval/bootstrap.py:28   get_logger("eval.bootstrap")
 
 ### Sensitive Data Leak Risk
 
-```python
+```text
 # stac_client.py:190-196 — logs response.text verbatim
 logger.warning(
     "STAC query failed with status %d: %s (attempt %d/%d)",
     response.status_code,
     response.text,  # Could contain auth tokens, error details
-    ...
+    ...,
 )
 ```
 
@@ -223,12 +223,12 @@ The `JsonFormatter` only redacts `extra={}` fields. Pipeline modules use `%`-int
 
 ## Finding 5: Request-Size Bound is Ineffective (MAJOR)
 
-**Task:** T055  
+**Task:** T055
 **File:** `src/orbital_drift/serve/app.py:79-91`
 
 ### Root Cause
 
-```python
+```text
 @field_validator("image_array")
 @classmethod
 def _bound_image_array_size(cls, value: list[list[list[float]]]) -> ...:
@@ -247,7 +247,7 @@ This is a pydantic **after-validator**. By the time it runs:
 
 Implement at ASGI/uvicorn layer:
 
-```python
+```text
 # Option 1: Starlette middleware
 from starlette.middleware import Middleware
 from starlette.requests import Request
@@ -264,12 +264,12 @@ class BodySizeLimitMiddleware:
 
 ## Finding 6: Registry Rollback Not Thread-Safe (MAJOR)
 
-**Task:** T062  
+**Task:** T062
 **File:** `src/orbital_drift/registry/ops.py:185-206`
 
 ### Evidence
 
-```python
+```text
 def rollback_production(self, model_name: str) -> int | None:
     """Rolls back Production stage to the most recent Archived version.
 
@@ -289,7 +289,7 @@ The comment explicitly acknowledges the race condition. Two concurrent rollbacks
 
 ### Fix Recommendation
 
-```python
+```text
 def rollback_production(self, model_name: str) -> int | None:
     with self._lock:  # Add locking
         curr_prod = self.get_stage_version(model_name, "Production")
@@ -300,12 +300,12 @@ def rollback_production(self, model_name: str) -> int | None:
 
 ## Finding 7: Drift Trigger Config Unwired (MINOR)
 
-**Task:** T061 (D-012 F3)  
+**Task:** T061 (D-012 F3)
 **File:** `src/orbital_drift/drift/trigger.py:50-51`
 
 ### Evidence
 
-```python
+```text
 def __init__(
     self,
     hysteresis_window: int = 3,  # pin: follow-up D-012 F3 (config field exists, unwired)
