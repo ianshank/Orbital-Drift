@@ -324,6 +324,27 @@ def test_kubernetes_probe_separation_pattern() -> None:
     assert healthz_response.status_code == 503, "Legacy healthz should behave like readyz"
 
 
+def test_lifespan_handler_logs_startup_state(caplog: pytest.LogCaptureFixture) -> None:
+    """T053: lifespan handler logs startup state for operator diagnostics.
+
+    The lifespan handler should log at startup to help operators diagnose
+    why /readyz returns 503 (no model loaded). This test verifies the
+    startup logging executes.
+    """
+    container.production_model = None
+
+    with (
+        caplog.at_level(logging.INFO, logger="orbital_drift.serve.app"),
+        TestClient(app),
+    ):
+        pass  # Just entering and exiting triggers lifespan
+
+    # Verify startup log message was emitted
+    assert any("Orbital-Drift serving" in record.message for record in caplog.records), (
+        "Expected startup log message from lifespan handler"
+    )
+
+
 def test_default_request_id_is_server_generated_and_not_the_old_fixture_value() -> None:
     """Item 4: request_id no longer defaults to the fixed 'req-001'
     fixture-looking value; the server generates a fresh, unique identifier
