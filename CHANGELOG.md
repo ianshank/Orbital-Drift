@@ -30,6 +30,15 @@ is this repository's body of work to date.
   are already on the resolved device. Mean-loss reporting formula unchanged
   (`loss / grad_accum` then report `* grad_accum`). No `num_workers` default.
 
+### Fixed — SDLC follow-up on PR #30 (RB-014, 2026-09-07)
+
+- Extra characterization tests: empty-spatial / non-contiguous IoU, leftover
+  grad-accum steps, empty DataLoader, cloud 0/1-channel / Fortran / SCL mismatch.
+- `_devices_equivalent`: skip-`model.to` treats `cuda` and `cuda:0` as the same device.
+- `gpu-profiler` skill no longer unpacks `train_baseline_epoch` as `(loss, train_time)`
+  (the function returns a float). Timing uses `time.perf_counter`. Pinned by
+  `test_gpu_profiler_skill_does_not_unpack_train_baseline_epoch_as_a_tuple`.
+
 ### Fixed — Tech Debt Remediation Sprint (2026-09-06, Comprehensive Review Branch)
 
 - **T063: ECE calibration bug.** `_bin_weights` in `src/orbital_drift/eval/calibration.py`

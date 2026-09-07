@@ -212,3 +212,16 @@ def test_matcher_is_not_vacuous() -> None:
     fields = _parse_frontmatter(AGENTS_DIR / "spec-guardian.md").fields
     assert fields.get("name") == "spec-guardian"
     assert fields.get("tools"), "tools field parsed as empty on a file known to declare tools"
+
+
+def test_gpu_profiler_skill_does_not_unpack_train_baseline_epoch_as_a_tuple() -> None:
+    """`train_baseline_epoch` returns a single float (mean loss), not (loss, time).
+
+    The gpu-profiler recipe previously unpacked a tuple, which raises at the
+    console during the AMP profiling step. RB-013 forbade changing the
+    function to return a tuple; the skill must time the call itself.
+    """
+    text = (SKILLS_DIR / "gpu-profiler" / "SKILL.md").read_text(encoding="utf-8")
+    assert "loss, train_time = train_baseline_epoch" not in text
+    assert "loss = train_baseline_epoch" in text
+    assert "perf_counter" in text

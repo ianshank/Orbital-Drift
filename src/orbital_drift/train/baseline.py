@@ -110,6 +110,17 @@ def _resolve_num_classes(num_classes: int | None, config: OrbitalDriftConfig | N
     return 10  # pin: pre-existing hardcoded fallback default, see docstring above
 
 
+def _devices_equivalent(actual: torch.device, requested: torch.device) -> bool:
+    """True when ``actual`` already is ``requested`` (``cuda`` == ``cuda:0``)."""
+    if actual.type != requested.type:
+        return False
+    if actual.type == "cpu":
+        return True
+    actual_index = 0 if actual.index is None else actual.index
+    requested_index = 0 if requested.index is None else requested.index
+    return actual_index == requested_index
+
+
 class DoubleConv(nn.Module):
     """(Conv2d -> BatchNorm -> ReLU) * 2."""
 
@@ -278,7 +289,7 @@ def train_baseline_epoch(
 
     model.train()
     lead_param = next(model.parameters(), None)
-    if lead_param is None or lead_param.device != target_device:
+    if lead_param is None or not _devices_equivalent(lead_param.device, target_device):
         model.to(resolved_device)
 
     optimizer.zero_grad(set_to_none=True)

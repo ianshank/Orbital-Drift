@@ -20,6 +20,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
+from orbital_drift.train import baseline as baseline_mod
 from orbital_drift.train.baseline import compute_iou_f1, train_baseline_epoch
 
 _DEVICES: tuple[str, ...] = ("cpu", "cuda") if torch.cuda.is_available() else ("cpu",)
@@ -223,3 +224,73 @@ def test_train_baseline_epoch_skips_model_to_when_already_on_device(
     )
     assert reported == pytest.approx(4.0)
     assert calls == []
+
+
+def test_devices_equivalent_treats_cuda_and_cuda0_as_same() -> None:
+    """Pin: skip-`model.to` must not treat ``cuda`` and ``cuda:0`` as different."""
+    assert baseline_mod._devices_equivalent(torch.device("cuda"), torch.device("cuda:0"))
+    assert baseline_mod._devices_equivalent(torch.device("cpu"), torch.device("cpu"))
+    assert not baseline_mod._devices_equivalent(torch.device("cpu"), torch.device("cuda"))
+
+
+@pytest.mark.parametrize("device", _DEVICES)
+def test_compute_iou_f1_empty_spatial_is_all_empty_classes(device: str) -> None:
+    """Pin (already-true): zero pixels => every class scores 1.0."""
+    logits = torch.zeros(1, 3, 0, 0, device=device)
+    targets = torch.zeros(1, 0, 0, dtype=torch.int64, device=device)
+    metrics = compute_iou_f1(logits, targets, num_classes=3)
+    assert metrics.mean_iou == pytest.approx(1.0)
+    assert metrics.mean_f1 == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("device", _DEVICES)
+def test_compute_iou_f1_noncontiguous_matches_loop_reference(device: str) -> None:
+    torch.manual_seed(1)
+    logits = torch.randn(2, 3, 8, 8, device=device).transpose(2, 3)
+    targets = torch.randint(0, 3, (2, 8, 8), device=device).transpose(1, 2)
+    assert not logits.is_contiguous()
+    metrics = compute_iou_f1(logits, targets, num_classes=3)
+    mean_iou, mean_f1, per_class = _loop_reference(logits, targets, 3)
+    assert metrics.mean_iou == pytest.approx(mean_iou)
+    assert metrics.mean_f1 == pytest.approx(mean_f1)
+    for cls, expected in per_class.items():
+        assert metrics.per_class_iou[cls] == pytest.approx(expected)
+
+
+def test_train_baseline_epoch_leftover_accum_steps_keep_mean_loss() -> None:
+    """Pin: 3 batches with accum=2 still reports the unscaled criterion."""
+    images = torch.zeros(3, 1, 4, 4)
+    labels = torch.zeros(3, 4, 4, dtype=torch.int64)
+    loader = DataLoader(_PairDataset(images, labels), batch_size=1)
+    model = _TinyLinearSeg(num_classes=2)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.0)
+    reported = train_baseline_epoch(
+        model=model,
+        dataloader=loader,
+        optimizer=optimizer,
+        criterion=_ConstantCriterion(4.0),
+        device="cpu",
+        use_amp=False,
+        grad_accum_steps=2,
+    )
+    assert len(loader) == 3
+    assert reported == pytest.approx(4.0)
+
+
+def test_train_baseline_epoch_empty_loader_reports_zero() -> None:
+    loader = DataLoader(
+        _PairDataset(torch.zeros(0, 1, 4, 4), torch.zeros(0, 4, 4, dtype=torch.int64)),
+        batch_size=2,
+    )
+    model = _TinyLinearSeg(num_classes=2)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.0)
+    reported = train_baseline_epoch(
+        model=model,
+        dataloader=loader,
+        optimizer=optimizer,
+        criterion=_ConstantCriterion(4.0),
+        device="cpu",
+        use_amp=False,
+        grad_accum_steps=1,
+    )
+    assert reported == pytest.approx(0.0)

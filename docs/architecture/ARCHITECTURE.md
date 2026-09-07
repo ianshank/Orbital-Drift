@@ -24,7 +24,9 @@ audit, here is what is actually true today:
   (`registry/ops.py`), and serve (`serve/app.py`) — see
   `specs/001-orbital-drift-ct/tasks.md`'s per-task status annotations (T013–T045) for
   exactly what each does and does not cover; most are PARTIAL against their original
-  task scope.
+  task scope. RB-013 vectorized `compute_iou_f1` (bincount) and `apply_cloud_mask`
+  (broadcast) without changing empty-class IoU/F1=1.0 or SCL `CLOUD_CLASSES`; that
+  does not move SC-002.
 - **Simulated, not real, backends.** `data/lakefs_ops.py` fabricates commit IDs via
   `hashlib.sha256` — no `lakefs`/`lakefs-sdk` import or dependency exists anywhere in
   the repo (confirmed by search). `registry/ops.py` is a pure in-process dict

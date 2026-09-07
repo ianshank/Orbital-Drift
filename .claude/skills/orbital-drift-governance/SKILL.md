@@ -69,6 +69,8 @@ never assume standing.
 
 - **RB-013** (09-07): one-PR hot-path vectorization authorized — `compute_iou_f1` bincount (preserve empty-class 1.0 and OOB-target FP behaviour), broadcast `apply_cloud_mask` (no SCL LUT), epoch-loop one host-sync + `set_to_none` (mean-loss formula unchanged). Explicitly excludes bootstrap/superiority, CI fusion, dataset pre-norm, serving protocol, new config/`num_workers`, LUT, G-x, checkbox flips, T053–T065. Process track, outside M0 4/4. In-session implement-plan approval 2026-09-07, rule 6.
 
+- **RB-014** (09-07): PR #30 SDLC follow-up — extra characterization tests, `cuda`/`cuda:0` device skip, gpu-profiler skill must not unpack `train_baseline_epoch` as a tuple (float return; time with `perf_counter`), plus honest NEXT_STEPS/ARCHITECTURE/CHANGELOG notes. Explicitly excludes C4/Makefile/Docker/gitignore/gitleaks/Dependabot rewrites, hot-path logging, god-file split, CI fusion, bootstrap, new skills/hooks, G-x, checkbox flips. Process track, outside M0 4/4.
+
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after
 this section's own "since" date has no corresponding ID anywhere in the section text. A
