@@ -30,7 +30,7 @@ is this repository's body of work to date.
   are already on the resolved device. Mean-loss reporting formula unchanged
   (`loss / grad_accum` then report `* grad_accum`). No `num_workers` default.
 
-### Fixed — SDLC follow-up on PR #30 (RB-014, 2026-09-07)
+### Fixed — SDLC follow-up on PR #30 (RB-014, 2026-09-07, commit `7ed3239`)
 
 - Extra characterization tests: empty-spatial / non-contiguous IoU, leftover
   grad-accum steps, empty DataLoader, cloud 0/1-channel / Fortran / SCL mismatch.

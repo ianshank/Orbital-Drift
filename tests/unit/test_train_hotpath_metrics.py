@@ -1,11 +1,12 @@
 """Characterization tests for RB-013 hot-path metric / epoch-loop contracts.
 
 These tests pin behaviour that was already true of the class-loop
-``compute_iou_f1`` and the per-step ``loss.item()`` epoch reporter. They are
-born-green against that implementation on purpose: a vectorized rewrite must
-not change empty-class convention, out-of-range-target false-positive
-accounting, or the mean-loss formula that undoes gradient-accumulation
-scaling.
+``compute_iou_f1`` and the per-step ``loss.item()`` epoch reporter, except
+where noted. Empty-class, OOB-target FP, and mean-loss tests are born-green
+against that implementation. The non-contiguous case is a reshape-vs-view
+difference: the original ``.view(-1)`` raised on a transposed map; the
+vectorized path uses ``reshape(-1)`` and is pinned against the same numpy
+loop, not against ``view``.
 
 CUDA parametrization includes ``"cuda"`` only when
 ``torch.cuda.is_available()`` so this file never introduces a new
@@ -231,6 +232,9 @@ def test_devices_equivalent_treats_cuda_and_cuda0_as_same() -> None:
     assert baseline_mod._devices_equivalent(torch.device("cuda"), torch.device("cuda:0"))
     assert baseline_mod._devices_equivalent(torch.device("cpu"), torch.device("cpu"))
     assert not baseline_mod._devices_equivalent(torch.device("cpu"), torch.device("cuda"))
+    assert not baseline_mod._devices_equivalent(torch.device("cpu"), torch.device("cuda:0"))
+    assert not baseline_mod._devices_equivalent(torch.device("cuda:0"), torch.device("cuda:1"))
+    assert not baseline_mod._devices_equivalent(torch.device("cuda"), torch.device("cuda:1"))
 
 
 @pytest.mark.parametrize("device", _DEVICES)
@@ -245,6 +249,7 @@ def test_compute_iou_f1_empty_spatial_is_all_empty_classes(device: str) -> None:
 
 @pytest.mark.parametrize("device", _DEVICES)
 def test_compute_iou_f1_noncontiguous_matches_loop_reference(device: str) -> None:
+    """Pin: ``reshape(-1)`` accepts a transposed map; original ``view(-1)`` did not."""
     torch.manual_seed(1)
     logits = torch.randn(2, 3, 8, 8, device=device).transpose(2, 3)
     targets = torch.randint(0, 3, (2, 8, 8), device=device).transpose(1, 2)
