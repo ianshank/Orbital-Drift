@@ -127,6 +127,5 @@ def apply_cloud_mask(
     """
     cloud_mask = np.isin(scl_array, CLOUD_CLASSES)
     masked = raster_bands.copy()
-    for c in range(masked.shape[0]):
-        masked[c, cloud_mask] = fill_value
+    masked[:, cloud_mask] = fill_value
     return masked

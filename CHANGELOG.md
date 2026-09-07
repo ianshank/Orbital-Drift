@@ -16,6 +16,20 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
+### Changed — hot-path vectorization (RB-013, 2026-09-07)
+
+- `compute_iou_f1`: per-class Python loop and four `.item()` host syncs per class
+  replaced by `torch.bincount` histograms. Empty-class IoU/F1 remain 1.0; out-of-range
+  targets still count in-range predictions as false positives (not dropped before the
+  pred histogram).
+- `apply_cloud_mask`: per-channel Python loop replaced by `masked[:, cloud_mask] =
+  fill_value`. `CLOUD_CLASSES` / `np.isin` unchanged — no SCL LUT (unknown codes stay
+  not-cloud).
+- `train_baseline_epoch`: accumulate detached loss and host-sync once per epoch;
+  `optimizer.zero_grad(set_to_none=True)`; skip a redundant `model.to` when parameters
+  are already on the resolved device. Mean-loss reporting formula unchanged
+  (`loss / grad_accum` then report `* grad_accum`). No `num_workers` default.
+
 ### Fixed — Tech Debt Remediation Sprint (2026-09-06, Comprehensive Review Branch)
 
 - **T063: ECE calibration bug.** `_bin_weights` in `src/orbital_drift/eval/calibration.py`
