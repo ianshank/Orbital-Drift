@@ -193,3 +193,33 @@ def test_train_baseline_epoch_mean_loss_undoes_grad_accum_division() -> None:
             grad_accum_steps=accum,
         )
         assert reported == pytest.approx(4.0)
+
+
+def test_train_baseline_epoch_skips_model_to_when_already_on_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin: skip ``model.to`` when the lead parameter is already on device."""
+    images = torch.zeros(2, 1, 4, 4)
+    labels = torch.zeros(2, 4, 4, dtype=torch.int64)
+    loader = DataLoader(_PairDataset(images, labels), batch_size=2)
+    model = _TinyLinearSeg(num_classes=2)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.0)
+    calls: list[str] = []
+    original_to = model.to
+
+    def _spy_to(device: str) -> _TinyLinearSeg:
+        calls.append(device)
+        return original_to(device)
+
+    monkeypatch.setattr(model, "to", _spy_to)
+    reported = train_baseline_epoch(
+        model=model,
+        dataloader=loader,
+        optimizer=optimizer,
+        criterion=_ConstantCriterion(4.0),
+        device="cpu",
+        use_amp=False,
+        grad_accum_steps=1,
+    )
+    assert reported == pytest.approx(4.0)
+    assert calls == []

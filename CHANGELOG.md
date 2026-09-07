@@ -16,7 +16,7 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
-### Changed — hot-path vectorization (RB-013, 2026-09-07)
+### Changed — hot-path vectorization (RB-013, 2026-09-07, commit `3f79b8d`)
 
 - `compute_iou_f1`: per-class Python loop and four `.item()` host syncs per class
   replaced by `torch.bincount` histograms. Empty-class IoU/F1 remain 1.0; out-of-range
