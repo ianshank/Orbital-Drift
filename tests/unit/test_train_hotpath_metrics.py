@@ -228,7 +228,7 @@ def test_train_baseline_epoch_skips_model_to_when_already_on_device(
 
 
 def test_devices_equivalent_treats_cuda_and_cuda0_as_same() -> None:
-    """Pin: skip-`model.to` must not treat ``cuda`` and ``cuda:0`` as different."""
+    """Pin skip-`model.to`: ``cuda`` == ``cuda:0``; ``cuda:1`` is a different device."""
     assert baseline_mod._devices_equivalent(torch.device("cuda"), torch.device("cuda:0"))
     assert baseline_mod._devices_equivalent(torch.device("cpu"), torch.device("cpu"))
     assert not baseline_mod._devices_equivalent(torch.device("cpu"), torch.device("cuda"))
