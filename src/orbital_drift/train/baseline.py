@@ -110,6 +110,17 @@ def _resolve_num_classes(num_classes: int | None, config: OrbitalDriftConfig | N
     return 10  # pin: pre-existing hardcoded fallback default, see docstring above
 
 
+def _devices_equivalent(actual: torch.device, requested: torch.device) -> bool:
+    """True when ``actual`` already is ``requested`` (``cuda`` == ``cuda:0``)."""
+    if actual.type != requested.type:
+        return False
+    if actual.type == "cpu":
+        return True
+    actual_index = 0 if actual.index is None else actual.index
+    requested_index = 0 if requested.index is None else requested.index
+    return actual_index == requested_index
+
+
 class DoubleConv(nn.Module):
     """(Conv2d -> BatchNorm -> ReLU) * 2."""
 
@@ -216,36 +227,39 @@ def compute_iou_f1(
     `num_classes` resolves via `_resolve_num_classes`: explicit argument >
     `config.num_classes` > the pre-existing hardcoded default of `10`
     (RB-010 Part 5: per-module config wiring).
+
+    Empty-class convention (pinned by RB-013 tests): a class absent from both
+    the argmax prediction and the target scores IoU=1.0 and F1=1.0. Out-of-
+    range target pixels are not dropped; in-range predictions on those
+    pixels still count as false positives. Argmax classes outside
+    ``[0, num_classes)`` (extra logit channels) are ignored, not clamped.
     """
     resolved_num_classes = _resolve_num_classes(num_classes, config)
-    preds = torch.argmax(predictions, dim=1).view(-1)
-    targs = targets.view(-1)
+    preds = torch.argmax(predictions, dim=1).reshape(-1)
+    targs = targets.reshape(-1)
+    class_count = resolved_num_classes
 
-    ious: dict[int, float] = {}
-    f1s: list[float] = []
+    pred_ok = (preds >= 0) & (preds < class_count)
+    targ_ok = (targs >= 0) & (targs < class_count)
+    pred_idx = preds[pred_ok].to(dtype=torch.int64)
+    targ_idx = targs[targ_ok].to(dtype=torch.int64)
+    match_idx = preds[pred_ok & targ_ok & (preds == targs)].to(dtype=torch.int64)
 
-    for cls in range(resolved_num_classes):
-        pred_cls = preds == cls
-        targ_cls = targs == cls
-        intersection = float(torch.sum(pred_cls & targ_cls).item())
-        union = float(torch.sum(pred_cls | targ_cls).item())
-        total = float(torch.sum(pred_cls).item() + torch.sum(targ_cls).item())
+    pred_sum = torch.bincount(pred_idx, minlength=class_count).to(dtype=torch.float64)
+    targ_sum = torch.bincount(targ_idx, minlength=class_count).to(dtype=torch.float64)
+    intersection = torch.bincount(match_idx, minlength=class_count).to(dtype=torch.float64)
+    union = pred_sum + targ_sum - intersection
+    total = pred_sum + targ_sum
+    ones = torch.ones_like(union)
+    ious = torch.where(union > 0, intersection / union, ones)
+    f1s = torch.where(total > 0, (2.0 * intersection) / total, ones)
 
-        if union > 0:
-            iou = intersection / union
-            ious[cls] = iou
-        else:
-            ious[cls] = 1.0
-
-        if total > 0:
-            f1 = (2.0 * intersection) / total
-            f1s.append(f1)
-        else:
-            f1s.append(1.0)
-
-    mean_iou = float(np.mean(list(ious.values())))
-    mean_f1 = float(np.mean(f1s))
-    return EvalMetrics(mean_iou=mean_iou, mean_f1=mean_f1, per_class_iou=ious)
+    ious_np = ious.detach().cpu().numpy()
+    f1s_np = f1s.detach().cpu().numpy()
+    per_class_iou = {cls: float(ious_np[cls]) for cls in range(class_count)}
+    mean_iou = float(np.mean(ious_np))
+    mean_f1 = float(np.mean(f1s_np))
+    return EvalMetrics(mean_iou=mean_iou, mean_f1=mean_f1, per_class_iou=per_class_iou)
 
 
 def train_baseline_epoch(
@@ -270,19 +284,23 @@ def train_baseline_epoch(
     resolved_device = _resolve_device(device, config)
     resolved_use_amp = _resolve_use_amp(use_amp, config)
     resolved_grad_accum_steps = _resolve_grad_accum_steps(grad_accum_steps, config)
+    amp_enabled = resolved_use_amp and "cuda" in resolved_device
+    target_device = torch.device(resolved_device)
 
     model.train()
-    model.to(resolved_device)
-    total_loss = 0.0
-    optimizer.zero_grad()
+    lead_param = next(model.parameters(), None)
+    if lead_param is None or not _devices_equivalent(lead_param.device, target_device):
+        model.to(resolved_device)
 
-    scaler = torch.amp.GradScaler("cuda", enabled=(resolved_use_amp and "cuda" in resolved_device))
+    optimizer.zero_grad(set_to_none=True)
+    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
+    running = torch.zeros((), device=target_device, dtype=torch.float64)
 
     for step, (images, targets) in enumerate(dataloader):
         images = images.to(resolved_device)
         targets = targets.to(resolved_device)
 
-        with torch.amp.autocast("cuda", enabled=(resolved_use_amp and "cuda" in resolved_device)):
+        with torch.amp.autocast("cuda", enabled=amp_enabled):
             outputs = model(images)
             loss = criterion(outputs, targets)
             loss = loss / resolved_grad_accum_steps
@@ -292,11 +310,11 @@ def train_baseline_epoch(
         if (step + 1) % resolved_grad_accum_steps == 0 or (step + 1) == len(dataloader):
             scaler.step(optimizer)
             scaler.update()
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
 
-        total_loss += loss.item() * resolved_grad_accum_steps
+        running += loss.detach().to(dtype=torch.float64) * (resolved_grad_accum_steps)
 
-    return total_loss / max(len(dataloader), 1)
+    return float((running / max(len(dataloader), 1)).item())
 
 
 def build_run_metadata(

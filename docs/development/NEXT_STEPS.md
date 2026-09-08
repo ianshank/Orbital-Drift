@@ -171,6 +171,11 @@ Budget note: DEC-002's M0 counter stands at 4/4 on the RB-007(b) baseline, so a 
 *feature* PR past T011 triggers mandatory owner review. Everything above is process,
 remediation, or `[HUMAN]` track.
 
+**Closed process that does not move this list:** RB-013/RB-014 (PR #30) vectorized
+train/cloud hot paths and corrected the gpu-profiler skill's tuple-unpack of
+`train_baseline_epoch`. SC-002 remains unmeasured. Do **not** follow with a faster
+`eval/bootstrap.py` — that is D-1 / Principle II, not a micro-opt.
+
 ---
 
 ## 5. Rollback drill — withdrawn, not moved

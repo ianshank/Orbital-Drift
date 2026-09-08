@@ -25,11 +25,12 @@ for idx in range(torch.cuda.device_count()):
 
 ## Step 2: Profile AMP Training Execution
 ```python
+import time
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from orbital_drift.data.dataset import Sentinel2PatchDataset
 from orbital_drift.train.baseline import SimpleUNet, train_baseline_epoch
-import numpy as np
 
 # Sample synthetic 4-band cube
 data = np.random.randint(0, 10000, size=(4, 512, 512), dtype=np.int16)
@@ -41,9 +42,11 @@ model = SimpleUNet(in_channels=4, num_classes=10)
 opt = torch.optim.Adam(model.parameters(), lr=1e-3)
 crit = torch.nn.CrossEntropyLoss()
 
-loss, train_time = train_baseline_epoch(
+started = time.perf_counter()
+loss = train_baseline_epoch(
     model, loader, opt, crit, device="cuda:0", use_amp=True, grad_accum_steps=2
 )
+train_time = time.perf_counter() - started
 print(f"AMP Training Epoch Loss: {loss:.4f} in {train_time:.2f}s")
 ```
 
