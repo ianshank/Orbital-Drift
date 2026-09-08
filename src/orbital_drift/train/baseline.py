@@ -312,7 +312,7 @@ def train_baseline_epoch(
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
 
-        running = running + loss.detach().to(dtype=torch.float64) * (resolved_grad_accum_steps)
+        running += loss.detach().to(dtype=torch.float64) * (resolved_grad_accum_steps)
 
     return float((running / max(len(dataloader), 1)).item())
 
