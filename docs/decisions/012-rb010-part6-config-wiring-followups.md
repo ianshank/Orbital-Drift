@@ -1,6 +1,11 @@
 # D-012: Config-wiring gaps found while triaging `hardcode_scan` findings (RB-010 Part 6)
 
-**Status:** RECORDED — informational. Nothing in this document is implemented; no `OrbitalDriftConfig` field is added or changed by it.
+**Status:** RECORDED — informational. F3 (`drift/trigger.py` hysteresis/cooldown)
+was implemented in PR #27 (T061 F3, 2026-09-06) and is reconcile-forwarded by
+RB-015. F1, F2, F4, F5 are **not** implemented; RB-015 Part F gates them until
+the operator answers F2 (`stride` field vs derive) and F5 (`limit=10` config vs
+documented constant). This document does not add or change `OrbitalDriftConfig`
+fields.
 **Audience:** whichever agent picks up the follow-up config-wiring work these findings describe.
 **Why this exists:** RB-010 Part 6 wires `orbital_drift.quality.hardcode_scan` into `ci/checks.sh` as a new `hardcode` stage. Per the part's own scope (`docs/decision-log.md`, 2026-09-01 RB-010 entry: "(6) hardcode_scan CI-wiring, depends on (4)+(5)"), doing NEW `OrbitalDriftConfig` wiring is out of scope for this part — that is a larger change than wiring a scanner into CI, and is exactly the kind of work Parts 4/5 already did for other modules. Every finding the scanner reported against the current tree was triaged to a resolution (a `# pin:` comment) so the gate lands green; the items below are the subset judged genuinely config-shaped rather than legitimate constants, each pinned with a comment that references this file so the gap stays visible instead of silently resolved by a pin comment alone.
 
@@ -20,9 +25,9 @@
 
 ## F3 — `drift/trigger.py`: `DriftTriggerManager.__init__`'s `hysteresis_window`/`cooldown_scenes`
 
-`OrbitalDriftConfig.drift_hysteresis_window` (default `3`) and `OrbitalDriftConfig.drift_cooldown_scenes` (default `5`) already exist and their doc comments explicitly name `drift/trigger.py`'s hardcoded `3`/`5` as the literals they mirror — but `DriftTriggerManager.__init__` accepts no `config` parameter at all. Part 5c's commit (`c578a0a`) wired `drift/metrics.py` only; `drift/trigger.py` was never touched. This is the highest-priority item here since the config fields already exist and are simply unconsulted.
+**Historical (RB-010 Part 6):** `OrbitalDriftConfig.drift_hysteresis_window` (default `3`) and `OrbitalDriftConfig.drift_cooldown_scenes` (default `5`) already existed and named `drift/trigger.py`'s hardcoded `3`/`5`, but `DriftTriggerManager.__init__` accepted no `config` parameter. Part 5c's commit (`c578a0a`) wired `drift/metrics.py` only.
 
-**Suggested fix:** add an optional `config: OrbitalDriftConfig | None = None` parameter to `DriftTriggerManager.__init__` and resolve `hysteresis_window`/`cooldown_scenes` through it, mirroring `drift/metrics.py`'s `_resolve_threshold` pattern.
+**Status (RB-015):** DONE in PR #27. `DriftTriggerManager.__init__` resolves those fields through an optional `config` parameter. Do not re-implement. Residual T061 work is F1/F2/F4/F5 only.
 
 ## F4 — `data/lakefs_ops.py`: `LakeFSOps.__init__`'s `endpoint_url`/`repository`/`main_branch`
 

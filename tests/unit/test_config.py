@@ -73,6 +73,7 @@ def test_config_defaults_and_validation() -> None:
     assert cfg.serve_device == "cuda:1"
     assert cfg.psi_threshold == 0.25
     assert cfg.drift_hysteresis_window == 3
+    assert cfg.serving_port == 8000  # D-015/D-03: one port matching EXPOSE/compose
 
 
 def test_config_environment_variable_override(monkeypatch: pytest.MonkeyPatch) -> None:

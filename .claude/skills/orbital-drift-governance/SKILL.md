@@ -71,6 +71,8 @@ never assume standing.
 
 - **RB-014** (09-07): PR #30 SDLC follow-up — extra characterization tests, `cuda`/`cuda:0` device skip, gpu-profiler skill must not unpack `train_baseline_epoch` as a tuple (float return; time with `perf_counter`), plus honest NEXT_STEPS/ARCHITECTURE/CHANGELOG notes. Explicitly excludes C4/Makefile/Docker/gitignore/gitleaks/Dependabot rewrites, hot-path logging, god-file split, CI fusion, bootstrap, new skills/hooks, G-x, checkbox flips. Process track, outside M0 4/4.
 
+- **RB-015** (09-11): v2 hygiene-hardening program (`docs/decisions/015-hygiene-hardening-program.md`) after two BLOCKs of v1. Part H: T065 + T053 HEALTHCHECK/port/staging/canary remainder (no dummy model, no get_config), T058 skip→fail, retroactive #23–#29, checkbox T056/T062; T063 waits on D-011. Part F gated (T054/T055/T061 remainder/T066/T057/T064/model-load). Mints no T066–T070. No G-x, no floor change, no Part 4 reversal. Process track, outside M0 4/4.
+
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after
 this section's own "since" date has no corresponding ID anywhere in the section text. A

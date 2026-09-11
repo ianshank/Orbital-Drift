@@ -217,8 +217,10 @@ class OrbitalDriftConfig(BaseSettings):
         description="Fraction of inference traffic routed to candidate Staging model (0.0 to 1.0)",
     )
     serving_port: int = Field(
-        default=8080,
-        description="FastAPI HTTP serving port",
+        default=8000,
+        description="FastAPI HTTP serving port. 8000 matches Dockerfile EXPOSE "
+        "and docker-compose (D-015/D-03); previously defaulted to 8080 while "
+        "the container bound 8000.",
     )
     auto_promote_margin: float = Field(
         default=0.02,

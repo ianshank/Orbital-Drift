@@ -7,11 +7,11 @@ to configured canary ratio, and exports Prometheus latency/prediction metrics.
 from __future__ import annotations
 
 import logging
-import random
 import time
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from random import Random
 from typing import Any, Final
 
 import numpy as np
@@ -23,6 +23,11 @@ from pydantic import BaseModel, Field, field_validator
 from orbital_drift.config import OrbitalDriftConfig
 
 logger = logging.getLogger(__name__)
+
+# T053 remainder / D-015: process-local canary RNG. Isolated from Python's
+# global ``random`` so a request cannot desynchronise canary vs production
+# routing for incident reconstruction.
+_CANARY_RNG_SEED = 42  # pin: canary routing RNG seed (T053 / D-015)
 
 
 @asynccontextmanager
@@ -159,6 +164,7 @@ class ModelContainer:
         self.staging_model: nn.Module | None = None
         self.staging_version: int = 2
         self.canary_ratio: float = 0.0
+        self.canary_rng: Random = Random(_CANARY_RNG_SEED)  # noqa: S311
 
         # Prometheus metrics mock/tracker
         self.metrics: dict[str, Any] = {
@@ -182,12 +188,20 @@ class ModelContainer:
         `canary_ratio` resolves with precedence (RB-010 Part 5: per-module
         config wiring): explicit argument > `config.canary_ratio` > the
         pre-existing hardcoded `0.10` default.
+
+        Omitting `staging` (or passing None) clears any previously loaded
+        staging model. A production-only load must not keep a stale canary
+        candidate (T053 remainder / RB-015).
         """
         self.production_model = production.to(self.device).eval()
         self.production_version = prod_version
+        # Always assign staging so omitting it clears a stale staging_model
+        # (T053 remainder / RB-015). Passing staging=None is an unload, not a no-op.
         if staging is not None:
             self.staging_model = staging.to(self.device).eval()
             self.staging_version = staging_version
+        else:
+            self.staging_model = None
         self.canary_ratio = (
             canary_ratio
             if canary_ratio is not None
@@ -336,7 +350,7 @@ def predict(payload: InferenceRequest) -> InferenceResponse:
     route_to_staging = (
         container.staging_model is not None
         and container.canary_ratio > 0.0
-        and random.random() < container.canary_ratio  # noqa: S311
+        and container.canary_rng.random() < container.canary_ratio
     )
 
     if route_to_staging:

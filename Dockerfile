@@ -43,7 +43,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/home/appuser/.local/bin:${PATH}" \
-    ORBITAL_DRIFT_SERVE_PORT=8000 \
+    ORBITAL_DRIFT_SERVING_PORT=8000 \
     ORBITAL_DRIFT_SERVE_HOST="0.0.0.0"
 
 # Install minimal runtime dependencies
@@ -64,6 +64,10 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
 
 COPY src/ /app/src/
+# T053 remainder / D-015/D-03: wrapper expands ORBITAL_DRIFT_SERVING_PORT.
+# Exec-form ENTRYPOINT JSON does not expand ${VAR}.
+COPY scripts/serve_entrypoint.sh /app/serve_entrypoint.sh
+RUN chmod 0755 /app/serve_entrypoint.sh
 # RB-010 Part 12 Blocker 2: this previously installed no extras at all.
 # pyproject.toml's base [project].dependencies is deliberately minimal
 # (pydantic/pydantic-settings only, per the hexagonal ports boundary) --
@@ -85,6 +89,6 @@ USER appuser
 EXPOSE 8000
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:${ORBITAL_DRIFT_SERVE_PORT}/healthz || exit 1
+    CMD curl -f http://localhost:${ORBITAL_DRIFT_SERVING_PORT}/livez || exit 1
 
-ENTRYPOINT ["uvicorn", "orbital_drift.serve.app:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/serve_entrypoint.sh"]

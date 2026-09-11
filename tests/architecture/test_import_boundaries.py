@@ -134,7 +134,9 @@ def test_ports_isolation_contract_catches_planted_violation() -> None:
     """
     executable = shutil.which("lint-imports")
     if executable is None:
-        pytest.skip("lint-imports not available for positive control")
+        pytest.fail(
+            "lint-imports is required for the planted-violation control but is absent from PATH"
+        )
 
     violation_file = SOURCE_ROOT / "ports" / "_test_violation_t058.py"
     try:
@@ -156,8 +158,10 @@ def test_ports_isolation_contract_catches_planted_violation() -> None:
             "The ports_isolation contract may be misconfigured.\n"
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
-        assert "ports_isolation" in result.stdout or "BROKEN" in result.stdout, (
-            f"Expected ports_isolation contract failure in output.\nstdout: {result.stdout}"
+        output = f"{result.stdout}\n{result.stderr}"
+        assert "Ports must not import application-layer adapters" in output, (
+            "Expected the ports_isolation contract title in lint-imports output, "
+            f"not the ini section id.\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
     finally:
         violation_file.unlink(missing_ok=True)

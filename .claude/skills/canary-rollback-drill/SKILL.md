@@ -36,7 +36,7 @@ container.update_canary_ratio(0.0)
 ```
 
 ## Step 4: Verification Gate
-Query the serving `/healthz` and `/metrics` endpoints to confirm:
+Query the serving `/livez` and `/metrics` endpoints to confirm:
 - `orbital_drift_requests_staging` stops incrementing.
 - `orbital_drift_requests_production` handles 100% of live traffic.
 - Average inference latency recovers within SLA (< 50ms).
