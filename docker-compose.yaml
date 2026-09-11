@@ -25,6 +25,10 @@ services:
       - ORBITAL_DRIFT_SERVE_HOST=0.0.0.0
       - ORBITAL_DRIFT_CANARY_RATIO=0.1
     healthcheck:
+      # Path is /livez (RB-015). Port 8000 is a literal coupled to ports:
+      # "8000:8000" — compose exec-form JSON does not expand
+      # ORBITAL_DRIFT_SERVING_PORT (the same trap as a Dockerfile exec-form
+      # ENTRYPOINT). Change both together if you republish the port.
       test: ["CMD", "curl", "-f", "http://localhost:8000/livez"]
       interval: 15s
       timeout: 5s

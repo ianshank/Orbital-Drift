@@ -24,8 +24,9 @@ open questions to "the forward-roadmap", by name. `docs/development/**` is now a
 
 ## 1. Where the project actually is
 
-Phase 0 of 6. Ten of the task checkboxes are complete (T001, T001a, T001b, T002, T004, T004a,
-T007-T010) — all Phase-0 authoring. Separately, PR#16/#17 landed most of the Phase 1-4
+Phase 0 of 6. Fourteen of the task checkboxes are complete (T001, T001a, T001b, T002, T004, T004a,
+T007-T010, T056, T058, T062, T065). The first ten are Phase-0 authoring. T056/T058/T062/T065 were
+checkboxed 2026-09-11 after dual review under RB-015 (PR #31). Separately, PR#16/#17 landed most of the Phase 1-4
 application code ungated; RB-010 marked all of T013-T052 `AUTHORED-PROVISIONAL` pending
 retroactive review, and 12 of its 14 remediation parts have shipped (Parts 1, 2, 4, 5, 6-13;
 Part 5 landed as three commits 5a/5b/5c, which is not three parts). Parts 3 and 14 remain —
@@ -117,7 +118,7 @@ here are pointers, not a second declaration.
 alongside the Protocols. `domain/` + `ports/` is a 10-module component the other 30 modules
 cannot reach — a second, parallel program.
 
-**Code present (PR #26, unchecked until dual review):** the `ports_isolation` forbidden
+**Code present and checkboxed (PR #26, RB-015 dual review 2026-09-11):** the `ports_isolation` forbidden
 contract now prevents `orbital_drift.ports` from importing application-layer modules. The
 planted-violation control uses `pytest.fail` when `lint-imports` is absent (RB-015 leftover;
 do not grow the D10 skip allowlist).
@@ -127,7 +128,7 @@ than rewrite, and wait on D-2.
 
 ### Track B — Replace the simulations (T056, T059, T060)
 
-**Code present (PR #28, unchecked until dual review):** lakeFS commit IDs are deterministic;
+**Checkboxed 2026-09-11 (PR #28, RB-015 dual review):** lakeFS commit IDs are deterministic;
 every log line naming a lakeFS object says `[SIMULATED]`. Replacing the simulation is T060
 and waits on D-2. T059 (MLflow) waits on the same decision.
 
@@ -149,7 +150,7 @@ is logged.
 F1/F2/F4/F5 wait on operator answers in D-015 for F2 (`stride`) and F5 (`limit=10`) before
 any remainder PR. Completing T061 is not charter R-5; shipping another partial is the watch.
 
-**T062 code present (PR #25, unchecked until dual review):** `rollback_production` takes
+**T062 checkboxed 2026-09-11 (PR #25, RB-015 dual review):** `rollback_production` takes
 `self._lock`. Do not wrap `get_stage_version` while holding that lock (not re-entrant).
 
 ### Track E — Deployment reality (T053, T054, T055)

@@ -2,6 +2,7 @@
 
 File-level contracts. They do not `docker run` the image (T066 is Part F
 and needs an FR). Mutation: restore `/healthz` in HEALTHCHECK → these fail.
+Mutation: wrapper `--port 8000` with the env named only in comments → these fail.
 """
 
 from __future__ import annotations
@@ -14,20 +15,32 @@ COMPOSE = REPO_ROOT / "docker-compose.yaml"
 ENTRYPOINT = REPO_ROOT / "scripts" / "serve_entrypoint.sh"
 
 
+def _continued_instruction(text: str, prefix: str) -> str:
+    """Return a Dockerfile instruction including every `\\` continuation line."""
+    lines = text.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith(prefix))
+    collected = [lines[start]]
+    index = start
+    while collected[-1].rstrip().endswith("\\") and index + 1 < len(lines):
+        index += 1
+        collected.append(lines[index])
+    return "\n".join(collected)
+
+
+def _code_without_comments(text: str) -> str:
+    return "\n".join(
+        line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
 def test_dockerfile_healthcheck_probes_livez_not_healthz() -> None:
     text = DOCKERFILE.read_text(encoding="utf-8")
     assert "HEALTHCHECK" in text
     assert "CMD curl" in text
-    # Slice the HEALTHCHECK *instruction*, not the first mention of ENTRYPOINT
-    # (a comment above HEALTHCHECK names ENTRYPOINT and would empty the slice).
-    lines = text.splitlines()
-    start = next(i for i, line in enumerate(lines) if line.startswith("HEALTHCHECK"))
-    block_lines = [lines[start]]
-    if lines[start].rstrip().endswith("\\") and start + 1 < len(lines):
-        block_lines.append(lines[start + 1])
-    block = "\n".join(block_lines)
+    block = _continued_instruction(text, "HEALTHCHECK")
     assert "/livez" in block
     assert "/healthz" not in block
+    assert "ORBITAL_DRIFT_SERVING_PORT" in block
 
 
 def test_dockerfile_env_and_wrapper_use_serving_port() -> None:
@@ -47,7 +60,9 @@ def test_compose_healthcheck_probes_livez() -> None:
 
 
 def test_serve_entrypoint_expands_serving_port() -> None:
-    text = ENTRYPOINT.read_text(encoding="utf-8")
-    assert "ORBITAL_DRIFT_SERVING_PORT" in text
-    assert "exec uvicorn" in text
-    assert "${" in text  # shell expansion, not Docker exec-form JSON
+    code = _code_without_comments(ENTRYPOINT.read_text(encoding="utf-8"))
+    # Assignment, not a comment (AR-1): a wrapper that hardcodes --port 8000
+    # while mentioning the env only in comments must fail this test.
+    assert 'port="${ORBITAL_DRIFT_SERVING_PORT' in code
+    assert "exec uvicorn" in code
+    assert '--port "$port"' in code

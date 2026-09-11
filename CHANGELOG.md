@@ -16,11 +16,13 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
-### Fixed — hygiene-hardening Part H (RB-015, D-015, 2026-09-11)
+### Fixed — hygiene-hardening Part H (RB-015, D-015, 2026-09-11, PR #31,
+commit `015e840` plus the review-fix commit on this branch)
 
 - **T065:** `docs/development/**` is in `governed_path_globs`. `NEXT_STEPS.md` rewritten
   in the same PR so it cannot rot unowned. Mutation:
-  `test_docs_development_is_governed_not_only_public`.
+  `test_docs_development_is_governed_not_only_public`. Checkboxed after dual review
+  (PR #31; implementation commit `015e840`, review-fix `737b73e`).
 - **T053 remainder (not model-load):** Dockerfile HEALTHCHECK, compose, and
   canary-rollback-drill skill probe `/livez` (not `/healthz`). `ORBITAL_DRIFT_SERVE_PORT`
   renamed to `ORBITAL_DRIFT_SERVING_PORT`. `config.serving_port` default is 8000.

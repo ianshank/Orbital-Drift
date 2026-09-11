@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random as py_random
 import uuid
 from pathlib import Path
 from random import Random
@@ -50,26 +51,20 @@ def _reset_the_module_level_container() -> None:
     **2 of 30 runs on `main` at 4b6ac35** and 4 of 30 on the RB-012 branch —
     the same rate, so it is pre-existing and not that change's.
 
-    THE MECHANISM, which is two production defects meeting:
-    1. `ModelContainer.set_models` only assigns `staging_model` when a staging
-       model is PASSED (`serve/app.py:157`), so a staging model left by an
-       earlier test survives into the next one; but it unconditionally sets
-       `canary_ratio` to its `0.10` fallback.
-    2. Canary routing draws from the unseeded process-global
-       `random.random()` (`serve/app.py:263`).
+    THE MECHANISM, historically two production defects meeting (both closed
+    by T053 remainder / RB-015 / D-015; line numbers below are the *old*
+    sites, kept so the flake write-up stays reconstructable):
+    1. `ModelContainer.set_models` assigned `staging_model` only when a
+       staging model was PASSED, so a leftover candidate survived into the
+       next test while `canary_ratio` still fell back to `0.10`.
+    2. Canary routing drew from the unseeded process-global
+       `random.random()`.
 
-    So a test that calls `set_models(production=...)` with no staging model
-    still gets a 10% chance of its request being routed to a STALE staging
-    model from a previous test. In the exception-masking test that means the
-    planted `_RaisingModel` never runs and a real `SimpleUNet` raises a torch
-    shape error instead, so the secret marker never reaches the log and the
-    assertion fails.
-
-    This fixture removes the cross-test leak. It does NOT fix either production
-    defect — those are real, are recorded in `docs/decisions/013-*.md`, and are
-    owned by T053, which rewires `set_models` anyway. Resetting shared state
-    between tests is not quarantining a test: the assertions are untouched and
-    every one of them still runs.
+    A production-only `set_models` now clears staging, and canary draws come
+    from `container.canary_rng`. This fixture still resets the module-level
+    singleton between tests so one test cannot leak models, ratio, RNG, or
+    metrics into another. Resetting shared state is not quarantining: the
+    assertions are untouched and every one of them still runs.
     """
     container.production_model = None
     container.staging_model = None
@@ -493,6 +488,32 @@ def test_canary_rng_is_deterministic_across_containers() -> None:
     assert [first.canary_rng.random() for _ in range(8)] == [
         second.canary_rng.random() for _ in range(8)
     ]
+
+
+def test_predict_canary_routing_follows_seeded_rng_not_process_global() -> None:
+    """T053 / AR-7: /predict routing must match Random(seed), even if random.seed moves."""
+    prod = SimpleUNet(in_channels=1, num_classes=2, init_features=8)
+    staging = SimpleUNet(in_channels=1, num_classes=2, init_features=8)
+    container.set_models(
+        production=prod,
+        prod_version=1,
+        staging=staging,
+        staging_version=2,
+        canary_ratio=0.5,
+    )
+    container.canary_rng = Random(_CANARY_RNG_SEED)  # noqa: S311
+    expected_rng = Random(_CANARY_RNG_SEED)  # noqa: S311
+    client = TestClient(app)
+    img_data = np.zeros((1, 8, 8), dtype=np.float32).tolist()
+    for index in range(8):
+        expected = "Staging" if expected_rng.random() < 0.5 else "Production"
+        py_random.seed(index + 99)
+        response = client.post(
+            "/predict",
+            json={"request_id": f"canary-{index}", "image_array": img_data},
+        )
+        assert response.status_code == 200
+        assert response.json()["served_by_model"] == expected
 
 
 def test_predict_does_not_draw_from_process_global_random() -> None:
