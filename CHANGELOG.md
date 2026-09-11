@@ -16,6 +16,24 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
+### Fixed — hygiene-hardening Part H (RB-015, D-015, 2026-09-11)
+
+- **T065:** `docs/development/**` is in `governed_path_globs`. `NEXT_STEPS.md` rewritten
+  in the same PR so it cannot rot unowned. Mutation:
+  `test_docs_development_is_governed_not_only_public`.
+- **T053 remainder (not model-load):** Dockerfile HEALTHCHECK, compose, and
+  canary-rollback-drill skill probe `/livez` (not `/healthz`). `ORBITAL_DRIFT_SERVE_PORT`
+  renamed to `ORBITAL_DRIFT_SERVING_PORT`. `config.serving_port` default is 8000.
+  `scripts/serve_entrypoint.sh` expands the env (exec-form JSON does not).
+  `set_models` clears a stale `staging_model`. Canary routing uses a seeded `Random`,
+  not process-global `random.random()`. S6.1 AC amended to liveness-only. Checkbox
+  stays `[ ]` PARTIAL — dummy weights forbidden; model-load waits T059.
+- **T058 leftover:** planted-violation control `pytest.fail`s if `lint-imports` is
+  absent (match sibling). Do not grow the D10 skip allowlist.
+- **Reconcile-forward:** PRs #23–#29 named in D-015/D-04. T056/T062/T058 checkbox
+  after dual review. T063 waits on D-011. Part F (T054/T055/T061 remainder/T066/T057/T064)
+  stays GATED. No new T-IDs. Coverage floors stay 85 / 90.
+
 ### Changed — hot-path vectorization (RB-013, 2026-09-07, commit `3f79b8d`)
 
 - `compute_iou_f1`: per-class Python loop and four `.item()` host syncs per class

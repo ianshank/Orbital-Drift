@@ -54,6 +54,11 @@ audit, here is what is actually true today:
   host prep, k3s install, and platform `terraform apply` — are `[HUMAN]`-gated and
   unexecuted. Nothing described below has ever run against a live k3s cluster; the
   Deployment diagram (section 4) is a target hardware topology, not a running system.
+- **Serving liveness vs readiness (RB-015).** HTTP `/livez` is 200 without a model;
+  `/readyz` and `/healthz` return 503 until a production model is loaded (nothing
+  outside tests loads one). Docker HEALTHCHECK and compose probe `/livez`.
+  `ORBITAL_DRIFT_SERVING_PORT` default is 8000, injected by `scripts/serve_entrypoint.sh`
+  (exec-form JSON does not expand `${}`). Dummy weights at startup are forbidden.
 
 ### Known follow-ups (not fixed by RB-010)
 
@@ -100,7 +105,7 @@ C4Context
     Rel(orbital_drift, stac_api, "Queries scenes and downloads COGs with exponential backoff")
     Rel(orbital_drift, lakefs, "Creates versioned commits for ingested scenes and creates experiment branches")
     Rel(orbital_drift, mlflow, "Logs {lakeFS commit, git SHA, config hash} provenance triple and transitions model stages")
-    Rel(monitoring, orbital_drift, "Scrapes /metrics and /healthz endpoints")
+    Rel(monitoring, orbital_drift, "Scrapes /metrics; liveness is /livez not /healthz")
 ```
 
 > **Target-state diagram (see section 0).** `stac_api` is real (Earth Search is a
@@ -200,7 +205,7 @@ C4Component
         Component(registry_ops, "registry/ops.py", "in-process dict (no mlflow import)", "TODAY: dict-simulated stage transitions (None -> Staging -> Production -> Archived); real MLflow Registry is the target, not built")
         Component(metrics, "drift/metrics.py", "NumPy / SciPy", "PSI 10-quantile bins and 2-sample Kolmogorov-Smirnov sensor")
         Component(trigger, "drift/trigger.py", "State Machine", "Hysteresis windowing, cooldown limiter, queue-depth-1 coalescing")
-        Component(app, "serve/app.py", "FastAPI", "REST inference API (/predict), canary traffic splitter, /healthz, /metrics")
+        Component(app, "serve/app.py", "FastAPI", "REST inference API (/predict), canary traffic splitter, /livez /readyz /healthz, /metrics")
     }
 
     Rel(adapters_layer, ports_layer, "TARGET ONLY — 0 of 5 ports have a real adapter today (RB-010)")

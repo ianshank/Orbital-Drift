@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import uuid
+from pathlib import Path
+from random import Random
 
 import numpy as np
 import pytest
@@ -14,6 +16,7 @@ from fastapi.testclient import TestClient
 import orbital_drift.serve.app as serve_app_module
 from orbital_drift.config import OrbitalDriftConfig
 from orbital_drift.serve.app import (
+    _CANARY_RNG_SEED,
     InferenceRequest,
     ModelContainer,
     _resolve_serve_device,
@@ -71,6 +74,7 @@ def _reset_the_module_level_container() -> None:
     container.production_model = None
     container.staging_model = None
     container.canary_ratio = 0.0
+    container.canary_rng = Random(_CANARY_RNG_SEED)  # noqa: S311
     container.metrics = {
         "requests_total": 0,
         "requests_production": 0,
@@ -459,3 +463,40 @@ class TestCanaryRatioConfigWiring:
         local_container = ModelContainer()
         local_container.set_models(production=model, prod_version=1, canary_ratio=0.75, config=cfg)
         assert local_container.canary_ratio == 0.75
+
+
+def test_set_models_without_staging_clears_stale_staging() -> None:
+    """T053 (RB-015): a production-only load must not keep a prior staging model."""
+    production_a = SimpleUNet(in_channels=1, num_classes=2, init_features=8)
+    production_b = SimpleUNet(in_channels=1, num_classes=2, init_features=8)
+    staging = SimpleUNet(in_channels=1, num_classes=2, init_features=8)
+    local_container = ModelContainer()
+    local_container.set_models(
+        production=production_a,
+        prod_version=1,
+        staging=staging,
+        staging_version=2,
+        canary_ratio=0.5,
+    )
+    had_staging = local_container.staging_model is not None
+    assert had_staging is True
+    local_container.set_models(production=production_b, prod_version=3)
+    still_has_staging = local_container.staging_model is not None
+    assert still_has_staging is False
+    assert local_container.production_version == 3
+
+
+def test_canary_rng_is_deterministic_across_containers() -> None:
+    """T053 (RB-015): canary draws must be reconstructable from the default seed."""
+    first = ModelContainer()
+    second = ModelContainer()
+    assert [first.canary_rng.random() for _ in range(8)] == [
+        second.canary_rng.random() for _ in range(8)
+    ]
+
+
+def test_predict_does_not_draw_from_process_global_random() -> None:
+    """T053 (RB-015): unseeded random.random() made canary assignment unreproducible."""
+    source = Path(serve_app_module.__file__).read_text(encoding="utf-8")
+    assert "random.random()" not in source
+    assert "canary_rng.random()" in source

@@ -347,6 +347,7 @@ governed_path_globs = [
   ".specify/**",
   "dashboards/**",
   "docs/runbooks/**",
+  "docs/development/**",
   "docs/decision-log.md",
   "charter/**",
   "openspec/**",

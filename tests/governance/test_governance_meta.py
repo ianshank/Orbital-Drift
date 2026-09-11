@@ -193,6 +193,22 @@ def test_matcher_is_not_vacuous() -> None:
     assert not _matches_any("some-new-root-file.xyz", patterns)
 
 
+def test_docs_development_is_governed_not_only_public() -> None:
+    """T065: docs/development/** must be a governed glob.
+
+    RB-012 repaired NEXT_STEPS.md content and left the cause: the directory
+    only matched the public ``docs/*`` allowlist, so it could rot with no
+    task owner. The public allowlist still matches nested docs paths
+    (Python fnmatch ``*`` matches slashes), so ``test_every_tracked_path``
+    stays green if this glob is deleted. This test is the mutation that
+    reddens that deletion.
+    """
+    globs = _governed_globs()
+    assert "docs/development/**" in globs
+    assert _matches_any("docs/development/NEXT_STEPS.md", globs)
+    assert _matches_any("docs/development/REFERENCE_GUIDE.md", globs)
+
+
 # ── 5. The decision log reads in chronological order ─────────────────────────
 # Rot vector: entries get appended wherever the editing agent's cursor happened
 # to be, and "the last line is the latest decision" — the way every human and

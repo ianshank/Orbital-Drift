@@ -134,7 +134,9 @@ def test_ports_isolation_contract_catches_planted_violation() -> None:
     """
     executable = shutil.which("lint-imports")
     if executable is None:
-        pytest.skip("lint-imports not available for positive control")
+        pytest.fail(
+            "lint-imports is required for the planted-violation control but is absent from PATH"
+        )
 
     violation_file = SOURCE_ROOT / "ports" / "_test_violation_t058.py"
     try:

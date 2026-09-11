@@ -96,7 +96,7 @@ Phase 6 (RB-012): defects found in already-remediated code, RB-010 findings assi
 
 | Story | Points | Priority | Acceptance |
 |---|---|---|---|
-| S6.1 Serving startup wiring and a healthy container | 5 | High | AC: a production model is loaded outside tests, /healthz reports ok in the shipped image, and the Dockerfile port env names match the config fields they claim to set. Trace: T053. |
+| S6.1 Serving liveness-healthy container | 5 | High | AC: Docker HEALTHCHECK and compose probe /livez; /readyz and /healthz stay 503 until a production model is loaded (T059); Dockerfile port env is ORBITAL_DRIFT_SERVING_PORT matching config.serving_port. Trace: T053. |
 | S6.2 Structured-logging rollout and message redaction | 5 | High | AC: configure_logging runs at every production entrypoint and credential redaction covers the message path, not only extra= fields. Trace: T054. |
 | S6.3 Real request-body size limit | 3 | Medium | AC: an oversized /predict body is rejected before it is read and parsed, proven by a test that measures the allocation rather than the comparison operator. Trace: T055. |
 | S6.4 Honest lakeFS simulation | 3 | High | AC: commit ids are deterministic for a given scene, and every log line naming a lakeFS object says SIMULATED until a real client exists. Trace: T056. |

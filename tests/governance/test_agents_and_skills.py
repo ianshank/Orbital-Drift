@@ -225,3 +225,14 @@ def test_gpu_profiler_skill_does_not_unpack_train_baseline_epoch_as_a_tuple() ->
     assert "loss, train_time = train_baseline_epoch" not in text
     assert "loss = train_baseline_epoch" in text
     assert "perf_counter" in text
+
+
+def test_canary_rollback_drill_skill_verifies_livez_not_healthz() -> None:
+    """RB-015 Part H: Docker HEALTHCHECK / k8s liveness is /livez.
+
+    /healthz aliases readiness and returns 503 with no model. The drill skill
+    must not tell the operator to treat /healthz as a liveness probe.
+    """
+    text = (SKILLS_DIR / "canary-rollback-drill" / "SKILL.md").read_text(encoding="utf-8")
+    assert "/livez" in text
+    assert "Query the serving `/healthz`" not in text
