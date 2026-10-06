@@ -89,7 +89,7 @@ resolve through this mapping.
 |---|---|---|---|---|
 | B-21 | D-015/D-06 (T063 checkbox) | Treat the sklearn alignment as a bugfix; check T063 after review | 25 | T063 |
 | B-22 | D-012 F2/F5 | F2: training-only stride field, evaluation tiles every pixel once; F5: next-link pagination with sortby | 35 | T061 remainder, RS:T016 |
-| B-23 | Close stale items | Mark D-014 triaged; retire RB-008a(b), RB-008a(e) and T064 as WONTFIX | 30-45 | Housekeeping only |
+| B-23 | Close stale items | Mark D-014 triaged; retire RB-008a(b) and RB-008a(e) as WONTFIX; retire T064 only via an amendment to its governance-harness scenario | 30-45 | Housekeeping only |
 
 **Accept-the-defaults path.** The operator may log one decision-log line accepting every
 recommended default except the items they strike or change. That turns 23 decisions into one

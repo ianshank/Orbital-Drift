@@ -459,7 +459,7 @@ The bulk line itself changes no FR, SC, charter or constitution text. Shape, pla
   startable 51 d. Unblocks: T074 Step 0; T003 → G-1.
 - **B-02 Ratify D-008/D-03** (config-v3.toml.tmpl deployment; "required before T005",
   D-008:3,54,99). **Default: ratify as proposed.** Age 45 d. Unblocks: T005 → G-2.
-- **B-03 Re-verify pins before T005** via an infra-scaffolder pass over versions.md
+- **B-03 Re-verify pins: the driver before T003, the rest before T005** via an infra-scaffolder pass over versions.md
   (candidates: k3s v1.35.9; GPU Operator stays 26.3.3 unless the T012 env-form test fails; NVIDIA
   driver at an exact version and held). **Default: authorize; the driver pin before T003, which
   installs the driver, and the rest before T005.** Age 45 d (rule: ~30 d). Unblocks: a safe
@@ -613,7 +613,7 @@ The bulk line itself changes no FR, SC, charter or constitution text. Shape, pla
 | 14 days; weekly 30 min; 24 h pre-fill; 150 words | B-06 | [panel judgement; free parameter] — parameters of a process rule. |
 | One slice of WIP; one process-track PR per product PR | B-05 | [panel judgement; free parameter]. |
 | 56-day metrics retention | 06f, B-19, RS:T046/T049 | 6-week soak (42 days) plus two weeks of postmortem margin (PLAT). |
-| 72 h burn-in; >= 3 scheduled ingests | Soak Readiness Gate | Panel judgement: spans a weekend and one Sentinel-2 revisit at the short end of its ~2.5-5-day range [domain knowledge]; 72 h does not span a 5-day revisit. |
+| 72 h burn-in; >= 3 scheduled ingests | Soak Readiness Gate | Panel judgement: spans a weekend and one Sentinel-2 revisit at the short end of its ~2.5-5-day range [domain knowledge]; 72 h does not span a 5-day revisit. ">= 3 scheduled ingests" in 72 h assumes an ingest cadence of 24 h or less. |
 | < 60% disk at day 42 | Soak Readiness Gate | Panel judgement: headroom above k3s's 5%-free eviction threshold (06c) for growth after the soak. |
 | >= 12-month replay | B-14, P-8 | One full phenological cycle [domain knowledge]. |
 | <= 1 false alarm per soak | B-14 | [panel judgement; free parameter]. |
@@ -753,8 +753,8 @@ none**; each needs its own authorization.
 - **T073 [A:infra-scaffolder]** Backup and restore: nightly pg_dump, bucket replication to B-17's
   off-node target, backups encrypted client-side before leaving the node, Terraform state
   relocated, key escrow, freshness metric; no key material, state file or backup credential in
-  the repo (Principle VII) (06a). Applied by the operator at T012's bring-up (the T011 runbook
-  must cover it); exercised at T051. Depends on T072, B-17. Serves SC-006, SC-001.
+  the repo (Principle VII) (06a). Its applying [HUMAN] step is T012 if it lands before G-3,
+  otherwise one minted with B-17; exercised at T051. Depends on T072, B-17. Serves SC-006, SC-001.
 - **T074 [A:runbook-writer]** Runbook 00/01 addendum: B-01 OS path, data filesystem,
   secrets-encryption, held driver, two-pod GPU env-form test at T012 (01g, 06c, 06e, 06g, 06h).
   Step 0 (node identity) and the exact driver pin and hold before T003, because runbook 00, which
@@ -763,8 +763,8 @@ none**; each needs its own authorization.
 - **T075 [A:runbook-writer]** Runbooks for unpaired [HUMAN] tasks T029, T032, T049; T050 a runbook
   or a B-16 deferral (tasks.md:7; first pass H13, corrected to include T049). Serves US8.
 
-T074 and T075 precede G-1 but are numbered in the T013+ range, so the RB that authorizes their
-execution must name the gate-table row it relies on.
+T074 precedes G-1, and T075 may be authored before the [HUMAN] tasks it pairs; both are numbered
+in the T013+ range, so the RB that authorizes them must name the gate-table row it relies on.
 
 **Minted on decision** — not in tasks.md:
 
