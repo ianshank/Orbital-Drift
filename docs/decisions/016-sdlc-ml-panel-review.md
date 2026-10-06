@@ -62,7 +62,7 @@ follow-up; `FIX` fixed in the RB-016 PR.
    This PR itself adds about 14,300 words to the plan of record (wc -w at 8ef380b against
    c545701: D-016 8,500; tasks.md +2,093; NEXT_STEPS +1,768; plan.md +1,380; traceability +336;
    CHANGELOG +212); the review fixes after 8ef380b bring the total to about 16,300 words (same
-   method, at 3c144f5). It decides nothing.
+   method, at 3c144f5); the later review fixes bring it to about 17,200 (same six files, at the cycle-2 fix commit). It decides nothing.
 
 ---
 
@@ -459,8 +459,10 @@ The bulk line itself changes no FR, SC, charter or constitution text. If B-05 is
 same line is the named G-1 waiver and execution authorization for exactly the list in B-05(b)
 (T071-T075; T036 as re-scoped; T059 as re-scoped for Phase L; each of P-1 to P-6 once it is
 minted, which happens when B-05 and that package's own Needs are logged; authoring of T046 if
-B-19 is accepted). It authorizes nothing else, and B-05's DEC-002 part
-still needs its own DEC line. Shape, placeholders only:
+B-19 is accepted). It authorizes nothing else, and B-05's DEC-002 part still needs its own DEC
+line. Because charter R-2's condition has held since RB-010, the waiver takes effect only once
+B-05's DEC-002 line is also logged; logging that DEC line is the owner review R-2 requires.
+Shape, placeholders only:
 `YYYY-MM-DD | <ID per rule 2> | Accept D-016/09 defaults B-01..B-23 except: <struck>; <amended>; per B-05(b) also the named G-1 waiver for T071-T075, T036 and T059 as re-scoped, each P-n once minted, and T046 authoring if B-19 is accepted. EXPLICIT LIMIT: creates no G-x; flips no checkbox; logs no DEC. | <operator>`
 
 ### Group 1 — decide first (critical path; all decidable at a laptop)
@@ -492,9 +494,10 @@ still needs its own DEC line. Shape, placeholders only:
   T071-T075; T059 as re-scoped for Phase L (D-016/10); T036 as re-scoped;
   packages P-1 to P-6, each minted when B-05 and that package's own Needs are logged; and
   authoring (not applying) of T046 if B-19 is accepted, T049 being [HUMAN] with its runbook
-  in T075 — with a WIP
-  limit of one slice ahead of the last G-x entry, one slice being one row of NEXT_STEPS §4's
-  sequence table (T072 and T073 belong to the Phase 0 row); (c) classify as process track
+  in T075 — with a WIP limit of one slice ahead of the last G-x entry, one slice being one row
+  of NEXT_STEPS §4's sequence table (T072 and T073 belong to the Phase 0 row). Runbook tasks
+  (T074, T075) are outside the WIP limit, because each runbook must exist before its [HUMAN]
+  step (Principle I); (c) classify as process track
   (reject: repeats RB-010's ungated-work pattern). **Default (b):** G-1 certifies a CUDA host;
   this CPU-only work never touches one. DEC-002: (A) rule RB-007(b) an allocation (reverses seven
   standing entries, RB-009..RB-015); (B) rule it consumed and the owner review complete; (C)
@@ -588,10 +591,18 @@ still needs its own DEC line. Shape, placeholders only:
   diagnostic, not the trigger reference. Thresholds are frozen by a decision-log line after a
   historical replay of at least 12 months. The replay is an agent-authored job that the operator
   executes as a [HUMAN] step with its own runbook, because agents have no catalog egress; it
-  streams imagery from the catalog without retaining it, so B-17's retention is unaffected. The
-  replay also estimates the expected number of organic triggers in the planned soak window; if
-  that is below one, the operator moves the soak window to span a phenological transition rather
-  than loosening thresholds. SC-003: a trigger fired by the frozen configuration on real imagery
+  streams imagery from the catalog without retaining it, so B-17's retention is unaffected.
+  Before the replay runs, a false-trigger bound is fixed in configuration: the frozen thresholds
+  may fire at most 0.5 times per 42 replayed days of no-harm windows, where a no-harm window is
+  one whose weak-label mIoU (champion against the static labels) does not drop by more than the
+  B-10 margin [panel judgement; free parameter — it keeps expected nuisance triggers in a 42-day
+  soak below one half]. The replay reports, for each candidate threshold set, its false-trigger
+  rate on no-harm windows and its organic-trigger rate; the freeze takes the tightest set that
+  meets the bound. This replaces the earlier in-season null-window rule (0 triggers), which a
+  season-matched reference needed and a training reference does not. The replay also estimates
+  the expected number of organic triggers in the planned soak window; if that is below one, the
+  operator moves the soak window to span a phenological transition rather than relaxing the
+  false-trigger bound. SC-003: a trigger fired by the frozen configuration on real imagery
   counts as organic whatever the gate's verdict; promoted, rejected and insufficient-evidence
   outcomes are recorded, not relabelled as false alarms, because under static labels real land
   change can make a challenger fail (D-016/04g). The composition uses only methods on Principle
@@ -667,6 +678,7 @@ still needs its own DEC line. Shape, placeholders only:
 | 72 h burn-in; >= 3 scheduled ingests | Soak Readiness Gate | Panel judgement: spans a weekend and one Sentinel-2 revisit at the short end of its ~2.5-5-day range [domain knowledge]; 72 h does not span a 5-day revisit. ">= 3 scheduled ingests" in 72 h assumes an ingest cadence of 24 h or less. |
 | < 60% disk at day 42 | Soak Readiness Gate | Panel judgement: headroom above k3s's 5%-free eviction threshold (06c) for growth after the soak. |
 | >= 12-month replay | B-14, P-8 | One full phenological cycle [domain knowledge]. |
+| 0.5 false triggers per 42 replayed no-harm days | B-14, P-8 | [panel judgement; free parameter]: keeps expected nuisance triggers in a 42-day soak below one half; 42 days is the soak length (Constitution VI). |
 | 6-month backfill; ~50 GB total | B-17 | PLAT estimate from the 05f and 06c volumes. |
 | One MGRS tile; two fixture tiles | B-17, B-15 | [panel judgement; free parameter]. |
 | False-pass <= 0.05 + 2 MC SE; power >= 0.8 at 2x margin | P-4 | Conventional alpha and power; 2 MC SE covers Monte Carlo noise at 300 seeds. |
@@ -721,9 +733,11 @@ SC-004 measurement); a reproducibility re-run within a stated tolerance (US2/T02
 before T052): rebuild-plus-restore drill passed with RTO recorded (B-20); every alert class
 fire-drilled, including the off-node heartbeat; 72 h unattended burn-in with >= 3 scheduled
 ingests; projected disk use at day 42 < 60%; drift thresholds frozen by a decision-log line after
-the operator-run historical replay; B-18's required security items closed; a pre-soak reset: the
-champion, the trigger state and the drift reference are re-established from a model trained on
-main only, so no branch-injected data reaches the soak. Then T052.
+the operator-run historical replay, as the tightest set meeting B-14's false-trigger bound; B-18's
+required security items closed; a pre-soak reset: the champion, the trigger state and the drift
+reference are re-established from a model trained on main only, so no branch-injected data
+reaches the soak, and the promotion history and previous_champion are cleared, so no
+branch-trained version is reachable by rollback during the soak. Then T052.
 
 **Out of the MVP:** T030-T032 fine-tune; the US6 canary split (T043's canary half, T044, T045);
 T050; calibration.py, ranking.py, spatial.py; KServe; T054/T055 except where MVP-C needs them.
@@ -803,8 +817,9 @@ and B-14, after the spec amendment); until then the task text and spec.md govern
 none**; each needs its own authorization.
 
 - **T071 [A:ml-engineer]** Rollback restores exactly the previous champion, from an ordered
-  promotion history; one conformance suite over both registries (03c). Supersedes D-013/04b;
-  naming per B-11. Serves FR-006, SC-004.
+  promotion history; one conformance suite over ModelRegistryOps, InMemoryModelRegistry while
+  ports/registry.py exists (B-12), and T059's MLflow adapter once it exists (03c). Supersedes
+  D-013/04b; naming per B-11. Serves FR-006, SC-004.
 - **T072 [A:infra-scaffolder]** Data-plane correctness before T012: a database and role per
   service; SeaweedFS per-component resources and per-consumer identities; images pinned (06b,
   06d, 06g, 06i). Reopens T007-T009. Serves FR-003, FR-006, SC-006.
@@ -824,7 +839,8 @@ none**; each needs its own authorization.
 
 Phase 6 and 7 IDs have no phase gate of their own; their execution is authorized only by an RB
 or a named G-1 waiver that lists them (RB-012 and RB-015 precedent). B-05(b)'s waiver is that
-list for T071-T075. No new gate-table row is proposed.
+list (T071-T075; T036 and T059 as re-scoped; each P-n once minted; T046 authoring). No new
+gate-table row is proposed.
 
 **Minted on decision** — not in tasks.md:
 
@@ -837,7 +853,7 @@ list for T071-T075. No new gate-table row is proposed.
 | P-5 | Batch scoring job (classified COG + class histogram per scene; CRS kept; 100% of valid pixels; alias version recorded) | B-13, B-11, P-2 | 03e |
 | P-6 | Walking-skeleton acceptance test + CI stage (a new FR, per RB-012a(b)), with a positive control: a planted seam defect turns the stage red | B-04, B-05, P-1..P-5, T071, T059 (re-scoped), RS:T036 | 07a |
 | P-7 | Harmonized AOI loader (10 m UTM grid; SCL resampled; PB offset; NO_DATA/cloud masked, never 0; fractions recorded) | B-15 | 05b |
-| P-8 | Agent-authored historical replay job (>= 12 months) + runbook, executed by the operator as a [HUMAN] step; estimates expected organic triggers in the soak window; thresholds frozen by a decision-log line | B-14, P-7 | 04b |
+| P-8 | Agent-authored historical replay job (>= 12 months) + runbook, executed by the operator as a [HUMAN] step; reports false-trigger and organic-trigger rates per candidate threshold set; freezes the tightest set meeting B-14's false-trigger bound; estimates expected organic triggers in the soak window; thresholds frozen by a decision-log line | B-14, P-7 | 04b |
 | P-9 | Data retention and capacity (compressed crops, retention, capacity alert) | B-17 | 05f, 06c |
 
 **Why P-n are not minted:** minting a task whose shape depends on an open ballot item would
@@ -864,8 +880,7 @@ agreement to do them.
 | 6 | Split the 20-platform root module; dedupe versions.md:18-24 against :11-17. | 06i |
 | 7 | eval/spatial.py:91 patches `numpy.random.permutation` process-wide during Moran inference. | 02f |
 | 8 | docs/development/REFERENCE_GUIDE.md:164-165 says `rollback_production` reinstates the prior Production version; at c545701 it restores the highest-numbered Archived version. This PR changes only that file's two section pointers. | 03c |
-| 9 | The PreToolUse guard compares a named push remote (`git push origin ...`) with the URL allowlist without resolving the name, so it blocks an allow-listed origin, and it read a `2>&1` redirection as a push destination. Evidence at c545701:
-`src/orbital_drift/guard.py:281-294` (`_push_destination` returns the first non-flag argument) and :363-377 (that argument is checked against the URL allowlist; only an empty destination is replaced by the resolved effective remote). Observed while pushing this PR: `git push -u origin <branch>` gave `BLOCKED (C-5): push destination 'origin' is not in allowed-remotes.txt`; a bare `git push` with a `2>&1` redirection gave `push destination '2>'`. The branch went to the allow-listed URL itself, the form `tests/governance/test_pretooluse_guard.py:388` pins as permitted, then by a bare `git push`; no guard pattern or allowlist was changed. | 07g |
+| 9 | The PreToolUse guard compares a named push remote (`git push origin ...`) with the URL allowlist without resolving the name, so it blocks an allow-listed origin, and it read a `2>&1` redirection as a push destination. Evidence at c545701: `src/orbital_drift/guard.py:281-294` (`_push_destination` returns the first non-flag argument) and :363-377 (that argument is checked against the URL allowlist; only an empty destination is replaced by the resolved effective remote). Observed while pushing this PR: `git push -u origin <branch>` gave `BLOCKED (C-5): push destination 'origin' is not in allowed-remotes.txt`; a bare `git push` with a `2>&1` redirection gave `push destination '2>'`. The branch went to the allow-listed URL itself, the form `tests/governance/test_pretooluse_guard.py:388` pins as permitted, then by a bare `git push`; no guard pattern or allowlist was changed. | 07g |
 
 ## Sources for `[upstream source]` claims (retrieved 2026-10-06)
 

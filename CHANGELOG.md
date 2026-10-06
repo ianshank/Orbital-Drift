@@ -19,13 +19,13 @@ is this repository's body of work to date.
 ### Changed — plan rewrite (RB-016, D-016, 2026-10-06)
 
 Commits: `eba16fc` (D-016), `a34850e` (RB-016), `123fb1f` (rewrite), the review-fix commits
-`f3a9873` and `8ef380b`, and the adversarial-review fix commit on this branch
-(`claude/rb016-deep-review-plan-rewrite`). Docs track; no `src/` product code, gate bar, FR/SC
-text, G-x or checkbox changed.
+`f3a9873`, `8ef380b`, `3c144f5`, `b8c7963` and `6ad8b31`, and the adversarial cycle-2 fix commit
+on this branch (`claude/rb016-deep-review-plan-rewrite`). Docs track; no `src/` product code, gate
+bar, FR/SC text, G-x or checkbox changed.
 
 - `docs/decisions/016-sdlc-ml-panel-review.md`: seven-expert SDLC/ML panel findings on c545701
   (D-016/01-08), operator ballot B-01 to B-23 (D-016/09), two-stage MVP proposal (D-016/10),
-  work packages (D-016/11).
+  work packages (D-016/11), and a Sources section for its `[upstream source]` claims.
 - `docs/development/NEXT_STEPS.md` rewritten: verdict, ballot table with an accept-the-defaults
   path, MVP-L / MVP-C / Soak Readiness Gate (proposals pending B-04), sequence, as-built table,
   work, former Tracks A-E map, rollback drill. Retires "D-1/D-2/D-3" (→ B-09, B-12 + B-11,

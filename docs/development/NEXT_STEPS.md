@@ -37,7 +37,7 @@ questions to "the forward-roadmap", by name (RB-012, `docs/decisions/013-plan-ar
    This PR itself adds about 14,300 words to the plan of record (wc -w at 8ef380b against
    c545701: D-016 8,500; tasks.md +2,093; NEXT_STEPS +1,768; plan.md +1,380; traceability +336;
    CHANGELOG +212); the review fixes after 8ef380b bring the total to about 16,300 words (same
-   method, at 3c144f5). It decides nothing.
+   method, at 3c144f5); the later review fixes bring it to about 17,200 (same six files, at the cycle-2 fix commit). It decides nothing.
 
 ---
 
@@ -60,7 +60,7 @@ resolve through this mapping.
 | B-02 | Ratify D-008/D-03 (config-v3 deployment mechanism) | Ratify as proposed | 45 | T005 → G-2 |
 | B-03 | Re-verify pins: the driver pin before T003 if it is ready, otherwise the version T003 installs is recorded and held before T005; the rest before T005 | Authorize an infra-scaffolder re-verification of versions.md; driver pinned exactly and held | 45 | Safe T003/T005/T012 |
 | B-04 | MVP definition and phase gates | Two-stage MVP-L + MVP-C + Soak Readiness Gate (§3) | new | Phase L; plan.md gates binding |
-| B-05 | Authorization before G-1; DEC-002 ruling | Named G-1 waiver for exactly: T071-T075; T059 as re-scoped for Phase L; T036 as re-scoped; packages P-1 to P-6, each minted when B-05 and that package's own Needs are logged; and authoring (not applying) of T046 if B-19 is accepted (T049 is `[HUMAN]`; its runbook is T075's). WIP limit one slice (one row of §4's sequence table; T072 and T073 belong to the Phase 0 row) ahead of the last G-x. DEC-002 option C (slice WIP limit plus at most one process PR per product PR). Ballot-execution artifacts (the spec, constitution and charter amendments and the decision-log rule change that logged ballot items require, and B-03's re-verification) are exempt from the process-PR cap. Lift RB-015's two prohibitions for the local profile only | 31 | Phase L; execution of the waiver list; RB-015 Part F |
+| B-05 | Authorization before G-1; DEC-002 ruling | Named G-1 waiver for exactly: T071-T075; T059 as re-scoped for Phase L; T036 as re-scoped; packages P-1 to P-6, each minted when B-05 and that package's own Needs are logged; and authoring (not applying) of T046 if B-19 is accepted (T049 is `[HUMAN]`; its runbook is T075's). WIP limit one slice (one row of §4's sequence table; T072 and T073 belong to the Phase 0 row) ahead of the last G-x. Runbook tasks (T074, T075) are outside the WIP limit, because each runbook must exist before its `[HUMAN]` step (Principle I). DEC-002 option C (slice WIP limit plus at most one process PR per product PR). Ballot-execution artifacts (the spec, constitution and charter amendments and the decision-log rule change that logged ballot items require, and B-03's re-verification) are exempt from the process-PR cap. Lift RB-015's two prohibitions for the local profile only | 31 | Phase L; execution of the waiver list; RB-015 Part F |
 | B-06 | Decision cadence and process rules | Weekly 30-minute decision review; no new process RB while any ballot item is older than 14 days (ballot-execution artifacts, as listed under B-05, are exempt); governance-code freeze until MVP-C, except the P-6 acceptance stage and the FR it needs, which MVP-L requires; log entries ≤ 150 words; an operator merge to `main` is a decision logged the same day | new | Bounds D-016/01a |
 
 **Group 2 — ML protocol** (before the Phase L packages and T024/T026/T034; B-07 and B-12 first):
@@ -74,7 +74,7 @@ resolve through this mapping.
 | B-11 | Registry semantics (FR-006) | Aliases champion/challenger/baseline with a recorded previous_champion; FR-006 amended later | 35 | T071 naming; RS:T028/T059 |
 | B-12 | Adapter disposition (old D-2) | Keep catalog, dataversion, registry ports; reshape the last two; delete tiles and compute; for MVP-L, the MLflow client on a sqlite tracking URI for the registry and a file-backed adapter only for data versioning | 35 | T059, T060, P-1 |
 | B-13 | MVP serving pattern | Batch-first scoring job (classified COG + class histogram per scene); FastAPI + canary stay in Phase 4 | new | P-5, RS:T043 |
-| B-14 | Drift trigger; meaning of SC-003 | Input drift on SCL-clear pixels vs the champion's training reference (rebased on promotion and rollback) AND (prediction-class shift OR weak-label mIoU drop vs the champion's holdout score); day-of-year comparison only a diagnostic; thresholds frozen after an operator-run ≥ 12-month replay, which also estimates organic triggers in the soak window; a trigger from the frozen configuration counts as organic whatever the gate's verdict. Changes trigger policy, not drift math, so R-06 does not apply (operator to confirm). The three-state verdict is spec-required (spec.md:67), not part of B-14 | new | RS:T034 (diagnostic), RS:T035 (weak-label signal), P-8 |
+| B-14 | Drift trigger; meaning of SC-003 | Input drift on SCL-clear pixels vs the champion's training reference (rebased on promotion and rollback) AND (prediction-class shift OR weak-label mIoU drop vs the champion's holdout score); day-of-year comparison only a diagnostic; before the replay, a false-trigger bound is fixed in config (at most 0.5 triggers per 42 replayed no-harm days, a no-harm window being one whose weak-label mIoU drops by no more than the B-10 margin [panel judgement; free parameter]); the operator-run ≥ 12-month replay reports false-trigger and organic-trigger rates per candidate threshold set and the freeze takes the tightest set meeting the bound (replacing the old in-season null-window rule); if expected organic triggers in the soak window are below one, the soak window moves rather than the bound being relaxed; a trigger from the frozen configuration counts as organic whatever the gate's verdict. Changes trigger policy, not drift math, so R-06 does not apply (operator to confirm). The three-state verdict is spec-required (spec.md:67), not part of B-14 | new | RS:T034 (diagnostic), RS:T035 (weak-label signal), P-8 |
 | B-15 | Data source and harmonization | Keep Earth Search `sentinel-2-l2a`; harmonize by processing baseline onto a fixed 10 m UTM grid; operator records live fixtures | new | RS:T013/T016/T017, P-7 |
 | B-16 | Off-MVP scope | Fine-tune T030-T032 after the Phase 3 gate; T050 after the soak | new | T030-T032, T050 placement |
 
@@ -110,7 +110,9 @@ DEC-002 part still needs its own DEC line. Option (C) replaces the per-milestone
 R-2 and R-5 are defined against, so its charter §6 amendment must restate them: R-2 fires when the
 WIP limit or the process cap is hit while a blocking `[HUMAN]`/G-x gate is unresolved; R-5's overrun
 test is measured per task against its estimate and its fix-cycle cap stays at two; mandatory owner
-review is kept and fires on either limit.
+review is kept and fires on either limit. Because charter R-2's condition has held since RB-010, the
+waiver takes effect only once B-05's DEC-002 line is also logged; logging that DEC line is the owner
+review R-2 requires.
 
 Some defaults need a further artifact before they bind: B-07, B-08, B-11, B-13 and B-14 need spec
 amendments (B-07's title wording also needs a constitution amendment PR); B-04 adds Phase L, which
@@ -164,9 +166,11 @@ SC-004 measurement); a reproducibility re-run within a stated tolerance (US2, T0
 logged; before T052): restore drill passed with RTO recorded; every alert class
 fire-drilled, including the off-node heartbeat; 72 h unattended burn-in with ≥ 3 scheduled ingests;
 projected disk use at day 42 < 60%; drift thresholds frozen by a decision-log line after the
-operator-run historical replay; B-18's required security items closed; a pre-soak reset: the
-champion, the trigger state and the drift reference are re-established from a model trained on
-`main` only, so no branch-injected data reaches the soak. Then T052.
+operator-run historical replay, as the tightest set meeting B-14's false-trigger bound; B-18's
+required security items closed; a pre-soak reset: the champion, the trigger state and the drift
+reference are re-established from a model trained on `main` only, so no branch-injected data
+reaches the soak, and the promotion history and previous_champion are cleared, so no
+branch-trained version is reachable by rollback during the soak. Then T052.
 
 **Out of the MVP:** T030-T032 fine-tune; the US6 canary split (T043's canary half, T044, T045);
 T050; `eval/calibration.py`, `eval/ranking.py`, `eval/spatial.py`; KServe; T054/T055 except where
@@ -246,7 +250,7 @@ ballot item would encode a choice the operator has not made.
 | P-5 | Batch scoring job: classified COG and class histogram per scene, alias version recorded | B-11, B-13, P-2 |
 | P-6 | Walking-skeleton acceptance test and its CI stage (needs a new FR), with a positive control: a planted seam defect turns the stage red | B-04, B-05, P-1 to P-5, T071, re-scoped T036, T059 re-scoped |
 | P-7 | Harmonized AOI loader: fixed 10 m UTM grid, SCL nearest-resampled, PB offset applied, NO_DATA and cloud masked, fractions recorded | B-15 |
-| P-8 | Agent-authored replay job + runbook, executed by the operator as a `[HUMAN]` step (agents have no catalog egress): ≥ 12 months streamed without retention, expected organic triggers in the soak window estimated, thresholds into config plus a decision-log line | B-14, P-7 |
+| P-8 | Agent-authored replay job + runbook, executed by the operator as a `[HUMAN]` step (agents have no catalog egress): ≥ 12 months streamed without retention; reports false-trigger and organic-trigger rates per candidate threshold set; freezes the tightest set meeting B-14's false-trigger bound; expected organic triggers in the soak window estimated; thresholds into config plus a decision-log line | B-14, P-7 |
 | P-9 | Data retention and capacity: compressed AOI crops, retention policy, capacity alert | B-17 |
 
 ---
