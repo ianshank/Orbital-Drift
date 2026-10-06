@@ -128,3 +128,15 @@ Operator-side critical path: HUMAN tasks, phase gates G-x, DEC sign-offs (Consti
 | S5.5 P40 node join (optional lesson) | - | Low | AC: training job scheduled to node B; heterogeneous-GPU pain documented as incident (R-05). Owner story. Trace: T050. |
 | S5.6 Rebuild-runbook verification | - | High | AC: platform torn down and rebuilt once from docs (SC-006). Owner story. Trace: T051. |
 | S5.7 Six-week soak | - | Highest | AC: Constitution VI definition of done - 6 weeks operated, 1 organic drift retrain, 3 incident postmortems, 1 rollback drill; only the operator marks done. Owner story. Trace: T052. |
+
+## E8 MVP re-baseline (RB-016) (High)
+
+Phase 7 (RB-016, D-016): decision-independent defects and rule gaps found by the SDLC/ML panel, minted as T071-T075. Ballot-dependent packages P-1 to P-9 are minted only on decision. Exit: T071-T075 complete.
+
+| Story | Points | Priority | Acceptance |
+|---|---|---|---|
+| S7.1 Registry rollback restores the previous champion | 3 | High | AC: rollback returns the version that was champion immediately before the current one from an ordered promotion history; a never-promoted version is unreachable; a no-target rollback raises and leaves Production unchanged; one conformance suite covers ModelRegistryOps and the in-memory port registry. Trace: T071. |
+| S7.2 Platform data-plane correctness before T012 | 5 | High | AC: Airflow, MLflow and lakeFS each own a Postgres database and role, asserted by a test; SeaweedFS has per-component resources and per-consumer bucket-scoped identities with no Admin identity in the training namespace; SeaweedFS and CNPG images pinned. Trace: T072. |
+| S7.3 Backup and restore for the soak | 5 | High | AC: nightly pg_dump per database, every SeaweedFS bucket replicated to an off-node target, Terraform state out of the checkout and backed up, key escrow documented, a backup-freshness metric; the restore procedure lands in the T048 runbook. Trace: T073. |
+| S7.4 Host-prep and k3s runbook addendum | 3 | High | AC: runbooks 00 and 01 gain node A identity and OS path, a dedicated data filesystem, k3s secrets encryption, a pinned and held NVIDIA driver, and a two-pod GPU env-form test at T012, each step with a verification command. Trace: T074. |
+| S7.5 Close the HUMAN runbook-pairing gaps | 5 | Medium | AC: every HUMAN task without a paired runbook (T029, T032, T049) gains one with a verification block, and T050 gains a runbook or a recorded deferral. Trace: T075. |

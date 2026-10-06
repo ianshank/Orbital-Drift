@@ -16,6 +16,27 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
+### Changed — plan rewrite (RB-016, D-016, 2026-10-06)
+
+Commits: this branch (`claude/rb016-deep-review-plan-rewrite`); no SHA until merge. Docs track;
+no `src/` product code, gate bar, FR/SC text, G-x or checkbox changed.
+
+- `docs/decisions/016-sdlc-ml-panel-review.md`: seven-expert SDLC/ML panel findings on c545701
+  (D-016/01-08), operator ballot B-01 to B-23 (D-016/09), two-stage MVP proposal (D-016/10),
+  work packages (D-016/11).
+- `docs/development/NEXT_STEPS.md` rewritten: verdict, ballot table with an accept-the-defaults
+  path, MVP-L / MVP-C / Soak Readiness Gate (proposals pending B-04), sequence, as-built table,
+  work, former Tracks A-E map, rollback drill. Retires "D-1/D-2/D-3" (→ B-09, B-12 + B-11,
+  B-01 + T003).
+- `plan.md`: summary, technical context, constitution check (II is an open violation pending
+  B-09; CI gates live since T001), structure (10 subagents, eight test tiers), phases (Phase L
+  added; new gates are proposals), risks R-07 to R-12. D-01 to D-05 unchanged; one note under D-04.
+- `tasks.md` Phase 7: re-scope table plus a one-line marker on 32 existing task lines; T071-T075
+  minted, execution of none authorized. T066-T070 stay reserved.
+- `roadmap_data.py`: Epic E8 (E7 was taken) and stories S7.1-S7.5; projections regenerated.
+- Traceability: dated RB-016 notes on FR-003, FR-006 to FR-010, SC-003, SC-004, SC-006; no Status
+  changed. Decision log RB-016 plus its governance-skill line.
+
 ### Fixed — hygiene-hardening Part H (RB-015, D-015, 2026-09-11, PR #31,
 commit `015e840` plus the review-fix commit on this branch)
 

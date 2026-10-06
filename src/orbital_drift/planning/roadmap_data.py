@@ -163,6 +163,15 @@ EPICS: tuple[Epic, ...] = (
         "Operator-side critical path: HUMAN tasks, phase gates G-x, DEC sign-offs (Constitution I/VI).",
         "Highest",
     ),
+    # Added 2026-10-06 (RB-016). Keyed E8, not E7: E7 above already holds the
+    # operator stories, and keys_are_unique() rejects a second E7. The stories
+    # keep the phase-number convention (S7.x for tasks.md Phase 7).
+    Epic(
+        "E8",
+        "E8 MVP re-baseline (RB-016)",
+        "Phase 7 (RB-016, D-016): decision-independent defects and rule gaps found by the SDLC/ML panel, minted as T071-T075. Ballot-dependent packages P-1 to P-9 are minted only on decision. Exit: T071-T075 complete.",
+        "High",
+    ),
 )
 
 # fmt: off
@@ -242,6 +251,13 @@ STORIES: tuple[Story, ...] = (
     Story("S6.11", "S6.11 Fix the ECE weight shape mismatch", "E6", "AC: calibration_error asserts its weights and deviations are the same shape instead of letting numpy broadcast, expected calibration error is bounded in zero to one for every input, and the Hypothesis property test stops reddening CI intermittently. Trace: T063.", (_L, "train"), 3, "High"),
     Story("S6.12", "S6.12 Implement or amend the story-status scenario", "E6", "AC: the governance-harness scenario that requires a story status contradicting the checkbox state to fail is either implemented or amended under its own authorization; it is currently implemented by nothing. Trace: T064.", (_L, "governance"), 3, "Medium"),
     Story("S6.13", "S6.13 Govern the docs/development directory", "E6", "AC: docs/development is covered by governed_path_globs with an owning task, or its content is folded into the governed documents and the directory removed. Trace: T065.", (_L, "governance"), 2, "Medium"),
+    # E8 - MVP re-baseline (T071-T075, RB-016).
+    # Declaring these does NOT unlock them; RB-016 authorizes execution of none.
+    Story("S7.1", "S7.1 Registry rollback restores the previous champion", "E8", "AC: rollback returns the version that was champion immediately before the current one from an ordered promotion history; a never-promoted version is unreachable; a no-target rollback raises and leaves Production unchanged; one conformance suite covers ModelRegistryOps and the in-memory port registry. Trace: T071.", (_L, "registry"), 3, "High"),
+    Story("S7.2", "S7.2 Platform data-plane correctness before T012", "E8", "AC: Airflow, MLflow and lakeFS each own a Postgres database and role, asserted by a test; SeaweedFS has per-component resources and per-consumer bucket-scoped identities with no Admin identity in the training namespace; SeaweedFS and CNPG images pinned. Trace: T072.", (_L, "infra"), 5, "High"),
+    Story("S7.3", "S7.3 Backup and restore for the soak", "E8", "AC: nightly pg_dump per database, every SeaweedFS bucket replicated to an off-node target, Terraform state out of the checkout and backed up, key escrow documented, a backup-freshness metric; the restore procedure lands in the T048 runbook. Trace: T073.", (_L, "infra"), 5, "High"),
+    Story("S7.4", "S7.4 Host-prep and k3s runbook addendum", "E8", "AC: runbooks 00 and 01 gain node A identity and OS path, a dedicated data filesystem, k3s secrets encryption, a pinned and held NVIDIA driver, and a two-pod GPU env-form test at T012, each step with a verification command. Trace: T074.", (_L, "runbook"), 3, "High"),
+    Story("S7.5", "S7.5 Close the HUMAN runbook-pairing gaps", "E8", "AC: every HUMAN task without a paired runbook (T029, T032, T049) gains one with a verification block, and T050 gains a runbook or a recorded deferral. Trace: T075.", (_L, "runbook"), 5, "Medium"),
 )
 # fmt: on
 
