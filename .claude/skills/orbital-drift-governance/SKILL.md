@@ -73,6 +73,8 @@ never assume standing.
 
 - **RB-015** (09-11): v2 hygiene-hardening program (`docs/decisions/015-hygiene-hardening-program.md`) after two BLOCKs of v1. Part H: T065 + T053 HEALTHCHECK/port/staging/canary remainder (no dummy model, no get_config), T058 skip→fail, retroactive #23–#29, checkbox T056/T062; T063 waits on D-011. Part F gated (T054/T055/T061 remainder/T066/T057/T064/model-load). Mints no T066–T070. No G-x, no floor change, no Part 4 reversal. Process track, outside M0 4/4.
 
+- **RB-016** (10-06): plan-rewrite batch after a seven-expert SDLC/ML panel (`docs/decisions/016-sdlc-ml-panel-review.md`): D-016 findings, operator ballot B-01 to B-23, two-stage MVP proposal; NEXT_STEPS and plan.md rewritten; tasks.md Phase 7 re-scope table and T071-T075 minted. Rule-6 in-session approval. Authorizes execution of none; decides no ballot item; no FR/SC, gate-bar, G-x or checkbox change. Docs track; claims no budget exemption (the operator's call, B-05).
+
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after
 this section's own "since" date has no corresponding ID anywhere in the section text. A

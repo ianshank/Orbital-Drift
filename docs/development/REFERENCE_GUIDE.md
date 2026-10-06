@@ -92,7 +92,7 @@ building toward, not what runs today. At HEAD the lakeFS and MLflow participants
 simulated in-process with no SDK and no server, the tile store does local `.npy` I/O rather
 than S3/SeaweedFS, and there is no Airflow or Argo in the loop at all — `dags/` and
 `workflows/` hold only `.gitkeep`. `docs/architecture/ARCHITECTURE.md` §0 ("Reality Check")
-holds the built-vs-planned audit; `NEXT_STEPS.md` §1 holds the per-area summary.
+holds the built-vs-planned audit; `NEXT_STEPS.md` §5 holds the per-area summary.
 
 ```mermaid
 sequenceDiagram
@@ -167,4 +167,4 @@ this table.
   container there is no canary to revert; `rollback_production` itself takes `self._lock`
   (T062, PR #25). `get_stage_version` stays unlocked because wrapping it while that lock is
   held would deadlock (`threading.Lock` is not re-entrant). The rehearsed procedure is
-  `docs/runbooks/05-rollback.md`, owned by T039 and not yet written — see `NEXT_STEPS.md` §5.
+  `docs/runbooks/05-rollback.md`, owned by T039 and not yet written — see `NEXT_STEPS.md` §8.

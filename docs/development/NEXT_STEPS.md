@@ -1,215 +1,286 @@
 # Orbital-Drift — Forward Roadmap
 
-**Audience:** the operator, deciding what to do next and which decisions only they can make;
-and any agent picking up a task from the tracks below.
+**Audience:** the operator, deciding which open decisions and physical tasks to close next; and
+any agent picking up a task or package named below.
 
-**Status:** rewritten 2026-09-11 under RB-015 (`docs/decision-log.md`,
-`docs/decisions/015-hygiene-hardening-program.md`), replacing a 2026-09-06 revision that
-claimed the container was "liveness-healthy at boot" while Docker HEALTHCHECK still curled
-`/healthz` (503 with no model) and that claimed T053/T056/T058/T062 "completed" against
-unchecked boxes. The evidence for every claim here is D-015 plus the files it names.
-RB-012 (`docs/decisions/013-plan-artifact-reconciliation.md`) remains the source for why
-this file exists at all.
+**Status:** rewritten 2026-10-06 under RB-016 (`docs/decision-log.md`) per
+`docs/decisions/016-sdlc-ml-panel-review.md`, replacing the 2026-09-11 revision. Tree facts are
+measured at c545701 unless a command is given; the evidence for every finding cited here is D-016.
+`D-016/0n[x]` is a D-016 finding. "First pass Hn" names a finding of the orchestrator's
+first-pass review that preceded the panel; each such cell in §5 also gives its location or
+method, re-measured at c545701 for this rewrite.
 
 **Source of truth.** `specs/001-orbital-drift-ct/tasks.md` owns scope; `docs/decision-log.md`
-owns gates. **If this file disagrees with either, they win** — this document exists to
-sequence work, never to record its status. No checkbox state is asserted here except as a
-pointer to tasks.md.
+owns gates. **If this file disagrees with either, they win** — this document sequences work and
+asserts no status beyond pointers to those two files.
 
-**Why this file exists at all.** `docs/architecture/ARCHITECTURE.md` and RB-010 both defer
-open questions to "the forward-roadmap", by name. `docs/development/**` is now a
-`governed_path_globs` entry (T065, this PR) so this file cannot rot unowned again.
+**Why this file exists at all.** `docs/architecture/ARCHITECTURE.md` and RB-010 both defer open
+questions to "the forward-roadmap", by name (RB-012, `docs/decisions/013-plan-artifact-reconciliation.md`).
+`docs/development/**` is a `governed_path_globs` entry (T065), so this file cannot rot unowned.
 
 ---
 
-## 1. Where the project actually is
+## 1. Verdict
 
-Phase 0 of 6. Fourteen of the task checkboxes are complete (T001, T001a, T001b, T002, T004, T004a,
-T007-T010, T056, T058, T062, T065). The first ten are Phase-0 authoring. T056/T058/T062/T065 were
-checkboxed 2026-09-11 after dual review under RB-015 (PR #31). Separately, PR#16/#17 landed most of the Phase 1-4
-application code ungated; RB-010 marked all of T013-T052 `AUTHORED-PROVISIONAL` pending
-retroactive review, and 12 of its 14 remediation parts have shipped (Parts 1, 2, 4, 5, 6-13;
-Part 5 landed as three commits 5a/5b/5c, which is not three parts). Parts 3 and 14 remain —
-see §2 D-1. Part 12 shipped only half its text: the Dockerfile fix landed, the `checks.sh`
-docker stage did not (D-013/04e).
+1. The binding constraint is the operator's queue of unmade decisions and physical tasks, not
+   agent capacity, and nothing measures its age. Every agent-executable task ID is blocked;
+   `main` has had 0 merges in 25 days; 0 of the last 10 merged PRs added capability (D-016/01a, 01c).
+2. As specified, the plan cannot reach its own definition of done: the drift trigger cannot fire
+   under the mandated executor (D-016/04a), the promotion gate cannot reject a regression and
+   decides on an inflated metric (D-016/02a-b), rollback can restore a rejected model
+   (D-016/03c), and one disk failure ends the 6-week soak because nothing is backed up (D-016/06a).
+3. The fix: decide the ballot (§2; most items can be accepted in one decision-log line), then a
+   two-stage MVP — a laptop walking-skeleton acceptance test (MVP-L), then the same scenario
+   operated on the cluster (MVP-C) — then a Soak Readiness Gate, then the soak (§3, §4).
+4. RB-012 answered this same request ("deeper peer review, rewrite plans") 31 days ago; the
+   decisions it surfaced are still open. This rewrite is only useful if the ballot is decided.
+   This PR itself adds about 14,300 words to the plan of record (wc -w at 8ef380b against
+   c545701: D-016 8,500; tasks.md +2,093; NEXT_STEPS +1,768; plan.md +1,380; traceability +336;
+   CHANGELOG +212); the review fixes after 8ef380b bring the total to about 16,300 words (same
+   method, at 3c144f5); the later review fixes bring it to about 17,200 (same six files, at the cycle-2 fix commit). It decides nothing.
 
-RB-015 retroactively reconcile-forwards PRs #23–#29 (T063 code, T053 probes, T062 lock,
-T058 ports_isolation, T061 F3, T056 honest lakeFS, umbrella sprint). Those IDs were created
-by RB-012 with **zero** execution authorization; RB-013/RB-014 excluded them. Checkbox
-flips for T056 / T058 / T062 happen only after dual review recorded on the task line.
-T053 stays `[ ]` PARTIAL. T061 stays `[ ]` (F3 only). T063 stays `[ ]` until D-011.
+---
 
-The honest summary of what that code is:
+## 2. The operator ballot
 
-| Area | Built | Not built |
+`B-nn` in this file means ballot item `D-016/B-nn`. Recommended defaults are panel proposals, not
+decisions; nothing below is decided until the operator logs it. D-016/09 holds each item's full
+options and rationale. Age is in days to 2026-10-06 from the item's first appearance in git
+(D-016/01a); "new" means first raised by D-016.
+
+**Retired labels.** The 2026-09-11 revision's "D-1", "D-2" and "D-3" map to D-1 → B-09,
+D-2 → B-12 (with B-11), D-3 → B-01 plus the T003 `[HUMAN]` task; older documents that cite them
+resolve through this mapping.
+
+**Group 1 — decide first** (critical path; all decidable from a laptop):
+
+| ID | Decision | Recommended default | Age | Unblocks |
+|---|---|---|---|---|
+| B-01 | Node A identity and OS path | Dual-boot Ubuntu 24.04 on a dedicated SSD in the current GPU workstation; cost: node A is offline whenever it runs Windows, so it runs Linux only from the burn-in to the end of the soak (at least 6.5 weeks) with authoring moved elsewhere; options (b) and (c) avoid that | 51 | T074 Step 0; T003 → G-1 |
+| B-02 | Ratify D-008/D-03 (config-v3 deployment mechanism) | Ratify as proposed | 45 | T005 → G-2 |
+| B-03 | Re-verify pins: the driver pin before T003 if it is ready, otherwise the version T003 installs is recorded and held before T005; the rest before T005 | Authorize an infra-scaffolder re-verification of versions.md; driver pinned exactly and held | 45 | Safe T003/T005/T012 |
+| B-04 | MVP definition and phase gates | Two-stage MVP-L + MVP-C + Soak Readiness Gate (§3) | new | Phase L; plan.md gates binding |
+| B-05 | Authorization before G-1; DEC-002 ruling | Named G-1 waiver for exactly: T071-T075; T059 as re-scoped for Phase L; T036 as re-scoped; packages P-1 to P-6, each minted when B-05 and that package's own Needs are logged; and authoring (not applying) of T046 if B-19 is accepted (T049 is `[HUMAN]`; its runbook is T075's). WIP limit one slice (one row of §4's sequence table; T072 and T073 belong to the Phase 0 row) ahead of the last G-x. Runbook tasks (T074, T075) are outside the WIP limit, because each runbook must exist before its `[HUMAN]` step (Principle I). DEC-002 option C (slice WIP limit plus at most one process PR per product PR). Ballot-execution artifacts (the spec, constitution and charter amendments and the decision-log rule change that logged ballot items require, and B-03's re-verification) are exempt from the process-PR cap. Lift RB-015's two prohibitions for the local profile only | 31 | Phase L; execution of the waiver list; RB-015 Part F |
+| B-06 | Decision cadence and process rules | Weekly 30-minute decision review; no new process RB while any ballot item is older than 14 days (ballot-execution artifacts, as listed under B-05, are exempt); governance-code freeze until MVP-C, except the P-6 acceptance stage and the FR it needs, which MVP-L requires; log entries ≤ 150 words; an operator merge to `main` is a decision logged the same day | new | Bounds D-016/01a |
+
+**Group 2 — ML protocol** (before the Phase L packages and T024/T026/T034; B-07 and B-12 first):
+
+| ID | Decision | Recommended default | Age | Unblocks |
+|---|---|---|---|---|
+| B-07 | Label regime (resolves AR-3); "change detection" wording | Static annual map (ESA WorldCover 2021) over the AOI, version-pinned, permanent spatial-block holdout; title amended by its own PR | ≥ 35 | T024, P-2, P-3 |
+| B-08 | Evaluation protocol | Fixed, dispersed spatial-block holdout in a ground CRS, buffered ≥ 92 px, scored on the newest window; champion re-scored on the same manifest | new | P-3, RS:T038 |
+| B-09 | Gate method (old D-1; D-011) | `scipy.stats.bootstrap`, paired, one-sided, BCa, ≥ 9,999 seeded resamples over dispersed clusters; delete the moving-block code; extend to drift PSI | 35 | RB-010 Parts 3, 14; T063 |
+| B-10 | Decision rule and metric | Point ≥ margin AND one-sided 95% lower bound > 0; PASS / REJECT / INSUFFICIENT_EVIDENCE; pooled present-class IoU with ignore_index; operator-approve until calibrated | new | RS:T026, P-3, P-4 |
+| B-11 | Registry semantics (FR-006) | Aliases champion/challenger/baseline with a recorded previous_champion; FR-006 amended later | 35 | T071 naming; RS:T028/T059 |
+| B-12 | Adapter disposition (old D-2) | Keep catalog, dataversion, registry ports; reshape the last two; delete tiles and compute; for MVP-L, the MLflow client on a sqlite tracking URI for the registry and a file-backed adapter only for data versioning | 35 | T059, T060, P-1 |
+| B-13 | MVP serving pattern | Batch-first scoring job (classified COG + class histogram per scene); FastAPI + canary stay in Phase 4 | new | P-5, RS:T043 |
+| B-14 | Drift trigger; meaning of SC-003 | Input drift on SCL-clear pixels vs the champion's training reference (rebased on promotion and rollback) AND (prediction-class shift OR weak-label mIoU drop vs the champion's holdout score); day-of-year comparison only a diagnostic; before the replay, a false-trigger bound is fixed in config (at most 0.5 triggers per 42 replayed no-harm days, a no-harm window being one whose weak-label mIoU drops by no more than the B-10 margin [panel judgement; free parameter]); the operator-run ≥ 12-month replay reports false-trigger and organic-trigger rates per candidate threshold set and the freeze takes the most sensitive (lowest-threshold) set meeting the bound (replacing the old in-season null-window rule); if expected organic triggers in the soak window are below one, the soak window moves rather than the bound being relaxed; a trigger from the frozen configuration counts as organic whatever the gate's verdict. Changes trigger policy, not drift math, so R-06 does not apply (operator to confirm). The three-state verdict is spec-required (spec.md:67), not part of B-14 | new | RS:T034 (diagnostic), RS:T035 (weak-label signal), P-8 |
+| B-15 | Data source and harmonization | Keep Earth Search `sentinel-2-l2a`; harmonize by processing baseline onto a fixed 10 m UTM grid; operator records live fixtures | new | RS:T013/T016/T017, P-7 |
+| B-16 | Off-MVP scope | Fine-tune T030-T032 after the Phase 3 gate; T050 after the soak | new | T030-T032, T050 placement |
+
+**Group 3 — platform and soak readiness** (before T005/T012):
+
+| ID | Decision | Recommended default | Age | Unblocks |
+|---|---|---|---|---|
+| B-17 | Backup target and data disk | Cloud plus a local tier; dedicated data disk with k3s `--default-local-storage-path`; one MGRS tile, AOI-clipped COG, 6-month backfill | new | T073, T074 |
+| B-18 | Exposure and security posture | LAN + VPN only; before MVP-C: per-consumer SeaweedFS identities, MLflow auth or NetworkPolicy, git-sync on a pinned `soak` branch, k3s secrets encryption, TF state out of the checkout | new | T072, T074 |
+| B-19 | Alerting | One push channel plus an external dead-man heartbeat; observability core into Phase 0 | new | RS:T046/T049 |
+| B-20 | Meaning of SC-006 | Add a rebuild-plus-restore drill to the Soak Readiness Gate; T051 stays the once-during-the-soak rebuild test (constitution.md:21); whether a restore during the soak resets the soak clock is the operator's reading of Constitution VI; the panel proposes that it does not | new | RS:T048/T051 |
+
+**Group 4 — already-pending housekeeping:**
+
+| ID | Decision | Recommended default | Age | Unblocks |
+|---|---|---|---|---|
+| B-21 | D-015/D-06 (T063 checkbox) | Treat the sklearn alignment as a bugfix; check T063 after review | 25 | T063 |
+| B-22 | D-012 F2/F5 | F2: training-only stride field, evaluation tiles every pixel once; F5: next-link pagination with sortby | 35 | T061 remainder, RS:T016 |
+| B-23 | Close stale items | Mark D-014 triaged; retire RB-008a(b) and RB-008a(e) as WONTFIX; retire T064 only via an amendment to its governance-harness scenario | 30-45 | Housekeeping only |
+
+**Accept-the-defaults path.** The operator may log one decision-log line accepting every
+recommended default except the items they strike or change. That turns 23 decisions into one
+sitting. Example only — **not logged, and not a decision**:
+
+```
+YYYY-MM-DD | <ID per decision-log rule 2> | Accept D-016/09 recommended defaults B-01..B-23 except: <B-nn struck>; <B-nn amended to option x>; per B-05(b) also the named G-1 waiver for T071-T075, T036 and T059 as re-scoped, each P-n once minted, and T046 authoring if B-19 is accepted. EXPLICIT LIMIT: creates no G-x; flips no checkbox; logs no DEC. | <operator>
+```
+
+If B-05 is accepted, the same line is the named G-1 waiver and execution authorization for exactly
+the list in B-05(b) (T071-T075; T036 and T059 as re-scoped; each of P-1 to P-6 once B-05 and its own Needs are
+logged; authoring of T046 if B-19 is accepted). It authorizes nothing else, and B-05's
+DEC-002 part still needs its own DEC line. Option (C) replaces the per-milestone budget that charter
+R-2 and R-5 are defined against, so its charter §6 amendment must restate them: R-2 fires when the
+WIP limit or the process cap is hit while a blocking `[HUMAN]`/G-x gate is unresolved; R-5's overrun
+test is measured per task against its estimate and its fix-cycle cap stays at two; mandatory owner
+review is kept and fires on either limit. Because charter R-2's condition has held since RB-010, the
+waiver takes effect only once B-05's DEC-002 line is also logged; logging that DEC line is the owner
+review R-2 requires.
+
+Some defaults need a further artifact before they bind: B-07, B-08, B-11, B-13 and B-14 need spec
+amendments (B-07's title wording also needs a constitution amendment PR); B-04 adds Phase L, which
+the charter's M0-M5 milestone table does not have; B-05's DEC-002 part overrides a CONFIRM-FIRST
+decision, so it must be logged as its own DEC line, not inside a bulk RB line, and it changes
+charter §6's budget; B-06's fourth rule changes decision-log rule 2's RB-xxxa convention. The bulk
+line itself changes no FR, SC, charter or constitution text.
+
+---
+
+## 3. The MVP (proposal pending B-04)
+
+The repo never used "MVP". Constitution VI is unchanged: the 6-week soak is the deliverable. The
+MVP is an intermediate milestone whose purpose is to make the soak startable. Nothing here creates
+or implies a G-x entry; the gates below bind only once B-04 is logged.
+
+**MVP-L — laptop walking skeleton** (agent-built; needs B-05's waiver). An executable acceptance
+test (planned path `tests/acceptance/test_walking_skeleton.py`, package P-6) in a CI stage that
+needs no Docker, GPU, network or secrets. It drives the pipeline as separate processes (forcing
+persistence, config loading and a composition root) under a local config profile. MVP-L uses the
+MLflow client on a sqlite tracking URI for the registry (the real registry API, no server; T059
+re-scoped as the alias registry adapter, with mlflow pinned via pin-a-tool when T059 executes) and a
+file-backed adapter only for data versioning (lakeFS has no embedded mode [domain knowledge]), plus
+recorded scene fixtures, planted learnable labels, a pinned holdout manifest and fixed seeds:
+
+1. Ingest → data commit → train v1 → persist artifact + lineage envelope → register →
+   operator-approve step → v1 is champion (and baseline).
+2. The batch scoring job writes per-scene class histograms with the champion.
+3. N shifted scenes, each in a fresh process → exactly one trigger episode; replaying a scene is a
+   no-op; an INSUFFICIENT_DATA scene neither advances nor resets hysteresis (spec.md:67 requires
+   starvation to be told apart from shift; no ballot item needed).
+4. Retrain v2 → the gate scores champion and challenger on the holdout → PASS → promotion; a
+   label-permuted challenger → REJECT; degenerate evidence → INSUFFICIENT_EVIDENCE.
+5. Rollback → v1 is champion and its weight hash matches v1's envelope; a no-target rollback
+   refuses and leaves the champion intact.
+
+Gate: MVP-L green in CI. It grows from `tests/e2e/test_user_journey_ct_loop.py`, which it replaces.
+
+**MVP-C — First Operated Loop** (operator-run, `[HUMAN]`; the re-scoped Phase 3 gate, T040). The
+same scenario on the cluster, every cluster task an adapter swap that keeps MVP-L green. Exit
+evidence: G-1, G-2, G-3 logged; observability core and backups live; ≥ 2 real scenes ingested
+unattended on schedule into real lakeFS; an Argo GPU training run whose MLflow run records
+{lakeFS commit, git SHA, config hash}; two forced episodes, each injected on a lakeFS branch (never
+`main`) and each producing exactly one episode with `trigger_source=forced`: one with the normal
+retrain configuration (expected PASS, so a promotion) and one with a deliberately degraded training
+configuration such as permuted labels (expected REJECT); for each, the trigger-to-verdict wall-clock
+is recorded against SC-002's 12 h budget; the champion scoring scenes; a timestamped rollback drill under 10 minutes (the first
+SC-004 measurement); a reproducibility re-run within a stated tolerance (US2, T029).
+
+**Soak Readiness Gate** (operator-run, `[HUMAN]`; its task is minted when B-04 and B-20 are
+logged; before T052): restore drill passed with RTO recorded; every alert class
+fire-drilled, including the off-node heartbeat; 72 h unattended burn-in with ≥ 3 scheduled ingests;
+projected disk use at day 42 < 60%; drift thresholds frozen by a decision-log line after the
+operator-run historical replay, as the most sensitive (lowest-threshold) set meeting B-14's false-trigger bound; B-18's
+required security items closed; a pre-soak reset: the champion, the trigger state and the drift
+reference are re-established from a model trained on `main` only, so no branch-injected data
+reaches the soak, and previous_champion is reset and the promotion history archived, not deleted, so no
+branch-trained version is reachable by rollback during the soak. Then T052.
+
+**Out of the MVP:** T030-T032 fine-tune; the US6 canary split (T043's canary half, T044, T045);
+T050; `eval/calibration.py`, `eval/ranking.py`, `eval/spatial.py`; KServe; T054/T055 except where
+MVP-C needs them.
+
+---
+
+## 4. Sequence
+
+Phase numbers match `specs/001-orbital-drift-ct/plan.md` § Phases, which states each gate.
+Moves and gates beyond the 2026-09 text are proposals pending the ballot items named.
+
+| Step | Slice | Who | Ballot items | Gates and tasks | Exit |
+|---|---|---|---|---|---|
+| 0 | Decide the ballot | Operator, laptop | Group 1 first; Group 2 before Phase L packages; Group 3 before T005/T012 | — | Decision-log line(s) |
+| 1 | Phase 0 Substrate | Operator; agents author | B-01, B-02, B-03, B-17, B-18, B-19 | T074's Step 0 and driver pin are preferred before T003 but never block it: if T074 has not landed, the operator runs T003 on runbook 00 as written, records node identity and the exact driver version installed in T003's verification block, and T074 then pins and holds that version before T005; the rest of T074 before T005; T003 (G-1) → T005 (G-2); T006 (authored after G-1, re-reviewed after T005), T011, T072 → T012 (G-3); T046/T049 and T073 before the first scheduled DAG | Phase 0 gate; proposal adds an alert reaching the operator and one restored backup |
+| L | Phase L walking skeleton (parallel with step 1) | Agents, laptop | B-04, B-05 (waiver), B-07 to B-13 | P-1 to P-6, T071, re-scoped T036, T059 re-scoped (alias registry adapter on sqlite-backed MLflow) | MVP-L green in CI |
+| 2 | Phase 1 Ingestion | Agents, then operator | B-15, B-22 | Re-scoped T013/T016/T017, P-7, T018-T021, T022 `[HUMAN]` | 2 real scenes ingested unattended, harmonized |
+| 3 | Phase 2 Training and registry | Agents, then operator | B-07, B-08, B-10, B-11 | T024-T028, P-2, P-3, T029 `[HUMAN]` | Reproducibility plus a tagged holdout |
+| 4 | Phase 3 CT loop | Agents, then operator | B-04, B-09, B-10, B-14 | Re-scoped T034-T039, P-4, P-8 (replay job authored by agents, executed by the operator as a `[HUMAN]` step), T040 `[HUMAN]` | MVP-C |
+| 5 | Phase 4 Serving and canary (post-MVP) | Agents, then operator | B-13, B-16 | T041-T045, T030-T032 | Canary regression alert |
+| 6 | Phase 5 Soak | Operator | B-18, B-20 | T047, T048, P-8 freeze, P-9; Soak Readiness Gate (operator-run, includes the rebuild-plus-restore drill); then T052, with T051 during the soak (B-20); T050 after the soak | Soak Readiness Gate, then Constitution VI |
+
+---
+
+## 5. Where the project actually is
+
+Phase 0 of 6. Checkbox state lives in tasks.md: 14 of 73
+task lines are checked (T001, T001a, T001b, T002, T004, T004a, T007-T010, T056, T058, T062, T065;
+`grep -c '^- \[x\] T'` and `grep -c '^- \[[ x]\] T'` over tasks.md). PR#16/#17 landed most Phase
+1-4 application code ungated; RB-010 marked T013-T052 AUTHORED-PROVISIONAL pending T057. RB-010
+Parts 3 and 14 remain open behind B-09/B-10.
+
+| Area | Built (c545701) | Not built or defective | Evidence |
+|---|---|---|---|
+| STAC ingest | Real client, retry/backoff, Earth Search `sentinel-2-l2a` | On Earth Search v1 asset keys B02/B03 are dropped without error (synthetic item; unverified live, agent egress blocked); no pagination; a final non-200 returns `[]` silently; the cloud prefilter discards cloudy scenes instead of storing and flagging them | D-016/05a, 05c, 05e; first pass H11 (`ingest/stac_client.py:211-214`) |
+| Cloud mask | SCL masking, cloud fraction | Raises IndexError on real 20 m SCL vs 10 m bands; masked pixels filled with 0 (the L2A NO_DATA value); snow counted clear; no PB04 harmonization | D-016/05b, 05c |
+| Tile store | Local `.npy` save/load | No COG, windowed reads, S3, retention or atomic writes | D-016/05f |
+| lakeFS | Commit/branch/pin simulated in-process, labelled `[SIMULATED]` (T056) | No SDK, no server | T060; B-12 |
+| Training | U-Net, AMP, grad-accum, IoU/F1 | Single-epoch function: no fit loop, validation, seeding or checkpoint; no persistence (no `torch.save`/`state_dict` in `src/`) and no entrypoint; `in_channels` literal 4 | D-016/03a, 03b; first pass H3 (search of `src/` for `torch.save`, `state_dict`, `torch.load`: 0 hits) |
+| Registry | Stage machine with locking (T062) | An in-process dict not labelled as a simulation; rollback can promote a never-served rejected version, or leave no Production model | D-016/03c (T071); first pass H10 (`[SIMULATED]` appears only in `data/lakefs_ops.py`) |
+| Drift | PSI (hand-written) + KS (scipy); hysteresis and cooldown from config | Trigger state lives in memory and cannot survive one pod per task (0 triggers over 30 drifted scenes with a fresh manager per scene); clouds and fill scored as drift; no prediction-class shift, Prometheus export or reference builder | D-016/04a, 04b, 04c, 08 |
+| Eval | `superiority_gate`, 2-D moving-block bootstrap | No caller in `src/` or in either e2e test (search for `superiority`); decides on an inflated metric (absent classes score IoU 1.0: a constant predictor gets mIoU 0.850 vs 0.250 present-class); miscalibrated decision rule; Principle II violation open | D-016/02a, 02c, 02d, 08; B-09 |
+| Config | pydantic-settings, 38 fields | `get_config()` called nowhere in the repository; 17 of 38 fields unread; lakeFS secrets required in every process | First pass H4 (attribute reads of each `OrbitalDriftConfig` field outside `config.py`); D-016/07c |
+| Observability | JSON logging with redaction, context binding | `configure_logging()` has no call site in `src/` (outside the package only `eval/` imports it, for `get_logger`), so redaction never runs in production | T054 |
+| Serving | FastAPI, canary routing, `/livez` vs `/readyz` | Never loads a model outside tests; device resolution wrong under UUID pinning; work at import time | D-016/03e, 03f, 07d; T053 |
+| Orchestration | — | `dags/` and `workflows/` hold only `.gitkeep`; no `[project.scripts]`; nothing composes the pipeline outside tests | D-016/07a |
+| Platform IaC | T007-T010 authored and reviewed | One shared CNPG database and role; no backup; SeaweedFS BestEffort; one shared Admin storage identity | D-016/06a, 06b, 06d, 06g |
+
+---
+
+## 6. Work
+
+**Minted** in tasks.md Phase 7 (RB-016 authorizes the execution of none; each needs its own
+authorization):
+
+- **T071** (ml-engineer) Registry rollback restores exactly the previous champion; D-016/03c.
+- **T072** (infra-scaffolder) Platform data-plane correctness before T012: a database and role per service, SeaweedFS resources and per-consumer identities, image pins; D-016/06b, 06d, 06g, 06i.
+- **T073** (infra-scaffolder) Backup and restore for the soak; D-016/06a; needs T072 and B-17.
+- **T074** (runbook-writer) Runbook 00/01 addendum: node identity, data disk, secrets encryption, driver hold, GPU env-form test; D-016/01g, 06c, 06e, 06g, 06h; needs B-01, B-03, B-17; T074's Step 0 and driver pin are preferred before T003 but never block it: if T074 has not landed, the operator runs T003 on runbook 00 as written, records node identity and the exact driver version installed in T003's verification block, and T074 then pins and holds that version before T005; the rest of T074 before T005.
+- **T075** (runbook-writer) Runbooks for the `[HUMAN]` tasks that have none: T029, T032, T049, and T050 or its deferral (B-16).
+
+**Re-scoped:** 34 existing task lines carry an RB-016 marker
+(`grep -c 'RB-016:\*\* re-scoped' specs/001-orbital-drift-ct/tasks.md`); the re-scope table is in
+tasks.md Phase 7, where every element that implements a ballot default is marked as a proposal. No
+checkbox changed.
+
+**Minted on decision** (D-016/11). Not in tasks.md: minting a task whose shape depends on an open
+ballot item would encode a choice the operator has not made.
+
+| Package | Scope | Needs |
 |---|---|---|
-| STAC ingest | real client, real retry/backoff | no pagination; no rate limiting |
-| Cloud mask | real SCL masking + cloud fraction | denominator differs from the STAC scene-percent it is compared against |
-| Tile store | local `.npy` save/load | no rasterio, no COG, no windowed reads, no S3; writes are not atomic |
-| lakeFS | commit/branch/pin **simulated** in-process; IDs deterministic; logs say `[SIMULATED]` | no `lakefs` SDK, no dependency, no server |
-| Training | real U-Net, AMP, grad-accum, IoU/F1 | no MLflow; no Argo workflow; no fine-tune entrypoint |
-| Registry | real stage machine with locking, including `rollback_production` | **simulated** — an in-process dict; no `mlflow` |
-| Drift | real PSI + KS (scipy); F3 hysteresis/cooldown from config | no prediction-class shift; no Prometheus export; no reference builder; T061 F1/F2/F4/F5 open |
-| Serving | real FastAPI, real canary routing, `/livez` vs `/readyz` split | never loads a model outside tests; `/metrics` is hand-rolled JSON |
-| Orchestration | — | `dags/` and `workflows/` hold only `.gitkeep` |
-
-Two consequences worth stating plainly:
-
-- **The process can stay alive; it is not ready.** HTTP `/livez` is 200 without a model
-  (unit-tested). Docker HEALTHCHECK, compose, and the rollback-drill skill now probe
-  `/livez` (RB-015 Part H / this PR). `/readyz` and `/healthz` stay 503 until a production
-  model is loaded, and nothing outside tests loads one. That remaining gap is T053
-  model-load / T059, **Part F GATED**. Dummy `SimpleUNet` weights at startup are forbidden
-  (D-015/D-02).
-- **lakeFS commit IDs are simulated and labelled as such.** T056 (PR #28) made them
-  deterministic and prefixed log lines with `[SIMULATED]`. Replacing the simulation is
-  T060 and waits on D-2.
+| P-1 | Composition root; local and cluster config profiles (keys required only for cluster, SecretStr); CLI entrypoints; no import-time work in `serve/app.py` | B-05, B-12 |
+| P-2 | Model artifact and input-contract card: weights-only format, band order, normalization, class map, architecture, lineage; config hash without secrets | B-07 |
+| P-3 | Holdout manifest (spatial blocks in a ground CRS, buffered ≥ 92 px, hashed, lakeFS-tagged) and evaluation accumulator (per-cluster confusion matrices, ignore mask) | B-07, B-08, B-10 |
+| P-4 | Gate replacement and calibration tests (RB-010 Parts 3 and 14, re-scoped) | B-09, B-10 |
+| P-5 | Batch scoring job: classified COG and class histogram per scene, alias version recorded | B-11, B-13, P-2 |
+| P-6 | Walking-skeleton acceptance test and its CI stage (needs a new FR), with a positive control: a planted seam defect turns the stage red | B-04, B-05, P-1 to P-5, T071, re-scoped T036, T059 re-scoped |
+| P-7 | Harmonized AOI loader: fixed 10 m UTM grid, SCL nearest-resampled, PB offset applied, NO_DATA and cloud masked, fractions recorded | B-15 |
+| P-8 | Agent-authored replay job + runbook, executed by the operator as a `[HUMAN]` step (agents have no catalog egress): ≥ 12 months streamed without retention; reports false-trigger and organic-trigger rates per candidate threshold set; freezes the most sensitive (lowest-threshold) set meeting B-14's false-trigger bound; expected organic triggers in the soak window estimated; thresholds into config plus a decision-log line | B-14, P-7 |
+| P-9 | Data retention and capacity: compressed AOI crops, retention policy, capacity alert | B-17 |
 
 ---
 
-## 2. The critical path is three operator decisions, not code
+## 7. Former tracks
 
-Nothing an agent does moves these, and each blocks work that is otherwise ready.
+The 2026-09-11 revision organised work as Tracks A-E; `docs/architecture/ARCHITECTURE.md:72`,
+D-013 and Epic E6's summary still cite them.
 
-### D-1. Ratify the Principle II method (`docs/decisions/011-principle-ii-eval-methods.md`)
-
-The memo is PROPOSED and awaiting you. It recommends `arch.bootstrap` (with the cost — two
-new transitive dependencies — stated), names `scipy`-as-interval-shell as the fallback, and
-asks you to pick a Principle II *interpretation* as well as a library, because that determines
-whether logging the choice suffices or a constitution amendment must land first.
-
-T063's merged slice changed `_bin_weights` `searchsorted` side to match sklearn **and** added
-a shape `RuntimeError`. Until you answer D-015/D-06 (bugfix of already-sklearn post-processing,
-or wait on D-011), T063 stays unchecked.
-
-**Unblocks:** RB-010 Part 3, then Part 14 (the promotion-gate lifecycle test). These are the
-last two parts of the remediation program and the only open NON-NEGOTIABLE constitutional
-violation. Cheapest high-value move available.
-
-### D-2. Decide the adapter disposition (Track A/B below)
-
-RB-010's EXPLICIT LIMIT defers "the lakeFS/MLflow-adapter-disposition questions" to this
-roadmap. The question is whether the simulations become real clients, stay explicitly labelled
-simulations, or are deleted. Until it is answered, FR-003 and FR-006 cannot go green and the
-0-for-5 port count cannot move. T053 model-load also waits here (a real registry artifact).
-
-### D-3. Execute T003 host prep, log `G-1`
-
-The gate table admits no T013+ authoring without it, and per RB-007 T006 is deferred until it
-exists. This is the only path to Phase 0 completion and it is `[HUMAN]` by Constitution I.
-
-Charter R-2 is already live: DEC-002 M0 is 4/4 while G-1 is unresolved. Part F of RB-015 is
-gated on a G-1 waiver **or** G-1 plus a DEC-002 ruling. Part H is process-track only because
-RB-015 says so.
-
-**A note on ordering:** D-1 and D-2 are independent of the cluster. They can be decided today,
-from a laptop, and they unblock more work than D-3 does.
+| Track (2026-09-11) | Now |
+|---|---|
+| A — make the hexagon load-bearing (T058) | T058 checked; port disposition is B-12; composition root is P-1. ARCHITECTURE.md's "Track A (adapter convergence)" resolves to B-12 plus T071 |
+| B — replace the simulations (T056, T059, T060) | T056 checked; T059/T060 after B-12 (and B-11); Phase L uses the MLflow client on sqlite for the registry (T059 re-scoped) and a file-backed adapter only for data versioning |
+| C — close out RB-010 (T057, Parts 3 and 14) | Parts 3 and 14 become P-4 after B-09/B-10; T057 runs on composed code after Phase L |
+| D — gate integrity (T061, T062) | T062 checked; the rollback target is T071; T061 F2/F5 per B-22 |
+| E — deployment reality (T053, T054, T055) | T053 re-scoped (D-016/03f); MVP serving pattern is B-13; T054/T055 out of the MVP unless MVP-C needs them |
 
 ---
 
-## 3. Tracks
+## 8. Rollback drill — withdrawn, not moved
 
-Each track's tasks are declared in `specs/001-orbital-drift-ct/tasks.md` (Phase 6). Task IDs
-here are pointers, not a second declaration.
+An earlier version of this file carried a four-step drill. It was removed rather than corrected, and stays removed: two steps named symbols that do
+not exist (`ModelRegistryOps.rollback_production_model()`, real name `rollback_production`;
+`container.update_canary_ratio(0.0)`, no such method), and nothing loads a production model outside
+tests, so there is nothing to roll back. The broken names remain in
+`.claude/skills/canary-rollback-drill/SKILL.md`; fixing them is re-scoped T039.
 
-### Track A — Make the hexagon load-bearing (T058)
-
-0 of 5 ports have a real adapter; the only implementations are the in-memory fakes defined
-alongside the Protocols. `domain/` + `ports/` is a 10-module component the other 30 modules
-cannot reach — a second, parallel program.
-
-**Code present and checkboxed (PR #26, RB-015 dual review 2026-09-11):** the `ports_isolation` forbidden
-contract now prevents `orbital_drift.ports` from importing application-layer modules. The
-planted-violation control uses `pytest.fail` when `lint-imports` is absent (RB-015 leftover;
-do not grow the D10 skip allowlist).
-
-The measured recommendation for adapters is still to start with the **registry**, wrap rather
-than rewrite, and wait on D-2.
-
-### Track B — Replace the simulations (T056, T059, T060)
-
-**Checkboxed 2026-09-11 (PR #28, RB-015 dual review):** lakeFS commit IDs are deterministic;
-every log line naming a lakeFS object says `[SIMULATED]`. Replacing the simulation is T060
-and waits on D-2. T059 (MLflow) waits on the same decision.
-
-`get_config()` is still called from nowhere in `src/`. RB-010 Part 4 lakeFS keys stay
-required with no default — reversing that is forbidden by RB-015; conditional creds wait on
-T060.
-
-### Track C — Close out RB-010 (T057, and Parts 3/14)
-
-The retroactive spec-guardian + adversarial-reviewer review of T013-T052 is required by
-RB-010's disposition clause, gates ~40 checkboxes, and was assigned to no part. T057 gives
-it those. **RB-015 Part F: GATED.** T057 is not a log-only task: exit condition is recorded
-outcomes **and** checkbox flips for tasks that pass. Parts 3 and 14 resume the moment D-1
-is logged.
-
-### Track D — Gate integrity (T061, T062)
-
-**T061 F3 only (PR #27):** `hysteresis_window` and `cooldown_scenes` resolve from config.
-F1/F2/F4/F5 wait on operator answers in D-015 for F2 (`stride`) and F5 (`limit=10`) before
-any remainder PR. Completing T061 is not charter R-5; shipping another partial is the watch.
-
-**T062 checkboxed 2026-09-11 (PR #25, RB-015 dual review):** `rollback_production` takes
-`self._lock`. Do not wrap `get_stage_version` while holding that lock (not re-entrant).
-
-### Track E — Deployment reality (T053, T054, T055)
-
-**T053 PARTIAL (RB-015 Part H, this PR):** probes `/livez` vs `/readyz` landed in PR #24;
-HEALTHCHECK/compose/skill now match `/livez`; port env is `ORBITAL_DRIFT_SERVING_PORT` with
-default 8000 and a shell wrapper (exec-form `${}` does not expand); stale staging clears;
-canary RNG is seeded. **Not done:** loading a production model outside tests. `/readyz` and
-`/healthz` stay 503. Dummy weights forbidden.
-
-**T054 / T055: Part F GATED.** `lifespan` already exists and only logs `NOT_LOADED`. T054
-can call `configure_logging()` from that lifespan (zero call sites under `src/` today) and
-does not need a new factory. T055 is an ASGI body limit before parse.
-
-T066 (docker-smoke CI job) is **not minted**. It needs an FR, `docker inspect` of
-Healthcheck.Test, a planted `/healthz` mutation, and a measured `docker run` wall-clock.
-Listing that in D-015 is not authorization.
-
----
-
-## 4. Suggested sequence
-
-1. **Log D-1.** One decision-log line. Unblocks Parts 3 and 14, and unsticks T063's checkbox.
-2. **Decide D-2**, then T059/T060 (and T053 model-load).
-3. **T003 → G-1**, then a DEC-002 ruling if more feature PRs are wanted. Unlocks Part F
-   (T054, T055, T061 remainder, T057, T064) and any G-1-gated T013+ work.
-4. **T057** once authorized. Until the retroactive review runs, no Phase 1-4 checkbox can
-   flip and the plan of record cannot show progress.
-
-Budget note: DEC-002's M0 counter stands at 4/4 on the RB-007(b) baseline, so a genuine
-*feature* PR past T011 triggers mandatory owner review. Part H of RB-015 is process-track
-because the RB says so. Part F is not.
-
-**Closed process that does not move this list:** RB-013/RB-014 (PR #30) vectorized
-train/cloud hot paths and corrected the gpu-profiler skill's tuple-unpack of
-`train_baseline_epoch`. SC-002 remains unmeasured. Do **not** follow with a faster
-`eval/bootstrap.py` — that is D-1 / Principle II, not a micro-opt.
-
----
-
-## 5. Rollback drill — withdrawn, not moved
-
-The previous version of this file carried a four-step rollback drill. It has been removed
-rather than corrected, and this section records why so nobody restores it from git history.
-
-Two of its four steps named symbols that do not exist: `ModelRegistryOps.rollback_production_model()`
-(the real name is `rollback_production`) and `container.update_canary_ratio(0.0)` (no such
-method exists at all; the only mutator is `ModelContainer.set_models`). Correcting the two
-names would have produced a procedure that still cannot run, because nothing loads a
-production model outside tests — there is no canary to roll back. Those broken names remain
-in `.claude/skills/canary-rollback-drill/SKILL.md` and are T039, not this file.
-
-The skill's verification step now queries `/livez` (not `/healthz`) so it does not treat a
-readiness-503 as a dead process. That is liveness hygiene, not a working drill.
-
-The rollback runbook is **T039** (`docs/runbooks/04-ct-ops.md`, `05-rollback.md`), owned by
-`runbook-writer`, and it is unwritten. SC-004 requires that drill to complete in under 10
-minutes; a drill against unwired code cannot be rehearsed, so T039 depends on T053 model-load
-and on Track B.
-
+Correct names would not be enough: `rollback_production` restores the highest-numbered Archived
+version, which can be a rejected challenger that never served (D-016/03c). T071 fixes the target;
+T039 (`docs/runbooks/04-ct-ops.md`, `05-rollback.md`, runbook-writer, unwritten) then writes the
+drill as a move to the recorded previous champion. SC-004's first measurement is part of MVP-C.
 Until T039 lands there is no rollback procedure in this repository, and this file will not
 pretend otherwise.
