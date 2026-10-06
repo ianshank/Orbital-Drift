@@ -37,7 +37,7 @@ questions to "the forward-roadmap", by name (RB-012, `docs/decisions/013-plan-ar
    This PR itself adds about 14,300 words to the plan of record (wc -w at 8ef380b against
    c545701: D-016 8,500; tasks.md +2,093; NEXT_STEPS +1,768; plan.md +1,380; traceability +336;
    CHANGELOG +212); the review fixes after 8ef380b bring the total to about 16,300 words (same
-   method, at the commit that adds this sentence). It decides nothing.
+   method, at 3c144f5). It decides nothing.
 
 ---
 
@@ -56,11 +56,11 @@ resolve through this mapping.
 
 | ID | Decision | Recommended default | Age | Unblocks |
 |---|---|---|---|---|
-| B-01 | Node A identity and OS path | Dual-boot Ubuntu 24.04 on a dedicated SSD in the current GPU workstation; cost: node A is offline whenever it runs Windows, so it runs Linux only from the burn-in to the end of the soak (9+ weeks) with authoring moved elsewhere; options (b) and (c) avoid that | 51 | T074 Step 0; T003 → G-1 |
+| B-01 | Node A identity and OS path | Dual-boot Ubuntu 24.04 on a dedicated SSD in the current GPU workstation; cost: node A is offline whenever it runs Windows, so it runs Linux only from the burn-in to the end of the soak (at least 6.5 weeks) with authoring moved elsewhere; options (b) and (c) avoid that | 51 | T074 Step 0; T003 → G-1 |
 | B-02 | Ratify D-008/D-03 (config-v3 deployment mechanism) | Ratify as proposed | 45 | T005 → G-2 |
 | B-03 | Re-verify pins: the driver pin before T003 if it is ready, otherwise the version T003 installs is recorded and held before T005; the rest before T005 | Authorize an infra-scaffolder re-verification of versions.md; driver pinned exactly and held | 45 | Safe T003/T005/T012 |
 | B-04 | MVP definition and phase gates | Two-stage MVP-L + MVP-C + Soak Readiness Gate (§3) | new | Phase L; plan.md gates binding |
-| B-05 | Authorization before G-1; DEC-002 ruling | Named G-1 waiver for exactly: T071-T075; T059 as re-scoped for Phase L; packages P-1 to P-6, minted as task IDs when B-05 is logged; and authoring (not applying) of T046/T049 if B-19 is accepted. WIP limit one slice (one row of §4's sequence table; T072 and T073 belong to the Phase 0 row) ahead of the last G-x. DEC-002 option C (slice WIP limit plus at most one process PR per product PR). Ballot-execution artifacts (the spec, constitution and charter amendments and the decision-log rule change that logged ballot items require, and B-03's re-verification) are exempt from the process-PR cap. Lift RB-015's two prohibitions for the local profile only | 31 | Phase L; execution of the waiver list; RB-015 Part F |
+| B-05 | Authorization before G-1; DEC-002 ruling | Named G-1 waiver for exactly: T071-T075; T059 as re-scoped for Phase L; T036 as re-scoped; packages P-1 to P-6, each minted when B-05 and that package's own Needs are logged; and authoring (not applying) of T046 if B-19 is accepted (T049 is `[HUMAN]`; its runbook is T075's). WIP limit one slice (one row of §4's sequence table; T072 and T073 belong to the Phase 0 row) ahead of the last G-x. DEC-002 option C (slice WIP limit plus at most one process PR per product PR). Ballot-execution artifacts (the spec, constitution and charter amendments and the decision-log rule change that logged ballot items require, and B-03's re-verification) are exempt from the process-PR cap. Lift RB-015's two prohibitions for the local profile only | 31 | Phase L; execution of the waiver list; RB-015 Part F |
 | B-06 | Decision cadence and process rules | Weekly 30-minute decision review; no new process RB while any ballot item is older than 14 days (ballot-execution artifacts, as listed under B-05, are exempt); governance-code freeze until MVP-C, except the P-6 acceptance stage and the FR it needs, which MVP-L requires; log entries ≤ 150 words; an operator merge to `main` is a decision logged the same day | new | Bounds D-016/01a |
 
 **Group 2 — ML protocol** (before the Phase L packages and T024/T026/T034; B-07 and B-12 first):
@@ -100,12 +100,12 @@ recommended default except the items they strike or change. That turns 23 decisi
 sitting. Example only — **not logged, and not a decision**:
 
 ```
-YYYY-MM-DD | <ID per decision-log rule 2> | Accept D-016/09 recommended defaults B-01..B-23 except: <B-nn struck>; <B-nn amended to option x>; per B-05(b) also the named G-1 waiver for T071-T075, T059 (Phase L), P-1 to P-6 and T046/T049 authoring. EXPLICIT LIMIT: creates no G-x; flips no checkbox; logs no DEC. | <operator>
+YYYY-MM-DD | <ID per decision-log rule 2> | Accept D-016/09 recommended defaults B-01..B-23 except: <B-nn struck>; <B-nn amended to option x>; per B-05(b) also the named G-1 waiver for T071-T075, T036 and T059 as re-scoped, each P-n once minted, and T046 authoring if B-19 is accepted. EXPLICIT LIMIT: creates no G-x; flips no checkbox; logs no DEC. | <operator>
 ```
 
 If B-05 is accepted, the same line is the named G-1 waiver and execution authorization for exactly
-the list in B-05(b) (T071-T075; T059 as re-scoped for Phase L; P-1 to P-6, minted as task IDs when
-the line lands; authoring of T046/T049 if B-19 is accepted). It authorizes nothing else, and B-05's
+the list in B-05(b) (T071-T075; T036 and T059 as re-scoped; each of P-1 to P-6 once B-05 and its own Needs are
+logged; authoring of T046 if B-19 is accepted). It authorizes nothing else, and B-05's
 DEC-002 part still needs its own DEC line. Option (C) replaces the per-milestone budget that charter
 R-2 and R-5 are defined against, so its charter §6 amendment must restate them: R-2 fires when the
 WIP limit or the process cap is hit while a blocking `[HUMAN]`/G-x gate is unresolved; R-5's overrun

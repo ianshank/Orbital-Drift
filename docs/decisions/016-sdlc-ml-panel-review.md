@@ -60,7 +60,7 @@ follow-up; `FIX` fixed in the RB-016 PR.
    This PR itself adds about 14,300 words to the plan of record (wc -w at 8ef380b against
    c545701: D-016 8,500; tasks.md +2,093; NEXT_STEPS +1,768; plan.md +1,380; traceability +336;
    CHANGELOG +212); the review fixes after 8ef380b bring the total to about 16,300 words (same
-   method, at the commit that adds this sentence). It decides nothing.
+   method, at 3c144f5). It decides nothing.
 
 ---
 
@@ -455,10 +455,11 @@ Some defaults need a further artifact before they bind:
 
 The bulk line itself changes no FR, SC, charter or constitution text. If B-05 is accepted, the
 same line is the named G-1 waiver and execution authorization for exactly the list in B-05(b)
-(T071-T075; T059 as re-scoped for Phase L; P-1 to P-6, minted as task IDs when the line lands;
-authoring of T046/T049 if B-19 is accepted). It authorizes nothing else, and B-05's DEC-002 part
+(T071-T075; T036 as re-scoped; T059 as re-scoped for Phase L; each of P-1 to P-6 once it is
+minted, which happens when B-05 and that package's own Needs are logged; authoring of T046 if
+B-19 is accepted). It authorizes nothing else, and B-05's DEC-002 part
 still needs its own DEC line. Shape, placeholders only:
-`YYYY-MM-DD | <ID per rule 2> | Accept D-016/09 defaults B-01..B-23 except: <struck>; <amended>; per B-05(b) also the named G-1 waiver for T071-T075, T059 (Phase L), P-1 to P-6 and T046/T049 authoring. EXPLICIT LIMIT: creates no G-x; flips no checkbox; logs no DEC. | <operator>`
+`YYYY-MM-DD | <ID per rule 2> | Accept D-016/09 defaults B-01..B-23 except: <struck>; <amended>; per B-05(b) also the named G-1 waiver for T071-T075, T036 and T059 as re-scoped, each P-n once minted, and T046 authoring if B-19 is accepted. EXPLICIT LIMIT: creates no G-x; flips no checkbox; logs no DEC. | <operator>`
 
 ### Group 1 — decide first (critical path; all decidable at a laptop)
 
@@ -467,7 +468,8 @@ still needs its own DEC line. Shape, placeholders only:
   moved. **Default (a):** keeps the authoring environment outside the soak window; matches
   00-host-prep.md:13. A dual-booted node A is offline whenever it runs Windows, which breaks
   SC-001, the dead-man heartbeat and the 72 h burn-in; option (a) therefore means running Linux
-  only, from the burn-in to the end of the soak (9+ weeks), with authoring moved to another
+  only, from the burn-in to the end of the soak (at least 6.5 weeks: the 72 h burn-in plus
+  the 42-day soak), with authoring moved to another
   machine or to cloud sessions. Options (b) and (c) avoid that constraint. Age: T003 startable
   51 d. Unblocks: T003 → G-1; T074's Step 0, preferred before T003 but never blocking it (see
   T074).
@@ -485,8 +487,10 @@ still needs its own DEC line. Shape, placeholders only:
   gates becoming binding.
 - **B-05 Authorization before G-1, and the DEC-002 ruling.** Authorization: (a) strict G-1
   before any T013+ work (status quo; agents idle); (b) a named G-1 waiver listing exactly:
-  T071-T075; T059 as re-scoped for Phase L (D-016/10); packages P-1 to P-6, minted as task IDs
-  when B-05 is logged; and authoring (not applying) of T046/T049 if B-19 is accepted — with a WIP
+  T071-T075; T059 as re-scoped for Phase L (D-016/10); T036 as re-scoped;
+  packages P-1 to P-6, each minted when B-05 and that package's own Needs are logged; and
+  authoring (not applying) of T046 if B-19 is accepted, T049 being [HUMAN] with its runbook
+  in T075 — with a WIP
   limit of one slice ahead of the last G-x entry, one slice being one row of NEXT_STEPS §4's
   sequence table (T072 and T073 belong to the Phase 0 row); (c) classify as process track
   (reject: repeats RB-010's ungated-work pattern). **Default (b):** G-1 certifies a CUDA host;
@@ -858,7 +862,8 @@ agreement to do them.
 | 6 | Split the 20-platform root module; dedupe versions.md:18-24 against :11-17. | 06i |
 | 7 | eval/spatial.py:91 patches `numpy.random.permutation` process-wide during Moran inference. | 02f |
 | 8 | docs/development/REFERENCE_GUIDE.md:164-165 says `rollback_production` reinstates the prior Production version; at c545701 it restores the highest-numbered Archived version. This PR changes only that file's two section pointers. | 03c |
-| 9 | The PreToolUse guard compares a named push remote (`git push origin ...`) with the URL allowlist without resolving the name, so it blocks an allow-listed origin, and it read a `2>&1` redirection as a push destination (observed while pushing this PR). | 07g |
+| 9 | The PreToolUse guard compares a named push remote (`git push origin ...`) with the URL allowlist without resolving the name, so it blocks an allow-listed origin, and it read a `2>&1` redirection as a push destination. Evidence at c545701:
+`src/orbital_drift/guard.py:281-294` (`_push_destination` returns the first non-flag argument) and :363-377 (that argument is checked against the URL allowlist; only an empty destination is replaced by the resolved effective remote). Observed while pushing this PR: `git push -u origin <branch>` gave `BLOCKED (C-5): push destination 'origin' is not in allowed-remotes.txt`; a bare `git push` with a `2>&1` redirection gave `push destination '2>'`. The branch went to the allow-listed URL itself, the form `tests/governance/test_pretooluse_guard.py:388` pins as permitted, then by a bare `git push`; no guard pattern or allowlist was changed. | 07g |
 
 ## Verified correct — no action
 
