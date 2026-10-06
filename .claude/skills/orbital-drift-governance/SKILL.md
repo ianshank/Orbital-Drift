@@ -75,6 +75,10 @@ never assume standing.
 
 - **RB-016** (10-06): plan-rewrite batch after a seven-expert SDLC/ML panel (`docs/decisions/016-sdlc-ml-panel-review.md`): D-016 findings, operator ballot B-01 to B-23, two-stage MVP proposal; NEXT_STEPS and plan.md rewritten; tasks.md Phase 7 re-scope table and T071-T075 minted. Rule-6 in-session approval. Authorizes execution of none; decides no ballot item; no FR/SC, gate-bar, G-x or checkbox change. Docs track; claims no budget exemption (the operator's call, B-05).
 
+- **DEC-002** (10-06): overridden by D-016/09 B-05(C) — the 4 PRs / 16 h milestone budget is replaced by a one-slice WIP limit plus one process-track PR per product PR merged; ballot-execution amendments exempt; R-2/R-5 restated. The Budgets section above and charter §6 still show the old budget until the charter amendment PR lands.
+
+- **RB-017** (10-06): all D-016/09 ballot defaults B-01..B-23 accepted, none struck; named G-1 waiver for T071-T075, re-scoped T036/T059, P-1..P-6 once minted, T046 authoring. The gate table above does not yet show the waiver; amendment-dependent items bind when their PRs land. No G-x, no checkbox, no FR/SC/charter/constitution text.
+
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after
 this section's own "since" date has no corresponding ID anywhere in the section text. A
