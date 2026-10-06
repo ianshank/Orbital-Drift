@@ -108,7 +108,8 @@ Panel: SDLC unless noted. Repro: none beyond first-pass items cited inline.
   290, median 185; 08-21 entries average 90 words, 09-05 onward 894; RB-xxxa execution records
   are 36.7% of the words. → B-06 (entries <= 150 words). RB-016 follows that limit.
 - **01i Minor — orphaned deferrals open 45 d:** RB-008a(b) REPO_ROOT single-homing (3 copies
-  remain) and RB-008a(e) rule 8. → B-23 (retire as WONTFIX with T064).
+  remain) and RB-008a(e) rule 8. → B-23 (retire as WONTFIX; T064 only via a scenario
+  amendment).
 
 ## D-016/02 — Evaluation and the promotion gate
 
@@ -244,7 +245,7 @@ Panel: CT, DRIFT. Repro: PLAT; ORCH reproduced 04a.
   retry infrastructure errors only. → RS:T027, RS:T038.
 - **04g Major — static-label retraining is legitimate CT with a known bias:** it learns a fixed
   land-cover mapping robust to new radiometry but penalises real land change after the label
-  year, and shadow eval measures agreement with the label product, meaningful only on spatially
+  year [domain knowledge], and shadow eval measures agreement with the label product, meaningful only on spatially
   unseen blocks. → B-07, B-08.
 
 ## D-016/05 — The Sentinel-2 data path
@@ -280,7 +281,8 @@ Panel: DRIFT; partly corroborated by MLE.
   (stac_client.py:134,170-178) truncates any backfill beyond ~2 weeks; SC-001 needs the item's
   publication time, not acquisition time. → B-22, RS:T016.
 - **05f Minor — volume is unplanned.** The default bbox (2,433 km²) is ~201 MB per acquisition as
-  uint16 (785 MB float64); a full MGRS tile ~0.99 GB; 6 weeks of 8-17 acquisitions is 1.6-3.4 GB
+  uint16 (785 MB float64); a full MGRS tile ~0.99 GB; 6 weeks of 8-17 acquisitions [domain
+  knowledge] is 1.6-3.4 GB
   of AOI crops or 16-34 GB of full tiles; uncompressed .npy (ingest/tile_store.py), no retention
   policy. → B-17; P-9.
 
@@ -326,7 +328,7 @@ Panel: PLAT. Repro: none recorded, except 06b (= first pass H8).
   shared by every consumer and copied into the training namespace (seaweedfs.tf:117-148;
   argo_workflows.tf:263-283), so a training pod can rewrite lakeFS storage underneath
   versioning; MLflow auth is off (mlflow.yaml:84-85) with no NetworkPolicy, and pickled PyTorch
-  models make a registry write code execution in serving; git-sync tracks main HEAD
+  models make a registry write code execution in serving [domain knowledge]; git-sync tracks main HEAD
   (airflow.yaml:143-151), so every merge deploys mid-soak; plaintext secrets in local TF state; no
   `--secrets-encryption` in the k3s install (01-k3s-install.md:107-108); no serving auth; no
   image signing or SBOM. → B-18; T072 (identities); T074 (secrets-encryption).
@@ -436,9 +438,18 @@ needs.
 **Accepting the defaults.** The operator may log one decision-log line accepting all
 recommended defaults except the items that line strikes or amends. Until such a line (or an
 item-by-item line) exists, every default is a proposal and unlocks nothing (decision-log rule 1).
-Accepting B-07, B-08, B-11 or B-13 commits to a later spec-amendment PR; the line itself changes
-no FR or SC text. Shape, placeholders only:
-`YYYY-MM-DD | <ID per rule 2> | Accept D-016/09 defaults B-01..B-23 except: <struck>; <amended>. | <operator>`
+Some defaults need a further artifact before they bind:
+
+- B-07, B-08, B-11, B-13, B-14: spec amendments; B-07's title wording also needs a constitution
+  amendment PR.
+- B-04: Phase L is absent from the charter's M0-M5 milestone table
+  (charter/PROJECT-CHARTER.md:56-61).
+- B-05's DEC-002 part overrides a CONFIRM-FIRST decision (charter §5), so it must be logged as its
+  own DEC line, not inside a bulk line; it also changes charter §6's budget.
+- B-06 rule 4 changes decision-log rule 2's RB-xxxa convention.
+
+The bulk line itself changes no FR, SC, charter or constitution text. Shape, placeholders only:
+`YYYY-MM-DD | <ID per rule 2> | Accept D-016/09 defaults B-01..B-23 except: <struck>; <amended>. EXPLICIT LIMIT: creates no G-x; flips no checkbox. | <operator>`
 
 ### Group 1 — decide first (critical path; all decidable at a laptop)
 
@@ -450,8 +461,9 @@ no FR or SC text. Shape, placeholders only:
   D-008:3,54,99). **Default: ratify as proposed.** Age 45 d. Unblocks: T005 → G-2.
 - **B-03 Re-verify pins before T005** via an infra-scaffolder pass over versions.md
   (candidates: k3s v1.35.9; GPU Operator stays 26.3.3 unless the T012 env-form test fails; NVIDIA
-  driver at an exact version and held). **Default: authorize, before T005.** Age 45 d (rule:
-  ~30 d). Unblocks: a safe T005/T012.
+  driver at an exact version and held). **Default: authorize; the driver pin before T003, which
+  installs the driver, and the rest before T005.** Age 45 d (rule: ~30 d). Unblocks: a safe
+  T003/T005/T012.
 - **B-04 MVP definition and new phase gates.** (a) two-stage MVP-L + MVP-C + Soak Readiness Gate
   (D-016/10); (b) cluster-only "First Operated Loop" (MVP-C alone); (c) no MVP milestone (status
   quo: Phase-3 gate as written). **Default (a):** MVP-L moves seam defects off node A; MVP-C keeps
@@ -534,8 +546,11 @@ no FR or SC text. Shape, placeholders only:
   DRIFTED / STABLE / INSUFFICIENT_DATA. **Default (c).** SC-003: "organic" means fired by the
   pre-registered, frozen configuration on real imagery; thresholds frozen by a decision-log line
   after a >= 12-month historical replay whose in-season null window yields 0 triggers; a trigger
-  whose candidate fails the gate is logged as a false alarm (at most one per soak). Age: new.
-  Unblocks: RS:T034-T037, P-8.
+  whose candidate fails the gate is logged as a false alarm (at most one per soak). Defining
+  "organic" this way is a reading that tightens Constitution VI ("≥ 1 organically drift-triggered
+  retrain (not forced)", constitution.md:29) and needs no amendment; making the false-alarm cap
+  binding would put new text in SC-003 and needs a spec amendment. Age: new. Unblocks:
+  RS:T034-T037, P-8.
 - **B-15 Data source and harmonization.** Keep Earth Search `sentinel-2-l2a` (FR-001), or move to
   `sentinel-2-c1-l2a` [unverified]. **Default: keep**, harmonize reflectance by processing
   baseline onto a fixed 10 m UTM grid, fix the README's "Planetary Computer"; the operator
@@ -575,11 +590,38 @@ no FR or SC text. Shape, placeholders only:
   (spec non-goal). Age 25 d.
 - **B-22 D-012 F2/F5.** F2 `stride` field vs derived; F5 `limit=10` config vs documented constant
   (D-012:5-7). **Default:** F2 `stride` becomes a training-only config field and evaluation tiles
-  every pixel exactly once; F5 becomes next-link pagination with sortby, page size a deliberate
-  constant. Age 35 d. Unblocks: T061 remainder, RS:T016.
-- **B-23 Close stale items.** **Default:** mark D-014 triaged (findings 1-3,
-  6, 7 executed by #23-#29; 4 and 5 map to tasks); retire RB-008a(b), RB-008a(e) and T064 as
-  WONTFIX. Age 30-45 d.
+  every pixel exactly once; F5 becomes next-link pagination with sortby. A page size is a
+  transport parameter, not a threshold, cadence, AOI or name under FR-012, because next-link
+  pagination followed to exhaustion returns the same scene set for any page size; it is recorded
+  as a deliberate constant with that rationale. Age 35 d. Unblocks: T061 remainder, RS:T016.
+- **B-23 Close stale items.** **Default:** mark D-014 triaged (findings 1-3, 6, 7 executed by
+  #23-#29; 4 and 5 map to tasks); retire RB-008a(b) and RB-008a(e) as WONTFIX. T064 is retired
+  only through an amendment to the governance-harness scenario it implements ("Trace cites a
+  nonexistent task", its status half; openspec/changes/adopt-governance-kit/specs/governance-harness/spec.md:86-100),
+  not as a bare WONTFIX; otherwise the hidden-gap failure RB-008a(e) documented recurs. Age
+  30-45 d.
+
+### Proposed numbers and their sources
+
+| Number | Where used | Source or derivation |
+|---|---|---|
+| 92 px holdout buffer | B-08, P-3 | Measured receptive field of SimpleUNet (EVAL). |
+| >= 30 valid clusters; aim for 50 | B-10, P-4 | EVAL power calculation: 80% power needs 25-39 clusters at per-cluster SD 0.04-0.05. |
+| >= 3 seeds | B-10, RS:T029 | Minimum to estimate a run-to-run spread; panel judgement. |
+| 9,999 resamples | B-09 | scipy.stats.bootstrap's default `n_resamples` [upstream source]. |
+| One-sided 95% bound | B-10 | Conventional alpha 0.05; panel judgement. |
+| 14 days; weekly 30 min; 24 h pre-fill; 150 words | B-06 | [panel judgement; free parameter] — parameters of a process rule. |
+| One slice of WIP; one process-track PR per product PR | B-05 | [panel judgement; free parameter]. |
+| 56-day metrics retention | 06f, B-19, RS:T046/T049 | 6-week soak (42 days) plus two weeks of postmortem margin (PLAT). |
+| 72 h burn-in; >= 3 scheduled ingests | Soak Readiness Gate | Panel judgement: spans a weekend and one Sentinel-2 revisit at the short end of its ~2.5-5-day range [domain knowledge]; 72 h does not span a 5-day revisit. |
+| < 60% disk at day 42 | Soak Readiness Gate | Panel judgement: headroom above k3s's 5%-free eviction threshold (06c) for growth after the soak. |
+| >= 12-month replay | B-14, P-8 | One full phenological cycle [domain knowledge]. |
+| <= 1 false alarm per soak | B-14 | [panel judgement; free parameter]. |
+| 6-month backfill; ~50 GB total | B-17 | PLAT estimate from the 05f and 06c volumes. |
+| One MGRS tile; two fixture tiles | B-17, B-15 | [panel judgement; free parameter]. |
+| False-pass <= 0.05 + 2 MC SE; power >= 0.8 at 2x margin | P-4 | Conventional alpha and power; 2 MC SE covers Monte Carlo noise at 300 seeds. |
+
+Every number adopted becomes a configuration value, never a literal (Principle III).
 
 ---
 
@@ -618,7 +660,8 @@ producing exactly one episode with `trigger_source=forced`; at least one promoti
 rejection; the champion scoring scenes; a timestamped rollback drill under 10 minutes (first
 SC-004 measurement); a reproducibility re-run within a stated tolerance (US2/T029).
 
-**Soak Readiness Gate** (before T052): restore drill passed with RTO recorded; every alert class
+**Soak Readiness Gate** (operator-run, [HUMAN]; task minted when B-04 and B-20 are logged;
+before T052): rebuild-plus-restore drill passed with RTO recorded (B-20); every alert class
 fire-drilled, including the off-node heartbeat; 72 h unattended burn-in with >= 3 scheduled
 ingests; projected disk use at day 42 < 60%; drift thresholds frozen by a decision-log line after
 the historical replay (in-season null run: 0 triggers); B-18's required security items closed.
@@ -629,13 +672,13 @@ T050; calibration.py, ranking.py, spatial.py; KServe; T054/T055 except where MVP
 
 | Phase (numbers kept) | Proposed contents | Proposed gate |
 |---|---|---|
-| 0 Substrate | Before T005: B-01..B-03, T074. Before T012: T072. Before the first scheduled DAG: observability core (T046/T049) and backups (T073; restore runbook in T048). | plan.md:100 plus: an alert reaches the operator; one backup restored into a scratch namespace. |
+| 0 Substrate | Before T003: B-01, B-03's driver pin, T074's Step 0 and driver hold. Before T005: B-02, the rest of B-03 and of T074. Before T012: T072. Before the first scheduled DAG: observability core (T046/T049) and backups (T073; restore runbook in T048). | plan.md:100 plus: an alert reaches the operator; one backup restored into a scratch namespace. |
 | L Walking skeleton | New; parallel to Phase 0 only under B-05's waiver. P-1..P-6, T071, RS:T036. | MVP-L green in CI. |
 | 1 Ingestion | Adds RS:T016/T017, P-7, live fixtures, pagination. | 2 real scenes on schedule; 4 bands + SCL; harmonized across PB04; valid fraction recorded. |
 | 2 Training, registry | Labels + holdout manifest before real training; T032 not the gate. | plan.md:102 reproducibility (T029) + tagged holdout manifest. |
 | 3 CT loop | Re-scopes per D-016/11. | MVP-C (T040). |
 | 4 Serving, canary (post-MVP) | Alias-polling loader; canary on label-free proxies (prediction-class divergence, error rate, latency); T030-T032 (B-16). | Canary regression alert; Alertmanager from Phase 0 removes first pass H18's inversion. |
-| 5 Soak | Soak Readiness Gate, T052; T051 per B-20; T050 after (B-16). | Unchanged (plan.md:105). |
+| 5 Soak | Soak Readiness Gate; then T052, with T051 during the soak (B-20); T050 after (B-16). | Unchanged (plan.md:105). |
 
 ---
 
@@ -694,7 +737,9 @@ T050; calibration.py, ranking.py, spatial.py; KServe; T054/T055 except where MVP
 | first pass H13 | T075 |
 
 Per-task re-scope text is one table in tasks.md Phase 7; checkboxes are unchanged (T062 stays
-`[x]`: its locking is done; the rollback-target defect is T071's).
+`[x]`: its locking is done; the rollback-target defect is T071's). Re-scopes that implement a
+ballot default are proposals: they bind only once that item is logged (and, for B-08, B-11, B-13
+and B-14, after the spec amendment); until then the task text and spec.md govern.
 
 **Minted now** — decision-independent defects or rule gaps. **RB-016 authorizes the execution of
 none**; each needs its own authorization.
@@ -706,13 +751,20 @@ none**; each needs its own authorization.
   service; SeaweedFS per-component resources and per-consumer identities; images pinned (06b,
   06d, 06g, 06i). Reopens T007-T009. Serves FR-003, FR-006, SC-006.
 - **T073 [A:infra-scaffolder]** Backup and restore: nightly pg_dump, bucket replication to B-17's
-  off-node target, Terraform state relocated, key escrow, freshness metric (06a). Depends on
-  T072, B-17. Serves SC-006, SC-001.
+  off-node target, backups encrypted client-side before leaving the node, Terraform state
+  relocated, key escrow, freshness metric; no key material, state file or backup credential in
+  the repo (Principle VII) (06a). Applied by the operator at T012's bring-up (the T011 runbook
+  must cover it); exercised at T051. Depends on T072, B-17. Serves SC-006, SC-001.
 - **T074 [A:runbook-writer]** Runbook 00/01 addendum: B-01 OS path, data filesystem,
   secrets-encryption, held driver, two-pod GPU env-form test at T012 (01g, 06c, 06e, 06g, 06h).
-  Before T005; depends on B-01, B-03. Serves SC-001, SC-006, R-05.
+  Step 0 (node identity) and the exact driver pin and hold before T003, because runbook 00, which
+  T003 executes, installs the driver; the rest before T005. Depends on B-01, B-03, B-17. Serves
+  SC-001, SC-006, R-05.
 - **T075 [A:runbook-writer]** Runbooks for unpaired [HUMAN] tasks T029, T032, T049; T050 a runbook
   or a B-16 deferral (tasks.md:7; first pass H13, corrected to include T049). Serves US8.
+
+T074 and T075 precede G-1 but are numbered in the T013+ range, so the RB that authorizes their
+execution must name the gate-table row it relies on.
 
 **Minted on decision** — not in tasks.md:
 
@@ -723,7 +775,7 @@ none**; each needs its own authorization.
 | P-3 | Holdout manifest (ground-CRS blocks, buffered >= 92 px, hashed, lakeFS-tagged) + evaluation accumulator (per-cluster confusion matrices, ignore mask) | B-07, B-08, B-10 | 02a, 02b |
 | P-4 | Gate replacement + calibration tests = RB-010 Parts 3, 14 re-scoped (false-pass <= 0.05 + 2 MC SE at 30 clusters; power >= 0.8 at 2x margin; identical/degraded REJECT; degenerate INSUFFICIENT_EVIDENCE) | B-09, B-10 | 02c-e |
 | P-5 | Batch scoring job (classified COG + class histogram per scene; CRS kept; 100% of valid pixels; alias version recorded) | B-13, B-11, P-2 | 03e |
-| P-6 | Walking-skeleton acceptance test + CI stage (a new FR, per RB-012a(b)) | B-04, B-05, P-1..P-5, T071, RS:T036 | 07a |
+| P-6 | Walking-skeleton acceptance test + CI stage (a new FR, per RB-012a(b)), with a positive control: a planted seam defect turns the stage red | B-04, B-05, P-1..P-5, T071, RS:T036 | 07a |
 | P-7 | Harmonized AOI loader (10 m UTM grid; SCL resampled; PB offset; NO_DATA/cloud masked, never 0; fractions recorded) | B-15 | 05b |
 | P-8 | Historical replay (>= 12 months) and threshold freeze (null window 0 triggers; decision-log line) | B-14, P-7 | 04b |
 | P-9 | Data retention and capacity (compressed crops, retention, capacity alert) | B-17 | 05f, 06c |

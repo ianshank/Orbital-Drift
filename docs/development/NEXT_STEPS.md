@@ -54,7 +54,7 @@ resolve through this mapping.
 |---|---|---|---|---|
 | B-01 | Node A identity and OS path | Dual-boot Ubuntu 24.04 on a dedicated SSD in the current GPU workstation | 51 | T074 Step 0; T003 → G-1 |
 | B-02 | Ratify D-008/D-03 (config-v3 deployment mechanism) | Ratify as proposed | 45 | T005 → G-2 |
-| B-03 | Re-verify pins before T005 | Authorize an infra-scaffolder re-verification of versions.md; driver pinned exactly and held | 45 | Safe T005/T012 |
+| B-03 | Re-verify pins: the driver before T003, the rest before T005 | Authorize an infra-scaffolder re-verification of versions.md; driver pinned exactly and held | 45 | Safe T003/T005/T012 |
 | B-04 | MVP definition and phase gates | Two-stage MVP-L + MVP-C + Soak Readiness Gate (§3) | new | Phase L; plan.md gates binding |
 | B-05 | Authorization before G-1; DEC-002 ruling | Named G-1 waiver for Phase L packages and T071-T073, WIP limit one slice ahead of the last G-x; DEC-002 option C (slice WIP limit plus at most one process PR per product PR); lift RB-015's two prohibitions for the local profile only | 31 | Phase L; T071-T073 execution; RB-015 Part F |
 | B-06 | Decision cadence and process rules | Weekly 30-minute decision review; no new process RB while any ballot item is older than 14 days; governance-code freeze until MVP-C; log entries ≤ 150 words; an operator merge to `main` is a decision logged the same day | new | Bounds D-016/01a |
@@ -99,8 +99,12 @@ sitting. Example only — **not logged, and not a decision**:
 YYYY-MM-DD | <ID per decision-log rule 2> | Accept D-016/09 recommended defaults B-01..B-23 except: <B-nn struck>; <B-nn amended to option x>. EXPLICIT LIMIT: creates no G-x; flips no checkbox. | <operator>
 ```
 
-Accepting B-07, B-08, B-11 or B-13 commits to a later spec-amendment PR; the line itself changes
-no FR or SC text.
+Some defaults need a further artifact before they bind: B-07, B-08, B-11, B-13 and B-14 need spec
+amendments (B-07's title wording also needs a constitution amendment PR); B-04 adds Phase L, which
+the charter's M0-M5 milestone table does not have; B-05's DEC-002 part overrides a CONFIRM-FIRST
+decision, so it must be logged as its own DEC line, not inside a bulk RB line, and it changes
+charter §6's budget; B-06's fourth rule changes decision-log rule 2's RB-xxxa convention. The bulk
+line itself changes no FR, SC, charter or constitution text.
 
 ---
 
@@ -138,7 +142,8 @@ producing exactly one episode with `trigger_source=forced`; at least one promoti
 rejection; the champion scoring scenes; a timestamped rollback drill under 10 minutes (the first
 SC-004 measurement); a reproducibility re-run within a stated tolerance (US2, T029).
 
-**Soak Readiness Gate** (before T052): restore drill passed with RTO recorded; every alert class
+**Soak Readiness Gate** (operator-run, `[HUMAN]`; its task is minted when B-04 and B-20 are
+logged; before T052): restore drill passed with RTO recorded; every alert class
 fire-drilled, including the off-node heartbeat; 72 h unattended burn-in with ≥ 3 scheduled ingests;
 projected disk use at day 42 < 60%; drift thresholds frozen by a decision-log line after the
 historical replay (in-season null run: 0 triggers); B-18's required security items closed. Then
@@ -158,13 +163,13 @@ Moves and gates beyond the 2026-09 text are proposals pending the ballot items n
 | Step | Slice | Who | Ballot items | Gates and tasks | Exit |
 |---|---|---|---|---|---|
 | 0 | Decide the ballot | Operator, laptop | Group 1 first; Group 2 before Phase L packages; Group 3 before T005/T012 | — | Decision-log line(s) |
-| 1 | Phase 0 Substrate | Operator; agents author | B-01, B-02, B-03, B-17, B-18, B-19 | T074 → T003 (G-1) → T005 (G-2); T006 (authored after G-1, re-reviewed after T005), T011, T072 → T012 (G-3); T046/T049 and T073 before the first scheduled DAG | Phase 0 gate; proposal adds an alert reaching the operator and one restored backup |
+| 1 | Phase 0 Substrate | Operator; agents author | B-01, B-02, B-03, B-17, B-18, B-19 | T074's Step 0 (node identity) and its exact driver pin and hold before T003 (runbook 00, which T003 executes, installs the driver); the rest of T074 before T005; T003 (G-1) → T005 (G-2); T006 (authored after G-1, re-reviewed after T005), T011, T072 → T012 (G-3); T046/T049 and T073 before the first scheduled DAG | Phase 0 gate; proposal adds an alert reaching the operator and one restored backup |
 | L | Phase L walking skeleton (parallel with step 1) | Agents, laptop | B-04, B-05 (waiver), B-07 to B-13 | P-1 to P-6, T071, re-scoped T036 | MVP-L green in CI |
 | 2 | Phase 1 Ingestion | Agents, then operator | B-15, B-22 | Re-scoped T013/T016/T017, P-7, T018-T021, T022 `[HUMAN]` | 2 real scenes ingested unattended, harmonized |
 | 3 | Phase 2 Training and registry | Agents, then operator | B-07, B-08, B-10, B-11 | T024-T028, P-2, P-3, T029 `[HUMAN]` | Reproducibility plus a tagged holdout |
 | 4 | Phase 3 CT loop | Agents, then operator | B-04, B-09, B-10, B-14 | Re-scoped T034-T039, P-4, P-8 (replay), T040 `[HUMAN]` | MVP-C |
 | 5 | Phase 4 Serving and canary (post-MVP) | Agents, then operator | B-13, B-16 | T041-T045, T030-T032 | Canary regression alert |
-| 6 | Phase 5 Soak | Operator | B-18, B-20 | T047, T048, T051, P-8 freeze, P-9; then T052; T050 after the soak | Soak Readiness Gate, then Constitution VI |
+| 6 | Phase 5 Soak | Operator | B-18, B-20 | T047, T048, P-8 freeze, P-9; Soak Readiness Gate (operator-run, includes the rebuild-plus-restore drill); then T052, with T051 during the soak (B-20); T050 after the soak | Soak Readiness Gate, then Constitution VI |
 
 ---
 
@@ -202,11 +207,13 @@ authorization):
 - **T071** (ml-engineer) Registry rollback restores exactly the previous champion; D-016/03c.
 - **T072** (infra-scaffolder) Platform data-plane correctness before T012: a database and role per service, SeaweedFS resources and per-consumer identities, image pins; D-016/06b, 06d, 06g, 06i.
 - **T073** (infra-scaffolder) Backup and restore for the soak; D-016/06a; needs T072 and B-17.
-- **T074** (runbook-writer) Runbook 00/01 addendum: node identity, data disk, secrets encryption, driver hold, GPU env-form test; D-016/01g, 06c, 06e, 06g, 06h; needs B-01, B-03.
+- **T074** (runbook-writer) Runbook 00/01 addendum: node identity, data disk, secrets encryption, driver hold, GPU env-form test; D-016/01g, 06c, 06e, 06g, 06h; needs B-01, B-03, B-17; T074's Step 0 (node identity) and its exact driver pin and hold before T003 (runbook 00, which T003 executes, installs the driver), the rest of T074 before T005.
 - **T075** (runbook-writer) Runbooks for the `[HUMAN]` tasks that have none: T029, T032, T049, and T050 or its deferral (B-16).
 
-**Re-scoped:** 32 existing task lines carry an RB-016 marker; the re-scope table is in tasks.md
-Phase 7. No checkbox changed.
+**Re-scoped:** 34 existing task lines carry an RB-016 marker
+(`grep -c 'RB-016:\*\* re-scoped' specs/001-orbital-drift-ct/tasks.md`); the re-scope table is in
+tasks.md Phase 7, where every element that implements a ballot default is marked as a proposal. No
+checkbox changed.
 
 **Minted on decision** (D-016/11). Not in tasks.md: minting a task whose shape depends on an open
 ballot item would encode a choice the operator has not made.
@@ -218,7 +225,7 @@ ballot item would encode a choice the operator has not made.
 | P-3 | Holdout manifest (spatial blocks in a ground CRS, buffered ≥ 92 px, hashed, lakeFS-tagged) and evaluation accumulator (per-cluster confusion matrices, ignore mask) | B-07, B-08, B-10 |
 | P-4 | Gate replacement and calibration tests (RB-010 Parts 3 and 14, re-scoped) | B-09, B-10 |
 | P-5 | Batch scoring job: classified COG and class histogram per scene, alias version recorded | B-11, B-13, P-2 |
-| P-6 | Walking-skeleton acceptance test and its CI stage (needs a new FR) | B-04, B-05, P-1 to P-5, T071, re-scoped T036 |
+| P-6 | Walking-skeleton acceptance test and its CI stage (needs a new FR), with a positive control: a planted seam defect turns the stage red | B-04, B-05, P-1 to P-5, T071, re-scoped T036 |
 | P-7 | Harmonized AOI loader: fixed 10 m UTM grid, SCL nearest-resampled, PB offset applied, NO_DATA and cloud masked, fractions recorded | B-15 |
 | P-8 | Historical replay and threshold freeze: ≥ 12 months offline, in-season null window 0 triggers, thresholds into config plus a decision-log line | B-14, P-7 |
 | P-9 | Data retention and capacity: compressed AOI crops, retention policy, capacity alert | B-17 |

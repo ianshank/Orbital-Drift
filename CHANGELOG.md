@@ -18,8 +18,9 @@ is this repository's body of work to date.
 
 ### Changed — plan rewrite (RB-016, D-016, 2026-10-06)
 
-Commits: this branch (`claude/rb016-deep-review-plan-rewrite`); no SHA until merge. Docs track;
-no `src/` product code, gate bar, FR/SC text, G-x or checkbox changed.
+Commits: `eba16fc` (D-016), `a34850e` (RB-016), `123fb1f` (rewrite), and the review-fix commit
+on this branch (`claude/rb016-deep-review-plan-rewrite`). Docs track; no `src/` product code, gate
+bar, FR/SC text, G-x or checkbox changed.
 
 - `docs/decisions/016-sdlc-ml-panel-review.md`: seven-expert SDLC/ML panel findings on c545701
   (D-016/01-08), operator ballot B-01 to B-23 (D-016/09), two-stage MVP proposal (D-016/10),
@@ -30,9 +31,11 @@ no `src/` product code, gate bar, FR/SC text, G-x or checkbox changed.
   B-01 + T003).
 - `plan.md`: summary, technical context, constitution check (II is an open violation pending
   B-09; CI gates live since T001), structure (10 subagents, eight test tiers), phases (Phase L
-  added; new gates are proposals), risks R-07 to R-12. D-01 to D-05 unchanged; one note under D-04.
-- `tasks.md` Phase 7: re-scope table plus a one-line marker on 32 existing task lines; T071-T075
-  minted, execution of none authorized. T066-T070 stay reserved.
+  added; new gates are proposals), risks R-07 to R-12. Decision Log D-01 to D-05 unchanged.
+- `tasks.md` Phase 7: re-scope table (ballot-default elements marked as proposals) plus a one-line
+  marker on 34 existing task lines, counted with
+  `grep -c 'RB-016:\*\* re-scoped' specs/001-orbital-drift-ct/tasks.md`; T071-T075 minted,
+  execution of none authorized. T066-T070 stay reserved.
 - `roadmap_data.py`: Epic E8 (E7 was taken) and stories S7.1-S7.5; projections regenerated.
 - Traceability: dated RB-016 notes on FR-003, FR-006 to FR-010, SC-003, SC-004, SC-006; no Status
   changed. Decision log RB-016 plus its governance-skill line.
