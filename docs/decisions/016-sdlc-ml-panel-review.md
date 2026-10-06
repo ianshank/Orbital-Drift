@@ -597,8 +597,8 @@ Shape, placeholders only:
   one whose weak-label mIoU (champion against the static labels) does not drop by more than the
   B-10 margin [panel judgement; free parameter — it keeps expected nuisance triggers in a 42-day
   soak below one half]. The replay reports, for each candidate threshold set, its false-trigger
-  rate on no-harm windows and its organic-trigger rate; the freeze takes the tightest set that
-  meets the bound. This replaces the earlier in-season null-window rule (0 triggers), which a
+  rate on no-harm windows and its organic-trigger rate; the freeze takes the most sensitive
+  (lowest-threshold) set that meets the bound. This replaces the earlier in-season null-window rule (0 triggers), which a
   season-matched reference needed and a training reference does not. The replay also estimates
   the expected number of organic triggers in the planned soak window; if that is below one, the
   operator moves the soak window to span a phenological transition rather than relaxing the
@@ -733,10 +733,10 @@ SC-004 measurement); a reproducibility re-run within a stated tolerance (US2/T02
 before T052): rebuild-plus-restore drill passed with RTO recorded (B-20); every alert class
 fire-drilled, including the off-node heartbeat; 72 h unattended burn-in with >= 3 scheduled
 ingests; projected disk use at day 42 < 60%; drift thresholds frozen by a decision-log line after
-the operator-run historical replay, as the tightest set meeting B-14's false-trigger bound; B-18's
+the operator-run historical replay, as the most sensitive (lowest-threshold) set meeting B-14's false-trigger bound; B-18's
 required security items closed; a pre-soak reset: the champion, the trigger state and the drift
 reference are re-established from a model trained on main only, so no branch-injected data
-reaches the soak, and the promotion history and previous_champion are cleared, so no
+reaches the soak, and previous_champion is reset and the promotion history archived, not deleted, so no
 branch-trained version is reachable by rollback during the soak. Then T052.
 
 **Out of the MVP:** T030-T032 fine-tune; the US6 canary split (T043's canary half, T044, T045);
@@ -853,7 +853,7 @@ gate-table row is proposed.
 | P-5 | Batch scoring job (classified COG + class histogram per scene; CRS kept; 100% of valid pixels; alias version recorded) | B-13, B-11, P-2 | 03e |
 | P-6 | Walking-skeleton acceptance test + CI stage (a new FR, per RB-012a(b)), with a positive control: a planted seam defect turns the stage red | B-04, B-05, P-1..P-5, T071, T059 (re-scoped), RS:T036 | 07a |
 | P-7 | Harmonized AOI loader (10 m UTM grid; SCL resampled; PB offset; NO_DATA/cloud masked, never 0; fractions recorded) | B-15 | 05b |
-| P-8 | Agent-authored historical replay job (>= 12 months) + runbook, executed by the operator as a [HUMAN] step; reports false-trigger and organic-trigger rates per candidate threshold set; freezes the tightest set meeting B-14's false-trigger bound; estimates expected organic triggers in the soak window; thresholds frozen by a decision-log line | B-14, P-7 | 04b |
+| P-8 | Agent-authored historical replay job (>= 12 months) + runbook, executed by the operator as a [HUMAN] step; reports false-trigger and organic-trigger rates per candidate threshold set; freezes the most sensitive (lowest-threshold) set meeting B-14's false-trigger bound; estimates expected organic triggers in the soak window; thresholds frozen by a decision-log line | B-14, P-7 | 04b |
 | P-9 | Data retention and capacity (compressed crops, retention, capacity alert) | B-17 | 05f, 06c |
 
 **Why P-n are not minted:** minting a task whose shape depends on an open ballot item would
@@ -881,6 +881,7 @@ agreement to do them.
 | 7 | eval/spatial.py:91 patches `numpy.random.permutation` process-wide during Moran inference. | 02f |
 | 8 | docs/development/REFERENCE_GUIDE.md:164-165 says `rollback_production` reinstates the prior Production version; at c545701 it restores the highest-numbered Archived version. This PR changes only that file's two section pointers. | 03c |
 | 9 | The PreToolUse guard compares a named push remote (`git push origin ...`) with the URL allowlist without resolving the name, so it blocks an allow-listed origin, and it read a `2>&1` redirection as a push destination. Evidence at c545701: `src/orbital_drift/guard.py:281-294` (`_push_destination` returns the first non-flag argument) and :363-377 (that argument is checked against the URL allowlist; only an empty destination is replaced by the resolved effective remote). Observed while pushing this PR: `git push -u origin <branch>` gave `BLOCKED (C-5): push destination 'origin' is not in allowed-remotes.txt`; a bare `git push` with a `2>&1` redirection gave `push destination '2>'`. The branch went to the allow-listed URL itself, the form `tests/governance/test_pretooluse_guard.py:388` pins as permitted, then by a bare `git push`; no guard pattern or allowlist was changed. | 07g |
+| 10 | P-8's replay offers only about 5-7 periods of 42 no-harm days, so choosing the most sensitive candidate set that meets B-14's bound will tend to understate its true false-trigger rate (winner's curse); P-8's design should score each candidate on a held-back stretch of the replay or require a margin below the bound. | 04b |
 
 ## Sources for `[upstream source]` claims (retrieved 2026-10-06)
 

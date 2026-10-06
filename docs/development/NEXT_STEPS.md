@@ -74,7 +74,7 @@ resolve through this mapping.
 | B-11 | Registry semantics (FR-006) | Aliases champion/challenger/baseline with a recorded previous_champion; FR-006 amended later | 35 | T071 naming; RS:T028/T059 |
 | B-12 | Adapter disposition (old D-2) | Keep catalog, dataversion, registry ports; reshape the last two; delete tiles and compute; for MVP-L, the MLflow client on a sqlite tracking URI for the registry and a file-backed adapter only for data versioning | 35 | T059, T060, P-1 |
 | B-13 | MVP serving pattern | Batch-first scoring job (classified COG + class histogram per scene); FastAPI + canary stay in Phase 4 | new | P-5, RS:T043 |
-| B-14 | Drift trigger; meaning of SC-003 | Input drift on SCL-clear pixels vs the champion's training reference (rebased on promotion and rollback) AND (prediction-class shift OR weak-label mIoU drop vs the champion's holdout score); day-of-year comparison only a diagnostic; before the replay, a false-trigger bound is fixed in config (at most 0.5 triggers per 42 replayed no-harm days, a no-harm window being one whose weak-label mIoU drops by no more than the B-10 margin [panel judgement; free parameter]); the operator-run ≥ 12-month replay reports false-trigger and organic-trigger rates per candidate threshold set and the freeze takes the tightest set meeting the bound (replacing the old in-season null-window rule); if expected organic triggers in the soak window are below one, the soak window moves rather than the bound being relaxed; a trigger from the frozen configuration counts as organic whatever the gate's verdict. Changes trigger policy, not drift math, so R-06 does not apply (operator to confirm). The three-state verdict is spec-required (spec.md:67), not part of B-14 | new | RS:T034 (diagnostic), RS:T035 (weak-label signal), P-8 |
+| B-14 | Drift trigger; meaning of SC-003 | Input drift on SCL-clear pixels vs the champion's training reference (rebased on promotion and rollback) AND (prediction-class shift OR weak-label mIoU drop vs the champion's holdout score); day-of-year comparison only a diagnostic; before the replay, a false-trigger bound is fixed in config (at most 0.5 triggers per 42 replayed no-harm days, a no-harm window being one whose weak-label mIoU drops by no more than the B-10 margin [panel judgement; free parameter]); the operator-run ≥ 12-month replay reports false-trigger and organic-trigger rates per candidate threshold set and the freeze takes the most sensitive (lowest-threshold) set meeting the bound (replacing the old in-season null-window rule); if expected organic triggers in the soak window are below one, the soak window moves rather than the bound being relaxed; a trigger from the frozen configuration counts as organic whatever the gate's verdict. Changes trigger policy, not drift math, so R-06 does not apply (operator to confirm). The three-state verdict is spec-required (spec.md:67), not part of B-14 | new | RS:T034 (diagnostic), RS:T035 (weak-label signal), P-8 |
 | B-15 | Data source and harmonization | Keep Earth Search `sentinel-2-l2a`; harmonize by processing baseline onto a fixed 10 m UTM grid; operator records live fixtures | new | RS:T013/T016/T017, P-7 |
 | B-16 | Off-MVP scope | Fine-tune T030-T032 after the Phase 3 gate; T050 after the soak | new | T030-T032, T050 placement |
 
@@ -166,10 +166,10 @@ SC-004 measurement); a reproducibility re-run within a stated tolerance (US2, T0
 logged; before T052): restore drill passed with RTO recorded; every alert class
 fire-drilled, including the off-node heartbeat; 72 h unattended burn-in with ≥ 3 scheduled ingests;
 projected disk use at day 42 < 60%; drift thresholds frozen by a decision-log line after the
-operator-run historical replay, as the tightest set meeting B-14's false-trigger bound; B-18's
+operator-run historical replay, as the most sensitive (lowest-threshold) set meeting B-14's false-trigger bound; B-18's
 required security items closed; a pre-soak reset: the champion, the trigger state and the drift
 reference are re-established from a model trained on `main` only, so no branch-injected data
-reaches the soak, and the promotion history and previous_champion are cleared, so no
+reaches the soak, and previous_champion is reset and the promotion history archived, not deleted, so no
 branch-trained version is reachable by rollback during the soak. Then T052.
 
 **Out of the MVP:** T030-T032 fine-tune; the US6 canary split (T043's canary half, T044, T045);
@@ -250,7 +250,7 @@ ballot item would encode a choice the operator has not made.
 | P-5 | Batch scoring job: classified COG and class histogram per scene, alias version recorded | B-11, B-13, P-2 |
 | P-6 | Walking-skeleton acceptance test and its CI stage (needs a new FR), with a positive control: a planted seam defect turns the stage red | B-04, B-05, P-1 to P-5, T071, re-scoped T036, T059 re-scoped |
 | P-7 | Harmonized AOI loader: fixed 10 m UTM grid, SCL nearest-resampled, PB offset applied, NO_DATA and cloud masked, fractions recorded | B-15 |
-| P-8 | Agent-authored replay job + runbook, executed by the operator as a `[HUMAN]` step (agents have no catalog egress): ≥ 12 months streamed without retention; reports false-trigger and organic-trigger rates per candidate threshold set; freezes the tightest set meeting B-14's false-trigger bound; expected organic triggers in the soak window estimated; thresholds into config plus a decision-log line | B-14, P-7 |
+| P-8 | Agent-authored replay job + runbook, executed by the operator as a `[HUMAN]` step (agents have no catalog egress): ≥ 12 months streamed without retention; reports false-trigger and organic-trigger rates per candidate threshold set; freezes the most sensitive (lowest-threshold) set meeting B-14's false-trigger bound; expected organic triggers in the soak window estimated; thresholds into config plus a decision-log line | B-14, P-7 |
 | P-9 | Data retention and capacity: compressed AOI crops, retention policy, capacity alert | B-17 |
 
 ---

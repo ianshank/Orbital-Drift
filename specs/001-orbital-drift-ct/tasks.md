@@ -142,7 +142,7 @@ is unchanged; its line carries a one-line **RB-016** marker pointing here.
 | T037 | Trigger state stored outside the pod; kill-and-rerun smoke test; starvation alert separate from drift alert | 04a |
 | T038 | Shadow eval on the holdout manifest (proposal: B-08); gate verdict replaces unconditional promotion; forced drift injected on a lakeFS branch; `trigger_source` recorded; a degraded-retrain configuration (for example permuted labels), named in config, for MVP-C's REJECT episode (proposal: B-04) | 02b, 04e |
 | T039 | Rollback = alias move to the recorded previous champion (proposal: B-11); fix the drill skill's nonexistent APIs | 03c; NEXT_STEPS §8 |
-| T040 | Becomes the MVP-C gate (`docs/development/NEXT_STEPS.md` §3) (proposal: B-04); the pre-soak reset clears champion, previous_champion, promotion history, trigger state and drift reference (proposal: B-04) | 04e |
+| T040 | Becomes the MVP-C gate (`docs/development/NEXT_STEPS.md` §3) (proposal: B-04); the pre-soak reset re-establishes the champion from a model trained on main only, resets previous_champion, the trigger state and the drift reference, and archives (does not delete) the promotion history (proposal: B-04) | 04e |
 | T042, T044, T045 | Canary regression on label-free proxies (proposal: B-13); post-MVP (Phase 4) (proposal: B-04, B-13) | 03e |
 | T043, T053 | Device = the one visible GPU (`cuda:0` under UUID pinning), fail readiness rather than fall back to CPU; load after bind; alias-poll reload with the previous model kept resident (proposal: B-11, B-13) | 03f |
 | T046, T049 | Move into Phase 0 before the first scheduled DAG (proposal: B-19); PVC; >= 56-day retention (proposal: B-19); off-node dead-man heartbeat (proposal: B-19) | 06f |
