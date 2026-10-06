@@ -17,8 +17,10 @@ the panel reports are not committed. **The operator has NOT seen or chosen any o
 retired roadmap labels D-1/D-2/D-3, which map to B-09, B-12 (+B-11), and B-01 + the T003
 [HUMAN] task. NEXT_STEPS.md and plan.md may cite ballot items as bare `B-nn`.
 **Measured at:** main `c545701` (2026-10-06); every file:line below is at that commit.
-`[domain knowledge]` / `[upstream source]` = not provable from the tree; "synthetic" = a
-simulation number, not real imagery; UNVERIFIED = not checkable from this environment.
+`[domain knowledge]` / `[upstream source]` = not provable from the tree; every
+`[upstream source]` claim is listed with its URL and retrieval date under "Sources" near the
+end of this file; "synthetic" = a simulation number, not real imagery; UNVERIFIED = not
+checkable from this environment.
 **Why this exists:** NEXT_STEPS.md, plan.md and tasks.md Phase 7 cite these IDs; without this
 file those citations point at chat.
 
@@ -864,6 +866,22 @@ agreement to do them.
 | 8 | docs/development/REFERENCE_GUIDE.md:164-165 says `rollback_production` reinstates the prior Production version; at c545701 it restores the highest-numbered Archived version. This PR changes only that file's two section pointers. | 03c |
 | 9 | The PreToolUse guard compares a named push remote (`git push origin ...`) with the URL allowlist without resolving the name, so it blocks an allow-listed origin, and it read a `2>&1` redirection as a push destination. Evidence at c545701:
 `src/orbital_drift/guard.py:281-294` (`_push_destination` returns the first non-flag argument) and :363-377 (that argument is checked against the URL allowlist; only an empty destination is replaced by the resolved effective remote). Observed while pushing this PR: `git push -u origin <branch>` gave `BLOCKED (C-5): push destination 'origin' is not in allowed-remotes.txt`; a bare `git push` with a `2>&1` redirection gave `push destination '2>'`. The branch went to the allow-listed URL itself, the form `tests/governance/test_pretooluse_guard.py:388` pins as permitted, then by a bare `git push`; no guard pattern or allowlist was changed. | 07g |
+
+## Sources for `[upstream source]` claims (retrieved 2026-10-06)
+
+Each was read by the platform or evaluation panelist on 2026-10-06; none is provable from the tree.
+NVIDIA's download hosts were blocked from this environment, so the driver pin itself stays unverified.
+
+| Finding | Claim | Source |
+|---|---|---|
+| 06a, 06d | SeaweedFS chart 4.41 defaults `defaultReplication: "000"`, reads `resources` per component and goes read-only at 1% free | `https://raw.githubusercontent.com/seaweedfs/seaweedfs/4.41/k8s/charts/seaweedfs/values.yaml` and `.../templates/` (master, volume, filer, s3) |
+| 06c | k3s evicts at 5% free nodefs/imagefs; kubelet zeroes unspecified eviction signals | `https://raw.githubusercontent.com/k3s-io/k3s/v1.35.7%2Bk3s1/pkg/daemons/agent/agent.go`; `https://raw.githubusercontent.com/kubernetes/kubelet/master/config/v1beta1/types.go` |
+| 06c | lakeFS open-source garbage collection runs as a Spark job | `https://docs.lakefs.io/howto/garbage-collection/gc/` |
+| 06e | GPU Operator v26.3.3 enables CDI by default and forces `NVIDIA_CONTAINER_RUNTIME_MODE=cdi`; the toolkit resolves `GPU-<uuid>` against static CDI specs | `https://raw.githubusercontent.com/NVIDIA/gpu-operator/v26.3.3/deployments/gpu-operator/values.yaml`; `.../v26.3.3/controllers/object_controls.go`; `https://raw.githubusercontent.com/NVIDIA/nvidia-container-toolkit/v1.19.1/internal/modifier/cdi.go` |
+| 06f | kube-prometheus-stack 88.2.0 defaults to 10-day retention on emptyDir | `https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-88.2.0/charts/kube-prometheus-stack/values.yaml` |
+| 06h | k3s v1.35.9 ships containerd 2.2.7 and a gRPC CVE fix | `https://raw.githubusercontent.com/k3s-io/docs/main/docs/release-notes/v1.35.X.md` |
+| 06h, B-16 | R580 is the last driver branch for Pascal; PyTorch's Pascal-capable cu126 wheels stop at 2.14; torch 2.13.0 requires cuda-toolkit 13.0.3 | `https://linuxfromscratch.org/glfs/view/dev/core/nvidia-r580-intro.html`; `https://dev-discuss.pytorch.org/t/notice-cuda-12-6-wheels-will-no-longer-be-published-from-pytorch-2-15-drops-maxwell-pascal-volta/3432`; `https://pypi.org/pypi/torch/2.13.0/json` |
+| B-09 numbers table | `scipy.stats.bootstrap` defaults to `n_resamples=9999` | Installed scipy 1.18.1 in this repo's pinned venv: `inspect.signature(scipy.stats.bootstrap)` prints `n_resamples=9999` (orchestrator, 2026-10-06) |
 
 ## Verified correct — no action
 
