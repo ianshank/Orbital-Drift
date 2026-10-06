@@ -18,9 +18,10 @@ is this repository's body of work to date.
 
 ### Changed — plan rewrite (RB-016, D-016, 2026-10-06)
 
-Commits: `eba16fc` (D-016), `a34850e` (RB-016), `123fb1f` (rewrite), and the review-fix commit
-on this branch (`claude/rb016-deep-review-plan-rewrite`). Docs track; no `src/` product code, gate
-bar, FR/SC text, G-x or checkbox changed.
+Commits: `eba16fc` (D-016), `a34850e` (RB-016), `123fb1f` (rewrite), the review-fix commits
+`f3a9873` and `8ef380b`, and the adversarial-review fix commit on this branch
+(`claude/rb016-deep-review-plan-rewrite`). Docs track; no `src/` product code, gate bar, FR/SC
+text, G-x or checkbox changed.
 
 - `docs/decisions/016-sdlc-ml-panel-review.md`: seven-expert SDLC/ML panel findings on c545701
   (D-016/01-08), operator ballot B-01 to B-23 (D-016/09), two-stage MVP proposal (D-016/10),
@@ -28,7 +29,7 @@ bar, FR/SC text, G-x or checkbox changed.
 - `docs/development/NEXT_STEPS.md` rewritten: verdict, ballot table with an accept-the-defaults
   path, MVP-L / MVP-C / Soak Readiness Gate (proposals pending B-04), sequence, as-built table,
   work, former Tracks A-E map, rollback drill. Retires "D-1/D-2/D-3" (→ B-09, B-12 + B-11,
-  B-01 + T003).
+  B-01 + T003). `docs/development/REFERENCE_GUIDE.md`'s two pointers into it now cite §5 and §8.
 - `plan.md`: summary, technical context, constitution check (II is an open violation pending
   B-09; CI gates live since T001), structure (10 subagents, eight test tiers), phases (Phase L
   added; new gates are proposals), risks R-07 to R-12. Decision Log D-01 to D-05 unchanged.

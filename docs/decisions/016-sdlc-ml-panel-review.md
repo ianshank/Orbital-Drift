@@ -57,6 +57,10 @@ follow-up; `FIX` fixed in the RB-016 PR.
    Readiness Gate, then the soak (D-016/10).
 4. **RB-012 answered this same request** ("deeper peer review, rewrite plans") 31 days ago; the
    decisions it surfaced are still open. This rewrite is useful only if the ballot is decided.
+   This PR itself adds about 14,300 words to the plan of record (wc -w at 8ef380b against
+   c545701: D-016 8,500; tasks.md +2,093; NEXT_STEPS +1,768; plan.md +1,380; traceability +336;
+   CHANGELOG +212); the review fixes after 8ef380b bring the total to about 16,300 words (same
+   method, at the commit that adds this sentence). It decides nothing.
 
 ---
 
@@ -213,7 +217,8 @@ Panel: CT, DRIFT. Repro: PLAT; ORCH reproduced 04a.
   manager → 1). Naive persistence double-counts Airflow retries and multi-MGRS items of one
   acquisition; starvation either resets hysteresis or reads as drift. SC-003, a Constitution VI
   definition-of-done item (constitution.md:29), cannot be met organically. T033/T036 are marked
-  AUTHORED-PROVISIONAL — DONE on this premise. → RS:T033/T036, RS:T037.
+  AUTHORED-PROVISIONAL — DONE on this premise. → RS:T033/T036, RS:T037; the three-state verdict
+  (DRIFTED / STABLE / INSUFFICIENT_DATA) they need is spec-required (spec.md:67), not a ballot item.
 - **04b Critical — per-band PSI/KS on pixels tracks season and nuisance, not model harm.** DRIFT
   ran a synthetic phenology + nuisance model through the repo's own functions at default
   thresholds. Every case with 0.10 <= PSI < 0.25 had KS p < 0.05 (84 of 84; critical D ~0.027 at
@@ -448,44 +453,65 @@ Some defaults need a further artifact before they bind:
   own DEC line, not inside a bulk line; it also changes charter §6's budget.
 - B-06 rule 4 changes decision-log rule 2's RB-xxxa convention.
 
-The bulk line itself changes no FR, SC, charter or constitution text. Shape, placeholders only:
-`YYYY-MM-DD | <ID per rule 2> | Accept D-016/09 defaults B-01..B-23 except: <struck>; <amended>. EXPLICIT LIMIT: creates no G-x; flips no checkbox. | <operator>`
+The bulk line itself changes no FR, SC, charter or constitution text. If B-05 is accepted, the
+same line is the named G-1 waiver and execution authorization for exactly the list in B-05(b)
+(T071-T075; T059 as re-scoped for Phase L; P-1 to P-6, minted as task IDs when the line lands;
+authoring of T046/T049 if B-19 is accepted). It authorizes nothing else, and B-05's DEC-002 part
+still needs its own DEC line. Shape, placeholders only:
+`YYYY-MM-DD | <ID per rule 2> | Accept D-016/09 defaults B-01..B-23 except: <struck>; <amended>; per B-05(b) also the named G-1 waiver for T071-T075, T059 (Phase L), P-1 to P-6 and T046/T049 authoring. EXPLICIT LIMIT: creates no G-x; flips no checkbox; logs no DEC. | <operator>`
 
 ### Group 1 — decide first (critical path; all decidable at a laptop)
 
 - **B-01 Node A identity and OS path.** (a) dual-boot Ubuntu 24.04 on a dedicated SSD in the
   current GPU workstation; (b) reimage that workstation; (c) a separate Linux box with the GPUs
-  moved. **Default (a):** keeps the authoring environment; matches 00-host-prep.md:13. Age: T003
-  startable 51 d. Unblocks: T074 Step 0; T003 → G-1.
+  moved. **Default (a):** keeps the authoring environment outside the soak window; matches
+  00-host-prep.md:13. A dual-booted node A is offline whenever it runs Windows, which breaks
+  SC-001, the dead-man heartbeat and the 72 h burn-in; option (a) therefore means running Linux
+  only, from the burn-in to the end of the soak (9+ weeks), with authoring moved to another
+  machine or to cloud sessions. Options (b) and (c) avoid that constraint. Age: T003 startable
+  51 d. Unblocks: T003 → G-1; T074's Step 0, preferred before T003 but never blocking it (see
+  T074).
 - **B-02 Ratify D-008/D-03** (config-v3.toml.tmpl deployment; "required before T005",
   D-008:3,54,99). **Default: ratify as proposed.** Age 45 d. Unblocks: T005 → G-2.
-- **B-03 Re-verify pins: the driver before T003, the rest before T005** via an infra-scaffolder pass over versions.md
-  (candidates: k3s v1.35.9; GPU Operator stays 26.3.3 unless the T012 env-form test fails; NVIDIA
-  driver at an exact version and held). **Default: authorize; the driver pin before T003, which
-  installs the driver, and the rest before T005.** Age 45 d (rule: ~30 d). Unblocks: a safe
-  T003/T005/T012.
+- **B-03 Re-verify pins** via an infra-scaffolder pass over versions.md (candidates: k3s
+  v1.35.9; GPU Operator stays 26.3.3 unless the T012 env-form test fails; NVIDIA driver at an
+  exact version and held). **Default: authorize; the driver pin before T003 if it is ready,
+  otherwise the version T003 installs is recorded and held before T005; the rest before T005.**
+  Age 45 d (rule: ~30 d). Unblocks: a safe T003/T005/T012.
 - **B-04 MVP definition and new phase gates.** (a) two-stage MVP-L + MVP-C + Soak Readiness Gate
   (D-016/10); (b) cluster-only "First Operated Loop" (MVP-C alone); (c) no MVP milestone (status
   quo: Phase-3 gate as written). **Default (a):** MVP-L moves seam defects off node A; MVP-C keeps
   the operator's hands-on loop primary (Principle I). Age: new. Unblocks: Phase L; plan.md phase
   gates becoming binding.
 - **B-05 Authorization before G-1, and the DEC-002 ruling.** Authorization: (a) strict G-1
-  before any T013+ work (status quo; agents idle); (b) a named G-1 waiver for the Phase L
-  packages and T071-T073, with a WIP limit of one slice ahead of the last G-x entry; (c) classify
-  as process track (reject: repeats RB-010's ungated-work pattern). **Default (b):** G-1 certifies
-  a CUDA host; this CPU-only work never touches one. DEC-002: (A) rule RB-007(b) an allocation
-  (reverses seven standing entries, RB-009..RB-015); (B) rule it consumed and the owner review
-  complete; (C) supersede the per-milestone counter with the slice WIP limit plus a rolling cap of
-  one process-track PR per product PR merged. **Default (C):** the only option that bounds
-  unopened milestones. Also proposed: lift, for the local profile only, RB-015's two prohibitions
-  (no `get_config()` at serve startup; no reversal of Part 4's required lakeFS keys); keys stay
-  required for the cluster backend. Age 31 d (RB-012a(d)). Unblocks: Phase L; T071-T073
-  execution; RB-015 Part F.
+  before any T013+ work (status quo; agents idle); (b) a named G-1 waiver listing exactly:
+  T071-T075; T059 as re-scoped for Phase L (D-016/10); packages P-1 to P-6, minted as task IDs
+  when B-05 is logged; and authoring (not applying) of T046/T049 if B-19 is accepted — with a WIP
+  limit of one slice ahead of the last G-x entry, one slice being one row of NEXT_STEPS §4's
+  sequence table (T072 and T073 belong to the Phase 0 row); (c) classify as process track
+  (reject: repeats RB-010's ungated-work pattern). **Default (b):** G-1 certifies a CUDA host;
+  this CPU-only work never touches one. DEC-002: (A) rule RB-007(b) an allocation (reverses seven
+  standing entries, RB-009..RB-015); (B) rule it consumed and the owner review complete; (C)
+  supersede the per-milestone counter with the slice WIP limit plus a rolling cap of one
+  process-track PR per product PR merged. Ballot-execution artifacts — the spec, constitution and
+  charter amendments and the decision-log rule change that logged ballot items require, and
+  B-03's re-verification — are exempt from both the 14-day rule and the process-PR cap. (C)
+  replaces the per-milestone budget that charter R-2 and R-5 are defined against
+  (charter/PROJECT-CHARTER.md:84,87), so its charter §6 amendment must restate them: R-2 fires when
+  the WIP limit or the process cap is hit while a blocking [HUMAN]/G-x gate is unresolved; R-5's
+  overrun test is measured per task against that task's estimate, and its fix-cycle cap stays at
+  two cycles; mandatory owner review is kept and fires on either limit. **Default (C):** the only
+  option that bounds unopened milestones. Also proposed: lift, for the local profile only,
+  RB-015's two prohibitions (no `get_config()` at serve startup; no reversal of Part 4's required
+  lakeFS keys); keys stay required for the cluster backend. Age 31 d (RB-012a(d)). Unblocks:
+  Phase L; T071-T075 execution; RB-015 Part F.
 - **B-06 Decision cadence and process rules.** Adopt all, some or none of: (1) a weekly 30-minute
   operator decision review on this ballot, pre-filled 24 h ahead, producing DEC/RB/G lines; (2)
   decisions-before-programs: no new process-track RB or multi-agent review program while any
-  ballot item is older than 14 days; (3) governance-code freeze until MVP-C (no new checks.sh
-  stage, governance test module, skill or hook; bug fixes only); (4) decision-log entries <= 150
+  ballot item is older than 14 days (ballot-execution artifacts exempt, as defined in B-05(C));
+  (3) governance-code freeze until MVP-C (no new checks.sh stage, governance test module, skill
+  or hook; bug fixes only), except the P-6 acceptance stage and the FR it needs, which MVP-L
+  requires; (4) decision-log entries <= 150
   words, execution recorded in the PR, not RB-xxxa lines; (5) an operator merge or push to main is
   a decision, logged the same day. **Default: all five.** Age: new. Unblocks nothing directly;
   bounds D-016/01a.
@@ -521,7 +547,8 @@ The bulk line itself changes no FR, SC, charter or constitution text. Shape, pla
   >= margin AND one-sided 95% lower bound > 0; verdict PASS / REJECT / INSUFFICIENT_EVIDENCE
   (insufficient below 30 valid clusters; aim for 50); metric = per-class IoU pooled from summed
   confusion matrices, macro-averaged over classes with ground-truth pixels, `ignore_index` for
-  cloud, nodata and padding (superseding RB-013's convention for evaluation); margin >= the
+  cloud, nodata and padding (superseding RB-013's convention for evaluation); the class set is
+  fixed from the full holdout manifest, not recomputed per bootstrap replicate; margin >= the
   run-to-run spread T029 measures over >= 3 seeds; operator-approve mode until gate calibration
   tests pass. Age: new. Unblocks: RS:T026, P-3, P-4.
 - **B-11 Registry semantics (FR-006).** Aliases champion/challenger/baseline with a recorded
@@ -529,28 +556,45 @@ The bulk line itself changes no FR, SC, charter or constitution text. Shape, pla
   aliases.** Proposed text for the later amendment (not the RB-016 PR): "Registry aliases
   champion/challenger/baseline; promotion moves champion to a version whose gate verdicts against
   @champion and @baseline pass; rollback moves it to the recorded previous_champion; consumers
-  resolve aliases at job start (batch) or by poll (online)." Age 35 d (part of old "D-2").
-  Unblocks: T071's final naming; RS:T028/T059.
+  resolve aliases at job start (batch) or by poll (online)." Requiring a pass against both
+  @champion and @baseline is an intersection-union test, which does not inflate the
+  false-promotion rate [domain knowledge]. Age 35 d (part of old "D-2"). Unblocks: T071's final
+  naming; RS:T028/T059.
 - **B-12 Adapter disposition and the hexagon (old "D-2").** (A) keep the catalog, dataversion
   and registry ports, reshape dataversion and registry, delete tiles and compute; real clients
-  (T059/T060) behind them, file-backed local adapters for MVP-L; (B) delete ports/, keep domain/;
+  (T059/T060) behind them; for MVP-L, the MLflow client on a sqlite tracking URI for the registry
+  and a file-backed adapter only for data versioning; (B) delete ports/, keep domain/;
   (C) write five adapters to the ports as they stand (reject: two shape mismatches; the registry
   adapter would inherit 03c). **Default (A).** Age 35 d. Unblocks: T059, T060, P-1.
 - **B-13 MVP serving pattern.** Batch-first (a scoring job writes a classified COG and a class
   histogram per scene; FastAPI + canary stay in Phase 4, US6 is P2), or online FastAPI in the
   MVP. **Default: batch-first** (03e); needs a later FR-009 amendment. Age: new. Unblocks: P-5,
   RS:T043.
-- **B-14 Trigger composition and the meaning of SC-003.** (a) per-band PSI/KS alone (status
-  quo); (b) PSI/KS as diagnostics only; (c) per-class input drift on SCL-clear pixels against a
-  day-of-year-matched reference AND (prediction-class shift OR weak-label mIoU drop), verdict
-  DRIFTED / STABLE / INSUFFICIENT_DATA. **Default (c).** SC-003: "organic" means fired by the
-  pre-registered, frozen configuration on real imagery; thresholds frozen by a decision-log line
-  after a >= 12-month historical replay whose in-season null window yields 0 triggers; a trigger
-  whose candidate fails the gate is logged as a false alarm (at most one per soak). Defining
-  "organic" this way is a reading that tightens Constitution VI ("≥ 1 organically drift-triggered
-  retrain (not forced)", constitution.md:29) and needs no amendment; making the false-alarm cap
-  binding would put new text in SC-003 and needs a spec amendment. Age: new. Unblocks:
-  RS:T034-T037, P-8.
+- **B-14 Trigger composition, reference, threshold freezing, and the meaning of SC-003.** (a)
+  per-band PSI/KS alone (status quo); (b) PSI/KS as diagnostics only; (c) the composed trigger
+  below. The three-state verdict DRIFTED / STABLE / INSUFFICIENT_DATA is not part of this item:
+  spec.md:67 already requires telling "no clean data" from "distribution shift". **Default (c):**
+  Trigger = input drift on SCL-clear pixels measured against the champion's training reference
+  (US4: "vs. training reference", spec.md:31; rebased on promotion and rollback) AND
+  (prediction-class shift OR a weak-label mIoU drop against the champion's holdout score). The
+  AND-condition, not a season-matched reference, suppresses harmless drift, so seasonal drift that
+  hurts the model still triggers, as spec.md:5 intends; a day-of-year-matched comparison stays a
+  diagnostic, not the trigger reference. Thresholds are frozen by a decision-log line after a
+  historical replay of at least 12 months. The replay is an agent-authored job that the operator
+  executes as a [HUMAN] step with its own runbook, because agents have no catalog egress; it
+  streams imagery from the catalog without retaining it, so B-17's retention is unaffected. The
+  replay also estimates the expected number of organic triggers in the planned soak window; if
+  that is below one, the operator moves the soak window to span a phenological transition rather
+  than loosening thresholds. SC-003: a trigger fired by the frozen configuration on real imagery
+  counts as organic whatever the gate's verdict; promoted, rejected and insufficient-evidence
+  outcomes are recorded, not relabelled as false alarms, because under static labels real land
+  change can make a challenger fail (D-016/04g). The composition uses only methods on Principle
+  II's list (PSI, KS, prediction-distribution shift, IoU) and changes trigger policy, not drift
+  math, so plan.md R-06's bar on "improving the drift math" does not apply — the operator should
+  confirm that reading. Defining "organic" this way tightens Constitution VI ("≥ 1 organically
+  drift-triggered retrain (not forced)", constitution.md:29) and needs no amendment; the trigger
+  condition itself adds a weak-label mIoU input that US4 and FR-007 do not list, hence the spec
+  amendment in the accept paragraph. Age: new. Unblocks: RS:T034, RS:T035, P-8.
 - **B-15 Data source and harmonization.** Keep Earth Search `sentinel-2-l2a` (FR-001), or move to
   `sentinel-2-c1-l2a` [unverified]. **Default: keep**, harmonize reflectance by processing
   baseline onto a fixed 10 m UTM grid, fix the README's "Planetary Computer"; the operator
@@ -579,8 +623,9 @@ The bulk line itself changes no FR, SC, charter or constitution text. Shape, pla
   Unblocks: RS:T046/T049.
 - **B-20 Meaning of SC-006.** **Default:** add a rebuild-plus-restore drill to the Soak
   Readiness Gate, and keep T051 as the rebuild-runbook test that constitution.md:21 requires
-  once *during* the soak; a data restore during the soak does not reset the soak clock. This
-  reading needs no constitution amendment; moving the only rebuild test before the soak would.
+  once *during* the soak. Whether a restore during the soak resets the soak clock is the
+  operator's reading of Constitution VI; the panel proposes that it does not. This reading needs
+  no constitution amendment; moving the only rebuild test before the soak would.
   Age: new. Unblocks: RS:T048/T051.
 
 ### Group 4 — already-pending housekeeping
@@ -616,7 +661,6 @@ The bulk line itself changes no FR, SC, charter or constitution text. Shape, pla
 | 72 h burn-in; >= 3 scheduled ingests | Soak Readiness Gate | Panel judgement: spans a weekend and one Sentinel-2 revisit at the short end of its ~2.5-5-day range [domain knowledge]; 72 h does not span a 5-day revisit. ">= 3 scheduled ingests" in 72 h assumes an ingest cadence of 24 h or less. |
 | < 60% disk at day 42 | Soak Readiness Gate | Panel judgement: headroom above k3s's 5%-free eviction threshold (06c) for growth after the soak. |
 | >= 12-month replay | B-14, P-8 | One full phenological cycle [domain knowledge]. |
-| <= 1 false alarm per soak | B-14 | [panel judgement; free parameter]. |
 | 6-month backfill; ~50 GB total | B-17 | PLAT estimate from the 05f and 06c volumes. |
 | One MGRS tile; two fixture tiles | B-17, B-15 | [panel judgement; free parameter]. |
 | False-pass <= 0.05 + 2 MC SE; power >= 0.8 at 2x margin | P-4 | Conventional alpha and power; 2 MC SE covers Monte Carlo noise at 300 seeds. |
@@ -635,15 +679,19 @@ creates no G-x entry and changes no gate bar.
 **MVP-L — laptop walking skeleton** (agent-built; needs B-05's waiver). An executable acceptance
 test (planned path tests/acceptance/test_walking_skeleton.py) in a CI stage needing no Docker,
 GPU, network or secrets. It drives the pipeline as **separate processes** (forcing persistence,
-config loading and a composition root) under a local config profile: file-backed data
-versioning, an MLflow registry on a sqlite tracking URI, recorded scene fixtures, planted
-learnable labels, a pinned holdout manifest, fixed seeds.
+config loading and a composition root) under a local config profile with recorded scene
+fixtures, planted learnable labels, a pinned holdout manifest and fixed seeds. MVP-L uses the
+MLflow client on a sqlite tracking URI for the registry (the real registry API, no server) and a
+file-backed adapter only for data versioning (lakeFS has no embedded mode [domain knowledge]).
+The registry adapter is T059, re-scoped: the alias registry adapter, tested against
+sqlite-backed MLflow pinned to the server version via pin-a-tool; mlflow becomes a pinned
+dependency through pin-a-tool when T059 executes.
 
 1. ingest → data commit → train v1 → persist artifact + lineage envelope → register →
    operator-approve step → v1 is champion (and baseline).
 2. The batch scoring job writes per-scene class histograms with the champion.
 3. N shifted scenes, each in a fresh process → exactly one trigger episode; replaying a scene is
-   a no-op; an INSUFFICIENT_DATA scene neither advances nor resets hysteresis.
+   a no-op; an INSUFFICIENT_DATA scene neither advances nor resets hysteresis (spec.md:67).
 4. Retrain v2 → the gate scores champion and challenger on the holdout → PASS → promotion; a
    label-permuted challenger → REJECT; degenerate evidence → INSUFFICIENT_EVIDENCE.
 5. Rollback → v1 is champion and its weight hash matches v1's envelope; a no-target rollback
@@ -655,25 +703,29 @@ Gate: MVP-L green in CI. Grown from tests/e2e/test_user_journey_ct_loop.py, whic
 same scenario on the cluster, every cluster task an adapter swap that keeps MVP-L green. Exit
 evidence: G-1, G-2, G-3 logged; observability core and backups live; >= 2 real scenes ingested
 unattended on schedule into real lakeFS; an Argo GPU training run whose MLflow run records
-{lakeFS commit, git SHA, config hash}; forced drift injected on a lakeFS branch (never main)
-producing exactly one episode with `trigger_source=forced`; at least one promotion AND one
-rejection; the champion scoring scenes; a timestamped rollback drill under 10 minutes (first
+{lakeFS commit, git SHA, config hash}; two forced episodes, each injected on a lakeFS branch
+(never main) and each producing exactly one episode with `trigger_source=forced`: one with the
+normal retrain configuration (expected PASS, so a promotion) and one with a deliberately degraded
+training configuration such as permuted labels (expected REJECT); for each, the
+trigger-to-verdict wall-clock is recorded against SC-002's 12 h budget; the champion scoring
+scenes; a timestamped rollback drill under 10 minutes (first
 SC-004 measurement); a reproducibility re-run within a stated tolerance (US2/T029).
 
 **Soak Readiness Gate** (operator-run, [HUMAN]; task minted when B-04 and B-20 are logged;
 before T052): rebuild-plus-restore drill passed with RTO recorded (B-20); every alert class
 fire-drilled, including the off-node heartbeat; 72 h unattended burn-in with >= 3 scheduled
 ingests; projected disk use at day 42 < 60%; drift thresholds frozen by a decision-log line after
-the historical replay (in-season null run: 0 triggers); B-18's required security items closed.
-Then T052.
+the operator-run historical replay; B-18's required security items closed; a pre-soak reset: the
+champion, the trigger state and the drift reference are re-established from a model trained on
+main only, so no branch-injected data reaches the soak. Then T052.
 
 **Out of the MVP:** T030-T032 fine-tune; the US6 canary split (T043's canary half, T044, T045);
 T050; calibration.py, ranking.py, spatial.py; KServe; T054/T055 except where MVP-C needs them.
 
 | Phase (numbers kept) | Proposed contents | Proposed gate |
 |---|---|---|
-| 0 Substrate | Before T003: B-01, B-03's driver pin, T074's Step 0 and driver hold. Before T005: B-02, the rest of B-03 and of T074. Before T012: T072. Before the first scheduled DAG: observability core (T046/T049) and backups (T073; restore runbook in T048). | plan.md:100 plus: an alert reaches the operator; one backup restored into a scratch namespace. |
-| L Walking skeleton | New; parallel to Phase 0 only under B-05's waiver. P-1..P-6, T071, RS:T036. | MVP-L green in CI. |
+| 0 Substrate | Preferred before T003, never blocking it: B-01, B-03's driver pin, T074's Step 0 and driver pin (if T074 has not landed, T003 runs runbook 00 as written and records node identity and the exact driver version; T074 then pins and holds that version before T005). Before T005: B-02, the rest of B-03 and of T074. Before T012: T072. Before the first scheduled DAG: observability core (T046/T049) and backups (T073; restore runbook in T048). | plan.md:100 plus: an alert reaches the operator; one backup restored into a scratch namespace. |
+| L Walking skeleton | New; parallel to Phase 0 only under B-05's waiver. P-1..P-6, T071, T059 (re-scoped: alias registry adapter tested against sqlite-backed MLflow pinned via pin-a-tool), RS:T036. | MVP-L green in CI. |
 | 1 Ingestion | Adds RS:T016/T017, P-7, live fixtures, pagination. | 2 real scenes on schedule; 4 bands + SCL; harmonized across PB04; valid fraction recorded. |
 | 2 Training, registry | Labels + holdout manifest before real training; T032 not the gate. | plan.md:102 reproducibility (T029) + tagged holdout manifest. |
 | 3 CT loop | Re-scopes per D-016/11. | MVP-C (T040). |
@@ -757,14 +809,16 @@ none**; each needs its own authorization.
   otherwise one minted with B-17; exercised at T051. Depends on T072, B-17. Serves SC-006, SC-001.
 - **T074 [A:runbook-writer]** Runbook 00/01 addendum: B-01 OS path, data filesystem,
   secrets-encryption, held driver, two-pod GPU env-form test at T012 (01g, 06c, 06e, 06g, 06h).
-  Step 0 (node identity) and the exact driver pin and hold before T003, because runbook 00, which
-  T003 executes, installs the driver; the rest before T005. Depends on B-01, B-03, B-17. Serves
-  SC-001, SC-006, R-05.
+  T074's Step 0 and driver pin are preferred before T003 but never block it: if T074 has not
+  landed, the operator runs T003 on runbook 00 as written, records node identity and the exact
+  driver version installed in T003's verification block, and T074 then pins and holds that
+  version before T005. Depends on B-01, B-03, B-17. Serves SC-001, SC-006, R-05.
 - **T075 [A:runbook-writer]** Runbooks for unpaired [HUMAN] tasks T029, T032, T049; T050 a runbook
   or a B-16 deferral (tasks.md:7; first pass H13, corrected to include T049). Serves US8.
 
-T074 precedes G-1, and T075 may be authored before the [HUMAN] tasks it pairs; both are numbered
-in the T013+ range, so the RB that authorizes them must name the gate-table row it relies on.
+Phase 6 and 7 IDs have no phase gate of their own; their execution is authorized only by an RB
+or a named G-1 waiver that lists them (RB-012 and RB-015 precedent). B-05(b)'s waiver is that
+list for T071-T075. No new gate-table row is proposed.
 
 **Minted on decision** — not in tasks.md:
 
@@ -775,9 +829,9 @@ in the T013+ range, so the RB that authorizes them must name the gate-table row 
 | P-3 | Holdout manifest (ground-CRS blocks, buffered >= 92 px, hashed, lakeFS-tagged) + evaluation accumulator (per-cluster confusion matrices, ignore mask) | B-07, B-08, B-10 | 02a, 02b |
 | P-4 | Gate replacement + calibration tests = RB-010 Parts 3, 14 re-scoped (false-pass <= 0.05 + 2 MC SE at 30 clusters; power >= 0.8 at 2x margin; identical/degraded REJECT; degenerate INSUFFICIENT_EVIDENCE) | B-09, B-10 | 02c-e |
 | P-5 | Batch scoring job (classified COG + class histogram per scene; CRS kept; 100% of valid pixels; alias version recorded) | B-13, B-11, P-2 | 03e |
-| P-6 | Walking-skeleton acceptance test + CI stage (a new FR, per RB-012a(b)), with a positive control: a planted seam defect turns the stage red | B-04, B-05, P-1..P-5, T071, RS:T036 | 07a |
+| P-6 | Walking-skeleton acceptance test + CI stage (a new FR, per RB-012a(b)), with a positive control: a planted seam defect turns the stage red | B-04, B-05, P-1..P-5, T071, T059 (re-scoped), RS:T036 | 07a |
 | P-7 | Harmonized AOI loader (10 m UTM grid; SCL resampled; PB offset; NO_DATA/cloud masked, never 0; fractions recorded) | B-15 | 05b |
-| P-8 | Historical replay (>= 12 months) and threshold freeze (null window 0 triggers; decision-log line) | B-14, P-7 | 04b |
+| P-8 | Agent-authored historical replay job (>= 12 months) + runbook, executed by the operator as a [HUMAN] step; estimates expected organic triggers in the soak window; thresholds frozen by a decision-log line | B-14, P-7 | 04b |
 | P-9 | Data retention and capacity (compressed crops, retention, capacity alert) | B-17 | 05f, 06c |
 
 **Why P-n are not minted:** minting a task whose shape depends on an open ballot item would
@@ -803,6 +857,8 @@ agreement to do them.
 | 5 | guard.py:180-183 quoted-pipe false positive. | 07g |
 | 6 | Split the 20-platform root module; dedupe versions.md:18-24 against :11-17. | 06i |
 | 7 | eval/spatial.py:91 patches `numpy.random.permutation` process-wide during Moran inference. | 02f |
+| 8 | docs/development/REFERENCE_GUIDE.md:164-165 says `rollback_production` reinstates the prior Production version; at c545701 it restores the highest-numbered Archived version. This PR changes only that file's two section pointers. | 03c |
+| 9 | The PreToolUse guard compares a named push remote (`git push origin ...`) with the URL allowlist without resolving the name, so it blocks an allow-listed origin, and it read a `2>&1` redirection as a push destination (observed while pushing this PR). | 07g |
 
 ## Verified correct — no action
 
