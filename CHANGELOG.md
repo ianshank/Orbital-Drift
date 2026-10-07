@@ -16,6 +16,52 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
+### Changed — charter v1.1 amendment (DEC-002 override and RB-017, decided 2026-10-06)
+
+Commits: the commits on this branch (`claude/charter-v1-1-amendment`), cut from `c971603`.
+Executes the charter amendment that B-04 and the DEC-002 override require (a B-05(C)
+ballot-execution artifact, which RB-019 authorizes and the override exempts from the process-PR
+cap). The governance-skill, adversarial-reviewer, plan.md, NEXT_STEPS and tasks.md edits are
+status and pointer fixes the amendment makes necessary: each corrects text that the amendment, or
+the ballot lines it executes, made false. They are not claimed as cap-exempt artifacts in their
+own right. Docs track; no `src/` code, gate bar, FR/SC text, G-x, checkbox or tasks.md phase
+heading changed. B-06 rule 4's decision-log rule 2 amendment is not in this change.
+
+- `charter/PROJECT-CHARTER.md` v1.1 (amendment line cites the DEC-002 override and RB-017):
+  §4's milestone table gains `ML` (plan.md Phase L, exit = its gate line); §5 notes DEC-002's
+  override; §6 replaces the 4 PRs / 16 h per-milestone budget with the override's WIP limit,
+  process-PR cap and exemptions, restates R-2 and R-5 (R-5's 25% re-based on each task's PR-plan
+  estimate) and records that slices after G-3 are unmapped; §7's risk row follows.
+- Governance skill: charter pin v1.1; the Budgets section replaced by the override's limits; a
+  "Process rules (B-06, adopted by RB-017)" block after the gate table.
+- `.claude/agents/adversarial-reviewer.md` step 7 no longer says charter §6 awaits its amendment.
+- `plan.md`: the RB-016 header note records that the ballot was decided; the §Phases intro gains
+  a status sentence on which proposal clauses the logged ballot now decides (B-04's bind from
+  charter v1.1).
+- `docs/development/NEXT_STEPS.md`: status lines corrected now that the ballot is logged and B-04
+  binds — §1 items 1 and 3, §2's intro, §3's heading and intro, §4's intro and step 0's exit.
+- `tasks.md` Phase 7 (prose only): the re-scope table's intro adds that B-04's elements bind after
+  the charter amendment; the moves note gains a status sentence (B-16 and B-19 logged by RB-017,
+  B-04 binding from charter v1.1, phase headings deliberately unchanged).
+- This file: this entry and the missing PR #33 entry below.
+
+### Changed — ballot decisions logged (DEC-002 override, RB-017 to RB-019, 2026-10-06, PR #33)
+
+Commits: `0a704b6` (first draft: the DEC-002 and RB-017 lines), then the review-fix commits
+`7a4398a` (RB-018 split out), `34b1399`, `a7bfec6` (RB-019 split out), `a018ff4` and `a757510`;
+merged as `c971603`. Decision PR (log lines plus skill mirror) plus the pointer edits RB-019
+names; RB-019 places PR #33 outside the process-PR cap. This entry was added by the charter v1.1
+change above.
+
+- `docs/decision-log.md`: the DEC-002 override (D-016/09 B-05(C): WIP limit plus process-PR
+  cap), RB-017 (ballot defaults B-01..B-23 accepted except B-09), RB-018 (B-09 option C, the
+  Principle II method) and RB-019 (named G-1 waiver and authorizations), each recorded as logged
+  by the operator merging PR #33.
+- Governance skill: the four lines mirrored; the Phase 1+ gate-table row gains RB-019's waiver
+  exception; the Budgets section marked superseded by the override line.
+- Pointer edits: `adversarial-reviewer.md` step 7; the D-011 status header (DECIDED by RB-018)
+  and D-016's (ballot decided); T054 and T061 gate wording in tasks.md.
+
 ### Changed — plan rewrite (RB-016, D-016, 2026-10-06)
 
 Commits: `eba16fc` (D-016), `a34850e` (RB-016), `123fb1f` (rewrite), the review-fix commits

@@ -112,7 +112,7 @@ review recorded in `docs/decisions/016-sdlc-ml-panel-review.md` (D-016, measured
 RB-016 creates task IDs T071-T075 and records the re-scope of existing tasks in the table below.
 **It authorizes the execution of NONE of them.** Each needs its own authorization: they are
 authorized only by an RB or a named G-1 waiver that lists them (see below in this intro). Findings are cited as `D-016/0n[x]`; ballot items as `B-nn` (= `D-016/B-nn`),
-each of which is an open operator decision with a recommended default, not a decision. Work whose
+each of which was an open operator decision with a recommended default until the ballot was decided on 2026-10-06 (the DEC-002 override and RB-017 to RB-019 in `docs/decision-log.md`, which govern). Work whose
 shape depends on an open ballot item is not minted here (packages P-1 to P-9,
 `docs/development/NEXT_STEPS.md` §6). T066-T070 stay reserved and unminted: T066 is already
 claimed by the docker-smoke item named in D-015, CHANGELOG and `tests/unit/test_serve_packaging.py`,
@@ -123,7 +123,7 @@ each P-n once minted; T046 authoring). No new gate-table row is proposed.
 
 ### Re-scope table (checkbox state unchanged)
 
-Each row is a proposed amendment; any element implementing a B-nn default binds only once that item is logged (and, for B-08, B-11, B-13 and B-14, after its spec amendment); until then the task text above and spec.md govern. Elements that implement a ballot default carry "(proposal: B-nn)"; unmarked elements are defect fixes independent of any ballot item. The task's own text above
+Each row is a proposed amendment; any element implementing a B-nn default binds only once that item is logged (and, for B-07's labels, B-08, B-11, B-13 and B-14, after its spec amendment; for B-04, after its charter amendment, charter v1.1); until then the task text above and spec.md govern. Elements that implement a ballot default carry "(proposal: B-nn)"; unmarked elements are defect fixes independent of any ballot item. The task's own text above
 is unchanged; its line carries a one-line **RB-016** marker pointing here.
 
 | Task | Re-scope | Finding (D-016/…) |
@@ -155,7 +155,9 @@ is unchanged; its line carries a one-line **RB-016** marker pointing here.
 
 Moves in this table (T046/T049 into Phase 0, T030-T032 and T050 off the MVP path, T040 as the MVP-C
 gate) are proposals pending B-04, B-16 and B-19; the phase headings above are unchanged until the
-operator logs them.
+operator logs them. **Status (2026-10-06):** RB-017 logged B-16 and B-19; B-04 binds from charter
+v1.1. The phase headings above are deliberately unchanged by the charter v1.1 change; moving them
+is a separate change.
 
 ### New tasks
 

@@ -38,10 +38,10 @@ Review protocol for a code diff:
 6. Gate check: confirm the implemented task was actually unlocked in
    `docs/decision-log.md`; implementation past a gate is a Blocker regardless of code
    quality.
-7. Budget check (charter §6, DEC-002): apply the latest DEC-002 line in
-   `docs/decision-log.md` (and RB-019's row placement for waived work), which supersedes the 4 PRs / 16 h per-milestone budget that
-   charter §6 still states until its amendment PR lands. Work that exceeds that line's
-   limits, or consumes them with no accounting, is a Major.
+7. Limits check (charter §6, DEC-002): charter §6 v1.1 restates the latest DEC-002 line
+   in `docs/decision-log.md` (the WIP limit and the process-PR cap); apply that line and
+   RB-019's row placement for waived work. Work that exceeds that line's limits, or
+   consumes them with no accounting, is a Major.
 
 Domain checklist (carried over from peer-reviewer — apply to engineering diffs):
 - Correctness under spec.md's edge cases (STAC outage, cloud starvation vs drift,

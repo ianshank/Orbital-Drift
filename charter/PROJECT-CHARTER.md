@@ -1,5 +1,9 @@
 # Project Charter — Orbital-Drift
-**Change ID:** `adopt-governance-kit` | **Charter v1.0** | 2026-08-21
+**Change ID:** `adopt-governance-kit` | **Charter v1.1** | 2026-10-06 (v1.0: 2026-08-21)
+**Amendment v1.1:** decided 2026-10-06 by the DEC-002 override and RB-017
+(`docs/decision-log.md`), executed by PR <n>: §4 adds Phase L (B-04); §5 notes DEC-002's
+override; §6 states the override's limits and restates R-2 and R-5 (B-05(C)); §7's risk row
+follows.
 **Subordinate to:** `.specify/memory/constitution.md` v1.1.0 — on any conflict the
 constitution wins (its own Governance clause). Constraints below are the *mechanized*
 form of its principles, never a replacement.
@@ -54,6 +58,7 @@ documents (D11); adopting the OpenSpec Node CLI (D13 — its own future decision
 |---|---|---|
 | M-gov | Governance kit landed (this change) | All boxes in `openspec/changes/adopt-governance-kit/tasks.md` ticked; full gate chain green; every new gate red-checked |
 | M0 | plan.md Phase 0 — Substrate | Exit: plan.md Phase-0 gate line |
+| ML | plan.md Phase L — Walking skeleton (MVP-L) | Exit: plan.md Phase-L gate line |
 | M1 | plan.md Phase 1 — Ingestion & data lifecycle | Exit: plan.md Phase-1 gate line |
 | M2 | plan.md Phase 2 — Training & registry | Exit: plan.md Phase-2 gate line |
 | M3 | plan.md Phase 3 — CT loop | Exit: plan.md Phase-3 gate line |
@@ -67,7 +72,8 @@ design (D8) — this table never restates them, so it cannot drift from them.
 - **DEC-001** Adopt the governance kit under Constitution v1.1.0 — default proposal: the
   approved import plan. *Logged 2026-08-21.*
 - **DEC-002** Milestone budgets — default proposal: max 4 PRs and 16 engineering-hours
-  per milestone before mandatory owner review. *Logged 2026-08-21.*
+  per milestone before mandatory owner review. *Logged 2026-08-21.* Overridden 2026-10-06
+  (B-05(C)); see §6.
 - **DEC-003** Remote allowlist contents — default proposal: this repo's `origin` only.
   *Logged 2026-08-21.*
 - **DEC-004** Coverage floor — default proposal: `fail_under = 90` over
@@ -76,23 +82,44 @@ design (D8) — this table never restates them, so it cannot drift from them.
 > Defaults are proposals, not decisions. A decision exists ONLY when it appears in
 > `docs/decision-log.md`. Verbal summaries and urgency never substitute.
 
-## 6. Carve-out budgets and review triggers
-Budgets per DEC-002: **16 hours** engineering time, **max 4 PRs** per milestone, before
-mandatory owner review.
+## 6. WIP limit, process-PR cap and review triggers
+DEC-002's per-milestone budget (4 PRs and 16 engineering-hours) is overridden by the DEC-002
+override line in `docs/decision-log.md` (2026-10-06, D-016/09 B-05(C)), in force from that
+line. This section restates that line; where the two differ, the line governs.
+Review-enforced.
+- **WIP limit.** At most one slice ahead of the last G-x entry. A slice is one row of
+  `docs/development/NEXT_STEPS.md` §4's sequence table at `98ad85f`; rows 1 and L are one
+  slice until G-3. Runbook tasks T074 and T075 are outside the limit. RB-019 places the
+  waived tasks in rows.
+- **Process-PR cap.** A rolling cap of one process-track PR per product PR merged, counted
+  from zero at the override line. Decision PRs (decision-log lines plus their
+  governance-skill mirror) are outside the cap.
+- **Exemptions.** Exempt from the cap and from B-06's 14-day rule (rule 2, adopted by
+  RB-017): B-05(C)'s ballot-execution artifacts (the spec, constitution and charter
+  amendments and the decision-log rule change that logged ballot items require, and B-03's
+  re-verification), T063's checkbox, and the D-008, D-011, D-014 and D-016 status headers.
+
 Review triggers (any one fires an immediate stop-and-review):
 - **R-1** gitleaks hit, or any secret-shaped content in a governed path (C-4)
-- **R-2** budget exhausted while a blocking `[HUMAN]`/G-x gate remains unresolved
+- **R-2** work would exceed either limit while a blocking `[HUMAN]`/G-x gate is unresolved;
+  any exceedance stops for owner review, an operator log line
 - **R-3** any gate metric worsens vs the previous milestone baseline
 - **R-4** coverage drops below the DEC-004 floor, or a test is skipped rather than fixed (C-6)
-- **R-5** task overrun >25% of milestone budget — also caps adversarial-review fix-cycles
-  at 2; a third recurrence of the same Major finding = STOP, escalate to the operator
+- **R-5** task overrun >25% of that task's estimate recorded in its PR plan before work
+  starts; with no estimate, R-5 fires at start (the 25% figure is kept, re-based per task,
+  as the conservative reading, since the override changed only the base) — also caps
+  adversarial-review fix-cycles at 2; a third recurrence of the same Major finding = STOP,
+  escalate to the operator
 - **R-6** any dependency or import that violates a hard constraint (esp. C-2)
+- **Unmapped slices.** Slices after G-3 are not yet mapped: until an operator log line maps
+  later G-x entries to NEXT_STEPS §4 rows, work past the G-3 slice is an unsatisfied gate.
+  This restates the gate rule; it creates no new permission.
 
 ## 7. Risks
 | Risk | Impact | Mitigation |
 |---|---|---|
 | Guard false-negatives (compound/quoted commands) | Cluster mutation slips through | C-1 is layered: settings deny-list remains authoritative; guard header documents the not-modelled family; `[HUMAN]` protocol backstops |
-| Governance overhead stalls feature work | T002+ slips | DEC-002 budgets + R-2; process-track PRs need a logged RB entry, never ride along |
+| Governance overhead stalls feature work | T002+ slips | DEC-002 limits (WIP slice + process-PR cap) + R-2; process-track PRs need a logged RB entry, never ride along |
 | Generated projections diverge from tasks.md | Two owners of scope | D9 trace-consistency test + `projections` byte-drift stage |
 | Charter/constitution drift | Conflicting rules | Subordination clause above; charter amendments only via decide→execute |
 
