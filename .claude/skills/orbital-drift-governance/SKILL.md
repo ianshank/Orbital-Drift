@@ -12,7 +12,7 @@ description: Operating rules for all work in Orbital-Drift. Consult before ANY i
 | Feature Phase-0 authoring (T002, T004, T006–T011; extended to T001b and T004a by RB-007) | ONLY if the log contains a G-0 entry (T001b/T004a additionally require RB-007). T006 additionally requires re-review against T003/T005 verification blocks before T011 may cite it (tasks.md AUTHORED-PROVISIONAL note); per RB-007 its authoring is deferred until G-1 exists. |
 | Any `[HUMAN]` task (T003, T005, T012, T022, T029, T032, T040, T045, T049–T052) | NEVER executed by an agent (Constitution I). STOP, hand off the paired runbook, wait; the operator logs the matching G-x entry on completion. |
 | Feature Phase 1+ tasks (T013+) | ONLY if the log contains the G-x entry for the preceding phase gate (G-1 = T003 done, G-2 = T005 done, G-3 = T012 done, then per plan.md phase gates). Exception so far: exactly the work RB-019's named G-1 waiver lists, plus RB-021's registry/ops.py slice of T054 carried in T071's PR #36, within the DEC-002 override's WIP limit; a later RB naming further tasks amends this row in the same change. |
-| Process/docs-track PRs | ONLY via a logged RB entry naming the PR batch. NEVER via urgency, and never as a side effect of engineering work. |
+| Process/docs-track PRs | ONLY via a logged RB entry naming the PR batch. NEVER via urgency, and never as a side effect of engineering work (RB-020(4)'s status and pointer fixes excepted, charter §6). |
 | Any `git push` | ONLY to remotes listed in `.claude/allowed-remotes.txt` (charter C-5; guard-enforced once Phase-6 lands). |
 
 If a gate is not satisfied: STOP, report which entry is missing, and do nothing else on
@@ -31,14 +31,45 @@ decisions. Re-check the log before trusting this snapshot.
 constraints; the constitution supersedes everything. `planning/roadmap.md` and
 `planning/jira-import.csv` are generated projections — never hand-edit them; regenerate
 ONLY at a re-baseline.
-Charter version pin: **v1.0** (2026-08-21) — if the charter header disagrees, stop and
-reconcile before relying on any constraint.
+Charter version pin: **v1.1**, decided 2026-10-06; in force from PR #35's merge (RB-019b) —
+if the charter header disagrees, stop and reconcile before relying on any constraint.
 
-## Budgets (charter §6, DEC-002)
-**Superseded by the DEC-002 override line in `docs/decision-log.md` (B-05(C)), which governs.** The text that follows is charter §6 as written, pending its amendment PR.
-4 PRs AND 16 engineering-hours per milestone before mandatory owner review.
-Process-scope PRs sit outside milestone budgets ONLY when a named RB entry says so —
-never assume standing.
+## WIP limit and process-PR cap (charter §6 v1.1; DEC-002 override; RB-020)
+Mirrors charter §6 v1.1, which restates the DEC-002 override line in `docs/decision-log.md`
+(2026-10-06, B-05(C)) and RB-020 (operator, in-session 2026-10-07), which clarifies it and
+changes no limit. Charter §6 governs this mirror; those two log lines govern both.
+Review-enforced.
+- **WIP limit.** At most one slice ahead of the last G-x entry. A slice is one row of
+  `docs/development/NEXT_STEPS.md` §4's sequence table at `98ad85f`. Runbook tasks T074 and
+  T075 are outside the limit. Rows 1 and L stay one slice until G-3, which opens row 2;
+  Phase L work continues until MVP-L is green; each later row opens at the prior row's
+  plan.md gate (RB-020 (operator, in-session 2026-10-07)). RB-019 places T072 and T073 in
+  row 1, and P-1 to P-6, T036 and T059 in row L; the §4 table places the tasks it lists.
+  Tasks that neither RB-019 nor the table places (e.g. T014, T015, T023, T033, and the open
+  tasks in T053-T065 other than T059) have no slice yet: an open operator decision.
+- **Process-PR cap.** A rolling cap of one process-track PR per product PR merged, counted
+  from zero at the override line. A product PR executes a tasks.md task ID that an RB or G-1
+  waiver authorizes (code, infra, runbook or P-n); ballot-execution and decision PRs neither
+  earn nor use a cap credit (RB-020 (operator, in-session 2026-10-07)). Decision PRs are
+  decision-log lines plus their governance-skill mirror. A process-track PR is outside the
+  cap only via the override's list, a decision PR (RB-020) or a named log line; never assume
+  standing.
+- **Ride-alongs.** Status and pointer fixes in NEXT_STEPS, plan.md, tasks.md or CHANGELOG
+  that a logged decision makes false may ride in the PR executing it, outside the cap, each
+  listed in its merge record as "beyond the authorizing line's text, accepted by this
+  merge" (RB-020 (operator, in-session 2026-10-07)).
+- **Exemptions.** Exempt from the cap and from the 14-day rule (D-016/09 B-06(2), adopted by
+  RB-017): B-05(C)'s ballot-execution artifacts (the spec, constitution and charter
+  amendments and the decision-log rule change that logged ballot items require, and B-03's
+  re-verification), T063's checkbox, and the D-008, D-011, D-014 and D-016 status headers.
+- **R-2** work would exceed either limit while a blocking `[HUMAN]`/G-x gate is unresolved;
+  any exceedance stops for owner review, an operator log line
+- **R-5** task overrun >25% of that task's estimate, recorded as `R-5 estimate: Nh` in its
+  branch's first commit message and repeated in the PR description (RB-020 (operator,
+  in-session 2026-10-07)); with no estimate, R-5 fires at start (the 25% figure is kept; per
+  D-016/09 B-05(C), the overrun test is re-based to the task's estimate) — also caps
+  adversarial-review fix-cycles at 2; a third recurrence of the same Major finding = STOP,
+  escalate to the operator
 
 ## Decisions since 2026-08-20, one line each
 - **DEC-001** (08-21): governance kit adopted; Constitution v1.1.0 amendment.
@@ -89,6 +120,8 @@ never assume standing.
 - **RB-020** (10-07): in-session clarifications of the DEC-002 override (rule 6): rows 1+L one slice until G-3, G-3 opens row 2, Phase L continues until MVP-L is green, later rows open at the prior row's gate; a product PR executes an authorized task ID (ballot-execution and decision PRs neither earn nor use credit); R-5 estimate as 'R-5 estimate: Nh' in the branch's first commit message and in the PR description; status and pointer fixes in NEXT_STEPS, plan.md, tasks.md or CHANGELOG that a decision makes false ride its PR outside the cap, each listed in the merge record as 'beyond the authorizing line's text, accepted by this merge'. No limit changed; no task authorized.
 
 - **RB-021** (10-07): in-session (rule 6), ratifying work already on PR #36: T071's PR may carry registry/ops.py decision logging (a module-limited slice of T054; configure_logging wiring stays gated) and the register_model_version metadata copy (code-hygiene finding N-12). Nothing else of T054 and no other hygiene finding; the gate table's T013+ row names this slice.
+
+- **RB-019b** (10-07): execution record under RB-019 (B-06 rule 5 merge record for PR #35): charter v1.1 executes the DEC-002 override as RB-020 clarifies it (WIP limit, process-PR cap, ride-alongs, exemptions, R-2/R-5 restated) and B-04 (Phase L). Earns and uses no cap credit; B-04 binding meets only RB-019's B-04 condition; RB-020(4) fixes and the amendment's governance mirrors are listed in the line by file and line. Authorizes and mints no task.
 
 - **RB-019c** (10-07): execution record under RB-019 (B-06 rule 5 merge record for PR #36): T071 — rollback restores the version in Production immediately before the current one (stack semantics), raises NoRollbackTargetError when none exists; conformance suite over both registries; RB-021's decision logging and metadata copy; docs this change made false listed. First product PR under the DEC-002 override: the process-PR cap gains one credit. No stage rename, no G-x; ticks only T071.
 

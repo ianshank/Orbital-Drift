@@ -23,17 +23,21 @@ questions to "the forward-roadmap", by name (RB-012, `docs/decisions/013-plan-ar
 ## 1. Verdict
 
 1. The binding constraint is the operator's queue of unmade decisions and physical tasks, not
-   agent capacity, and nothing measures its age. Every agent-executable task ID is blocked;
-   `main` has had 0 merges in 25 days; 0 of the last 10 merged PRs added capability (D-016/01a, 01c).
+   agent capacity, and nothing measures its age. At c545701 every agent-executable task ID was
+   blocked, `main` had had 0 merges in 25 days, and 0 of the last 10 merged PRs added capability
+   (D-016/01a, 01c). Since 2026-10-06, RB-019 (`docs/decision-log.md`) authorizes a listed set
+   of tasks under a named G-1 waiver, on the conditions it and the DEC-002 override line state.
 2. As specified, the plan cannot reach its own definition of done: the drift trigger cannot fire
    under the mandated executor (D-016/04a), the promotion gate cannot reject a regression and
    decides on an inflated metric (D-016/02a-b), rollback can restore a rejected model
    (D-016/03c), and one disk failure ends the 6-week soak because nothing is backed up (D-016/06a).
-3. The fix: decide the ballot (§2; most items can be accepted in one decision-log line), then a
+3. The fix: decide the ballot (§2; most items can be accepted in one decision-log line; done
+   2026-10-06 by the DEC-002 override and RB-017 to RB-019), then a
    two-stage MVP — a laptop walking-skeleton acceptance test (MVP-L), then the same scenario
    operated on the cluster (MVP-C) — then a Soak Readiness Gate, then the soak (§3, §4).
 4. RB-012 answered this same request ("deeper peer review, rewrite plans") 31 days ago; the
-   decisions it surfaced are still open. This rewrite is only useful if the ballot is decided.
+   decisions it surfaced were then still open. This rewrite is only useful if the ballot is decided
+   (it was, 2026-10-06: the DEC-002 override and RB-017 to RB-019; RB-018 decided Principle II).
    This PR itself adds about 14,300 words to the plan of record (wc -w at 8ef380b against
    c545701: D-016 8,500; tasks.md +2,093; NEXT_STEPS +1,768; plan.md +1,380; traceability +336;
    CHANGELOG +212); the review fixes after 8ef380b bring the total to about 16,300 words (same
@@ -43,10 +47,15 @@ questions to "the forward-roadmap", by name (RB-012, `docs/decisions/013-plan-ar
 
 ## 2. The operator ballot
 
-`B-nn` in this file means ballot item `D-016/B-nn`. Recommended defaults are panel proposals, not
-decisions; nothing below is decided until the operator logs it. D-016/09 holds each item's full
-options and rationale. Age is in days to 2026-10-06 from the item's first appearance in git
-(D-016/01a); "new" means first raised by D-016.
+`B-nn` in this file means ballot item `D-016/B-nn`. **Decided 2026-10-06** in
+`docs/decision-log.md`: the DEC-002 override (B-05(C)), RB-017 (every default accepted except
+B-09; none struck), RB-018 (B-09, option C) and RB-019 (the authorizations). Where this section
+and those lines differ, the log governs. Items RB-017 makes wait for an amendment (B-04, B-06
+rule 4, B-07's labels and title wording, B-08, B-11, B-13, B-14, B-23's T064) bind when their
+amendment PRs land; B-04's is the charter v1.1 amendment. The tables below keep the panel's
+proposals as written. D-016/09 holds each item's full options and rationale. Age is in days to
+2026-10-06 from the item's first appearance in git (D-016/01a); "new" means first raised by
+D-016.
 
 **Retired labels.** The 2026-09-11 revision's "D-1", "D-2" and "D-3" map to D-1 → B-09,
 D-2 → B-12 (with B-11), D-3 → B-01 plus the T003 `[HUMAN]` task; older documents that cite them
@@ -95,6 +104,10 @@ resolve through this mapping.
 | B-22 | D-012 F2/F5 | F2: training-only stride field, evaluation tiles every pixel once; F5: next-link pagination with sortby | 35 | T061 remainder, RS:T016 |
 | B-23 | Close stale items | Mark D-014 triaged; retire RB-008a(b) and RB-008a(e) as WONTFIX; retire T064 only via an amendment to its governance-harness scenario | 30-45 | Housekeeping only |
 
+*From here to the end of §2 is the pre-decision text, kept as written. RB-017 took this path,
+with B-09 logged as RB-018, the authorizations as RB-019 and B-05's DEC-002 part as the DEC-002
+override line.*
+
 **Accept-the-defaults path.** The operator may log one decision-log line accepting every
 recommended default except the items they strike or change. That turns 23 decisions into one
 sitting. Example only — **not logged, and not a decision**:
@@ -123,11 +136,13 @@ line itself changes no FR, SC, charter or constitution text.
 
 ---
 
-## 3. The MVP (proposal pending B-04)
+## 3. The MVP (B-04: logged by RB-017; binds from charter v1.1, with the exceptions below)
 
 The repo never used "MVP". Constitution VI is unchanged: the 6-week soak is the deliverable. The
 MVP is an intermediate milestone whose purpose is to make the soak startable. Nothing here creates
-or implies a G-x entry; the gates below bind only once B-04 is logged.
+or implies a G-x entry. B-04 was logged by RB-017, and the gates below bind from charter v1.1
+except elements resting on B-07's labels, B-08, B-11, B-13 or B-14, which wait for those
+amendments (RB-017); binding authorizes no work and mints no task.
 
 **MVP-L — laptop walking skeleton** (agent-built; needs B-05's waiver). An executable acceptance
 test (planned path `tests/acceptance/test_walking_skeleton.py`, package P-6) in a CI stage that
@@ -163,7 +178,7 @@ is recorded against SC-002's 12 h budget; the champion scoring scenes; a timesta
 SC-004 measurement); a reproducibility re-run within a stated tolerance (US2, T029).
 
 **Soak Readiness Gate** (operator-run, `[HUMAN]`; its task is minted when B-04 and B-20 are
-logged; before T052): restore drill passed with RTO recorded; every alert class
+logged, and minting needs its own authorization; before T052): restore drill passed with RTO recorded; every alert class
 fire-drilled, including the off-node heartbeat; 72 h unattended burn-in with ≥ 3 scheduled ingests;
 projected disk use at day 42 < 60%; drift thresholds frozen by a decision-log line after the
 operator-run historical replay, as the most sensitive (lowest-threshold) set meeting B-14's false-trigger bound; B-18's
@@ -181,7 +196,13 @@ MVP-C needs them.
 ## 4. Sequence
 
 Phase numbers match `specs/001-orbital-drift-ct/plan.md` § Phases, which states each gate.
-Moves and gates beyond the 2026-09 text are proposals pending the ballot items named.
+Moves and gates beyond the 2026-09 text were proposals pending the ballot items named. Items
+logged by RB-017 and RB-018 are now decided; B-04 binds from charter v1.1; amendment-dependent
+items (B-07's labels, B-08, B-11, B-13, B-14) bind when their spec amendments land. Step 0 done
+2026-10-06 (DEC-002 override, RB-017 to RB-019). The DEC-002 override's WIP limit reads this
+table as of `98ad85f`; per RB-020(1), rows 1 and L stay one slice until G-3, which opens row 2,
+Phase L work continues until MVP-L is green, and each later row opens at the prior row's
+plan.md gate.
 
 | Step | Slice | Who | Ballot items | Gates and tasks | Exit |
 |---|---|---|---|---|---|
