@@ -31,14 +31,16 @@ What these tests pin down (load-bearing keys, not exact formatting):
   on — NRI must not appear in active, non-comment template content);
 * it carries no host-specific literals (Constitution III / D-000/D-10): no
   GPU UUIDs, no IPv4 addresses, no hostname substitutions;
-* the k3s tag and bundled-containerd version it claims to be verified against
-  are the ones ``docs/decisions/versions.md`` pins, and every other live copy
-  of that pin (runbooks 00 and 01, swept whole; ``tasks.md``'s T005
+* the k3s tag and bundled-containerd version it targets are the ones
+  ``docs/decisions/versions.md`` pins (whose k3s and containerd rows must cite
+  that tag in their Source URLs), and every other live copy of that pin moves
+  in lockstep with it (B-03 / RB-019): runbooks 00 and 01, swept line by line,
+  with runbook 01's install command, expected output and Step 5 verification
+  asserted to name the pin; and ``tasks.md``'s T005
   ``RUNTIME_CONFIG_SOURCE=file`` coupling row, checked row-scoped by a
   separate test because it deliberately keeps a historical containerd
-  version) moves in lockstep with it (B-03 / RB-019). The pin is DERIVED
-  from versions.md, never restated here, so the next pin move needs no edit
-  to this test.
+  version. The pin is DERIVED from versions.md, never restated here, so the
+  next pin move needs no edit to this test.
 
 Source of truth for the required stanza:
 ``docs/decisions/000-phase0-technical-decisions.md`` D-02/D-02b and
@@ -56,11 +58,12 @@ VERSIONS_MD = REPO_ROOT / "docs" / "decisions" / "versions.md"
 TASKS_MD = REPO_ROOT / "specs" / "001-orbital-drift-ct" / "tasks.md"
 
 # Every file where the recommended k3s pin (and the containerd it bundles) is a
-# LIVE pin: the template's verified-at claims and the two runbooks the operator
-# executes. These files are swept whole. tasks.md's T005 coupling row is also a
-# live copy, but it is NOT listed here: it deliberately keeps the historical
-# containerd version the coupling was first posed on, so a whole-file sweep
-# would flag it. It gets its own row-scoped check instead
+# LIVE pin: the template's provenance and Targets comments and the two runbooks
+# the operator executes. These files are swept line by line, whole. tasks.md's
+# T005 coupling row is also a live copy, but it is NOT listed here: it
+# deliberately keeps the historical containerd version the coupling was first
+# posed on, so a whole-file sweep would flag it. It gets its own row-scoped
+# check instead
 # (test_tasks_md_t005_coupling_row_names_the_current_pins). This module is
 # deliberately absent: it names no version at all, so a pin move needs no edit
 # here. Historical ADRs (D-000, D-008, D-016) are deliberately absent too —
@@ -74,11 +77,33 @@ LIVE_K3S_PIN_FILES = (
 
 # A k3s release tag (stable or rc) and a k3s-fork containerd version. The two
 # shapes cannot collide: k3s tags carry `+k3sN`, the containerd fork `-k3sN`.
-# The tag pattern also matches the URL-encoded `%2B` form, because release-page
-# links cite the tag that way — a stale tag inside a provenance URL is still a
-# stale tag.
-_K3S_TAG = re.compile(r"\bv\d+\.\d+\.\d+(?:-rc\d+)?(?:\+|%2B)k3s\d+")
+# The tag pattern also matches the URL-encoded `%2B` form in either case,
+# because release-page links cite the tag that way, and a tag written without
+# its leading `v` — a stale tag in either shape is still a stale tag.
+# _norm_tag() folds every matched shape back to the canonical `vX.Y.Z+k3sN`.
+_K3S_TAG = re.compile(r"\bv?\d+\.\d+\.\d+(?:-rc\d+)?(?:\+|%2[Bb])k3s\d+")
 _K3S_CONTAINERD = re.compile(r"\bv?\d+\.\d+\.\d+-k3s\d+(?:\.\d+)?")
+# "Not followed by a word character or a `.digit` suffix": a pinned value must
+# end where the pin ends, so `2.2.7-k3s1.35` does not pass for `2.2.7-k3s1`,
+# while a sentence-final period still does.
+_END = r"(?!\w|\.\d)"
+
+
+def _norm_tag(tag: str) -> str:
+    """Canonical form of a matched k3s tag: `+` (not `%2B`/`%2b`), leading `v`."""
+    tag = re.sub("%2[Bb]", "+", tag)
+    return tag if tag.startswith("v") else f"v{tag}"
+
+
+def _marks_as_counterexample(line: str, tag: str) -> bool:
+    """True when ``line`` names ``tag`` as the thing NOT to use (`not `tag``).
+
+    Runbook 00's pin cell ("**not** `<tag>`") and runbook 01's "Why this pin,
+    not `<tag>`" line are the only legitimate homes for D-000/D-07's
+    counterexample tag; anywhere else that tag is a stale or wrong copy.
+    """
+    return re.search(rf"\bnot\**\s+`?{re.escape(tag)}{_END}", line) is not None
+
 
 # containerd config-v3 CRI runtime plugin table id; TOML permits either quote
 # style around the dotted key, so accept both.
@@ -357,9 +382,37 @@ def _versions_md_k3s_pins() -> tuple[str, str, str]:
     return pin, not_recommended, containerd
 
 
+def _versions_md_source_cell(label_pattern: str) -> str:
+    """The Source cell (third column) of the single versions.md row matching ``label_pattern``."""
+    rows = re.findall(
+        rf"^\|\s*{label_pattern}.*$",
+        VERSIONS_MD.read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
+    )
+    assert len(rows) == 1, (
+        f"versions.md must carry exactly one row matching {label_pattern!r}; found {len(rows)}"
+    )
+    cells = [cell.strip() for cell in rows[0].strip().strip("|").split("|")]
+    assert len(cells) >= 3, f"versions.md row has no Source column: {rows[0]!r}"
+    return cells[2]
+
+
 def test_versions_md_k3s_rows_are_internally_consistent() -> None:
-    """The recommended k3s pin, the latest-stable row and the containerd row agree."""
-    _versions_md_k3s_pins()
+    """The recommended k3s pin, the latest-stable row and the containerd row agree.
+
+    The k3s and containerd rows' Source cells must also cite the pinned tag and
+    no other k3s tag: the containerd value is read from that tag's release
+    notes, so a Source URL left on an older tag is provenance for a value this
+    file no longer pins.
+    """
+    pin, _, _ = _versions_md_k3s_pins()
+    for label in (r"k3s \(recommended\)", r"containerd \(bundled in k3s "):
+        source = _versions_md_source_cell(label)
+        tags = {_norm_tag(t) for t in _K3S_TAG.findall(source)}
+        assert tags == {pin}, (
+            f"versions.md's {label!r} row's Source cell must cite the pinned k3s tag {pin} "
+            f"and no other; it cites {sorted(tags) or 'no k3s tag'}: {source!r}"
+        )
 
 
 def test_template_targets_the_k3s_pin_recorded_in_versions_md() -> None:
@@ -379,37 +432,79 @@ def test_template_targets_the_k3s_pin_recorded_in_versions_md() -> None:
 
 
 def test_runbook_01_installs_the_pinned_k3s_tag() -> None:
-    """Runbook 01 Step 4's install command passes versions.md's recommended pin."""
+    """Runbook 01 installs, expects and verifies versions.md's recommended pin.
+
+    Step 4's install command must pass the pin, Step 4's expected output must
+    show the install script using it, and Step 5's expected output and its
+    Verification sentence must name it — a Verification that checks for the
+    wrong tag passes a wrong install.
+    """
     pin, _, _ = _versions_md_k3s_pins()
     runbook = (REPO_ROOT / "docs" / "runbooks" / "01-k3s-install.md").read_text(encoding="utf-8")
     assert f'INSTALL_K3S_VERSION="{pin}"' in runbook, (
         f"runbook 01's install command does not pin INSTALL_K3S_VERSION to {pin} — "
         "the operator would install a version versions.md does not record"
     )
+    tag = re.escape(pin)
+    for what, pattern in (
+        ("Step 4's expected `Using <tag> as release` line", rf"Using\s+{tag}\s+as release"),
+        ("Step 5's expected `k3s version <tag>` line", rf"k3s version\s+{tag}{_END}"),
+        ("Step 5's Verification `contains `<tag>`` check", rf"first line contains\s+`{tag}`"),
+    ):
+        assert re.search(pattern, runbook), (
+            f"runbook 01's {what} does not name the pinned k3s tag {pin} (B-03)"
+        )
 
 
 def test_live_k3s_pin_copies_match_versions_md() -> None:
     """Every live copy of the k3s pin and its containerd names versions.md's values.
 
-    A file may name only the recommended pin or the latest-stable row (the
-    D-000/D-07 counterexample the runbooks explain away). Any other k3s tag, or
-    any k3s-fork containerd version other than the pinned one, is a copy left
-    behind by a pin move.
+    Checked line by line, in every shape ``_K3S_TAG`` and ``_K3S_CONTAINERD``
+    recognise (with or without a leading `v`, `+` or `%2B`/`%2b`):
+
+    * every k3s tag is the recommended pin, except D-000/D-07's counterexample
+      (versions.md's latest-stable row), which is allowed ONLY on a line that
+      marks it as the counterexample (`not `<tag>``);
+    * no line marks the pinned tag itself as the counterexample;
+    * every k3s-fork containerd version is the pinned one, unless the nearest
+      k3s tag before it on the same line is the counterexample on a line that
+      marks it — that is the counterexample's own containerd, not a stale copy.
+
+    Anything else is a copy left behind by a pin move.
     """
-    pin, not_recommended, containerd = _versions_md_k3s_pins()
-    allowed_tags = {pin, not_recommended}
+    pin, counterexample, containerd = _versions_md_k3s_pins()
+    pinned_containerd = containerd.removeprefix("v")
     stale: list[str] = []
     for path in LIVE_K3S_PIN_FILES:
         text = path.read_text(encoding="utf-8")
         rel = path.relative_to(REPO_ROOT).as_posix()
         if pin not in text:
             stale.append(f"{rel}: never names the pinned k3s tag {pin}")
-        tags = {t.replace("%2B", "+") for t in _K3S_TAG.findall(text)}
-        for tag in sorted(tags - allowed_tags):
-            stale.append(f"{rel}: names k3s tag {tag}; versions.md pins {pin}")
-        containerds = {c.removeprefix("v") for c in _K3S_CONTAINERD.findall(text)}
-        for found in sorted(containerds - {containerd.removeprefix("v")}):
-            stale.append(f"{rel}: names bundled containerd {found}; versions.md pins {containerd}")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            where = f"{rel}:{lineno}"
+            marks = _marks_as_counterexample(line, counterexample)
+            if _marks_as_counterexample(line, pin):
+                stale.append(f"{where}: marks the pinned k3s tag {pin} as the counterexample")
+            tags = [(m.start(), _norm_tag(m.group())) for m in _K3S_TAG.finditer(line)]
+            for _, tag in tags:
+                if tag == pin or (tag == counterexample and marks):
+                    continue
+                if tag == counterexample:
+                    stale.append(
+                        f"{where}: names the D-000/D-07 counterexample {tag} on a line "
+                        "that does not mark it as the counterexample"
+                    )
+                else:
+                    stale.append(f"{where}: names k3s tag {tag}; versions.md pins {pin}")
+            for m in _K3S_CONTAINERD.finditer(line):
+                owner = [tag for start, tag in tags if start < m.start()]
+                if owner and owner[-1] == counterexample and marks:
+                    continue
+                found = m.group().removeprefix("v")
+                if found != pinned_containerd:
+                    stale.append(
+                        f"{where}: names bundled containerd {found}; versions.md pins {containerd}"
+                    )
     assert not stale, (
         "k3s pin copies are out of lockstep with docs/decisions/versions.md (B-03):\n"
         + "\n".join(stale)
@@ -438,11 +533,11 @@ def test_tasks_md_t005_coupling_row_names_the_current_pins() -> None:
     )
     (row,) = rows
     containerd_bare = re.escape(containerd.removeprefix("v"))
-    assert re.search(rf"\bcontainerd\s+v?{containerd_bare}(?!\w)", row), (
+    assert re.search(rf"\bcontainerd\s+v?{containerd_bare}{_END}", row), (
         f"tasks.md's T005 coupling row does not say `containerd {containerd.removeprefix('v')}` "
         f"— versions.md pins bundled containerd {containerd} (B-03). Row: {row!r}"
     )
-    assert re.search(rf"\bk3s\s+{re.escape(pin)}(?!\w)", row), (
+    assert re.search(rf"\bk3s\s+{re.escape(pin)}{_END}", row), (
         f"tasks.md's T005 coupling row does not name `k3s {pin}`, the k3s tag "
         f"versions.md pins (B-03). Row: {row!r}"
     )

@@ -13,9 +13,10 @@
 #
 # FORM: base-extension, not a full static config. The first line delegates to
 #   k3s's built-in v3 base template ("compiled_template" gets a "base"
-#   associated template via templates.ParseTemplateFromConfig — verified at
-#   tag v1.35.9+k3s1, pkg/agent/templates/templates.go; re-verified for the
-#   B-03 pin move, see docs/decisions/versions.md 2026-10-07 finding 1). A
+#   associated template via templates.ParseTemplateFromConfig, in
+#   pkg/agent/templates/templates.go — read directly at the k3s tag D-008/D-01
+#   names; equivalent at v1.35.9+k3s1 by commit history (no byte comparison),
+#   see docs/decisions/versions.md 2026-10-07 finding 1(iii)). A
 #   full static copy of the base was rejected: it would freeze k3s's own
 #   defaults (snapshotter, cgroup driver, registry mirrors, pause image) at
 #   authoring time and turn every k3s patch release into silent config drift.
