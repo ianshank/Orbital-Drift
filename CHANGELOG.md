@@ -39,13 +39,13 @@ authorization.
   under RB-019), with its governance-skill bullet.
 - This file: this entry and the missing PR #33 entry below.
 
-#### Beyond the authorizing lines' text, accepted by this merge (each listed in RB-019b)
+#### Edits beyond RB-019's text, each listed in RB-019b
 
 "PR #33" means its lines (the DEC-002 override, RB-017, RB-018, RB-019); "the amendment" means
 this PR's charter v1.1. Line numbers are as merged.
 
-RB-020(4) status and pointer fixes (NEXT_STEPS, plan.md, tasks.md; each corrects text a logged
-decision made false):
+RB-020(4) status and pointer fixes, each beyond the authorizing line's text, accepted by this
+merge (NEXT_STEPS, plan.md, tasks.md; each corrects text a logged decision made false):
 
 - `specs/001-orbital-drift-ct/plan.md:5`: `B-nn` was an open decision until 2026-10-06; proposal
   labels kept, the §Phases status sentence governs (PR #33).
@@ -82,7 +82,7 @@ decision made false):
   binding from charter v1.1, phase headings unchanged and moving them needs its own authorization
   (PR #33, the amendment).
 
-Restating the amendment and RB-020(3) (outside RB-020(4)'s files):
+Also accepted by this merge, outside RB-020(4): restating the amendment and RB-020(3):
 
 - `.claude/skills/orbital-drift-governance/SKILL.md:15`: the gate table's process/docs-track row
   excepts RB-020(4)'s status and pointer fixes, as charter §6 and §7 now do.
@@ -95,7 +95,8 @@ Restating the amendment and RB-020(3) (outside RB-020(4)'s files):
   operator, not a fix-cycle Major; it checks the R-5 estimate (RB-020(3)) and that every
   ride-along is listed in the merge record with RB-020(4)'s label.
 
-Otherwise accepted by this merge:
+Also accepted by this merge, outside RB-020(4): text not made false by a line this PR
+executes, or a gap:
 
 - `specs/001-orbital-drift-ct/plan.md:26`: the Principle II method is decided by RB-018, to be
   executed under P-4, not "pending B-09". RB-018 made it false, and this PR does not execute
