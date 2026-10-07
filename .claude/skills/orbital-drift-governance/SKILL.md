@@ -11,7 +11,7 @@ description: Operating rules for all work in Orbital-Drift. Consult before ANY i
 | adopt-governance-kit tasks (openspec/changes/adopt-governance-kit/tasks.md) | ONLY if `docs/decision-log.md` contains a DEC-001 entry. |
 | Feature Phase-0 authoring (T002, T004, T006–T011; extended to T001b and T004a by RB-007) | ONLY if the log contains a G-0 entry (T001b/T004a additionally require RB-007). T006 additionally requires re-review against T003/T005 verification blocks before T011 may cite it (tasks.md AUTHORED-PROVISIONAL note); per RB-007 its authoring is deferred until G-1 exists. |
 | Any `[HUMAN]` task (T003, T005, T012, T022, T029, T032, T040, T045, T049–T052) | NEVER executed by an agent (Constitution I). STOP, hand off the paired runbook, wait; the operator logs the matching G-x entry on completion. |
-| Feature Phase 1+ tasks (T013+) | ONLY if the log contains the G-x entry for the preceding phase gate (G-1 = T003 done, G-2 = T005 done, G-3 = T012 done, then per plan.md phase gates). Exception so far: exactly the work RB-019's named G-1 waiver lists, within the DEC-002 override's WIP limit; a later RB naming further tasks amends this row in the same change. |
+| Feature Phase 1+ tasks (T013+) | ONLY if the log contains the G-x entry for the preceding phase gate (G-1 = T003 done, G-2 = T005 done, G-3 = T012 done, then per plan.md phase gates). Exception so far: exactly the work RB-019's named G-1 waiver lists, plus RB-021's registry/ops.py slice of T054 carried in T071's PR #36, within the DEC-002 override's WIP limit; a later RB naming further tasks amends this row in the same change. |
 | Process/docs-track PRs | ONLY via a logged RB entry naming the PR batch. NEVER via urgency, and never as a side effect of engineering work. |
 | Any `git push` | ONLY to remotes listed in `.claude/allowed-remotes.txt` (charter C-5; guard-enforced once Phase-6 lands). |
 
@@ -84,9 +84,9 @@ never assume standing.
 
 - **RB-019** (10-06): named G-1 waiver for T071-T075, re-scoped T036/T059, P-1..P-6 (each minted in its first product PR), T046 authoring; items needing B-04, B-07's label amendment, B-08, B-11, B-13 or B-14 wait for it. T072/T073 count in row 1; P-1..P-6, T036, T059 in row L. Also B-03 re-verification, the artifacts, T063 checkbox and ADR headers DEC-002 exempts, and PR #33's pointer edits (PR #33 outside the cap). RB-015 Part F stays gated. No G-x.
 
-- **RB-020** (10-07): in-session clarifications of the DEC-002 override (rule 6): rows 1+L one slice until G-3, G-3 opens row 2, later rows open at the prior row's gate; a product PR executes an authorized task ID (ballot-execution and decision PRs neither earn nor use credit); R-5 estimate in the branch's first commit message; ride-along status fixes disclosed in the merge record. No limit changed; no task authorized.
+- **RB-020** (10-07): in-session clarifications of the DEC-002 override (rule 6): rows 1+L one slice until G-3, G-3 opens row 2, Phase L continues until MVP-L is green, later rows open at the prior row's gate; a product PR executes an authorized task ID (ballot-execution and decision PRs neither earn nor use credit); R-5 estimate in the branch's first commit message; status and pointer fixes a decision makes false ride its PR outside the cap, listed in the merge record. No limit changed; no task authorized.
 
-- **RB-021** (10-07): in-session (rule 6): T071's PR #36 may carry registry/ops.py decision logging (a module-limited slice of T054; configure_logging wiring stays gated) and the register_model_version metadata copy (code-hygiene finding N-12). Nothing else of T054.
+- **RB-021** (10-07): in-session (rule 6), ratifying work already on PR #36: T071's PR may carry registry/ops.py decision logging (a module-limited slice of T054; configure_logging wiring stays gated) and the register_model_version metadata copy (code-hygiene finding N-12). Nothing else of T054 and no other hygiene finding; the gate table's T013+ row names this slice.
 
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after
