@@ -34,24 +34,41 @@ ONLY at a re-baseline.
 Charter version pin: **v1.1**, decided 2026-10-06; in force from PR #35's merge (RB-019b) —
 if the charter header disagrees, stop and reconcile before relying on any constraint.
 
-## WIP limit and process-PR cap (charter §6 v1.1; DEC-002 override)
-The DEC-002 override line in `docs/decision-log.md` (2026-10-06, B-05(C)) replaced the
-per-milestone budget; charter §6 v1.1 restates it, and the line governs. Review-enforced.
-- **WIP limit:** one slice ahead of the last G-x entry; a slice is one row of NEXT_STEPS
-  §4's table at 98ad85f; rows 1 and L are one slice until G-3; runbook tasks T074, T075 are
-  outside it. RB-019 places T072/T073 in row 1, and P-1..P-6, T036 and T059 in row L; the
-  §4 table places the rest. The override line maps no G-x entry after G-3 to a §4 row; that
-  mapping is an open operator decision.
-- **Process-PR cap:** one process-track PR per product PR merged, counted from zero at the
-  override line; decision PRs (log lines plus skill mirror) are outside it. A PR is outside
-  the cap only via the override's list or a named log line; never assume standing.
-- **Exempt** from the cap and the 14-day rule (D-016/09 B-06(2), adopted by RB-017):
-  B-05(C)'s ballot-execution artifacts, T063's checkbox, the D-008/011/014/016 status headers.
-- **R-2:** work that would exceed either limit stops for owner review (an operator log
-  line); while a blocking `[HUMAN]`/G-x gate is unresolved, that stop is R-2.
-- **R-5:** overrun >25% of the task's estimate recorded in its PR plan before work starts;
-  no estimate means R-5 fires at start. Fix-cycle cap 2; a third recurrence of the same
-  Major escalates to the operator.
+## WIP limit and process-PR cap (charter §6 v1.1; DEC-002 override; RB-020)
+Mirrors charter §6 v1.1, which restates the DEC-002 override line in `docs/decision-log.md`
+(2026-10-06, B-05(C)) and RB-020 (operator, in-session 2026-10-07), which clarifies it and
+changes no limit; where this text differs from them, they govern. Review-enforced. Both
+limits are checked when work starts.
+- **WIP limit.** At most one slice ahead of the last G-x entry. A slice is one row of
+  `docs/development/NEXT_STEPS.md` §4's sequence table at `98ad85f`. Runbook tasks T074 and
+  T075 are outside the limit. Rows 1 and L stay one slice until G-3, which opens row 2;
+  Phase L work continues until MVP-L is green; each later row opens at the prior row's
+  plan.md gate (RB-020 (operator, in-session 2026-10-07)). RB-019 places T072 and T073 in
+  row 1, and P-1 to P-6, T036 and T059 in row L; the §4 table places the tasks it lists.
+  Tasks that neither RB-019 nor the table places (e.g. T014, T015, T023, T033, and the open
+  tasks in T053-T065 other than T059) have no slice yet: an open operator decision, settled
+  when an RB authorizes each.
+- **Process-PR cap.** A rolling cap of one process-track PR per product PR merged, counted
+  from zero at the override line. A product PR executes a tasks.md task ID that an RB or G-1
+  waiver authorizes (code, infra, runbook or P-n); ballot-execution and decision PRs neither
+  earn nor use a cap credit (RB-020 (operator, in-session 2026-10-07)). Decision PRs are
+  decision-log lines plus their governance-skill mirror. A PR is outside the cap only via the
+  override's list, a decision PR (RB-020) or a named log line; never assume standing.
+- **Ride-alongs.** Status and pointer fixes that a logged decision makes false may ride in
+  the PR executing it, outside the cap, each listed in its merge record (RB-020 (operator,
+  in-session 2026-10-07)).
+- **Exemptions.** Exempt from the cap and from the 14-day rule (D-016/09 B-06(2), adopted by
+  RB-017): B-05(C)'s ballot-execution artifacts (the spec, constitution and charter
+  amendments and the decision-log rule change that logged ballot items require, and B-03's
+  re-verification), T063's checkbox, and the D-008, D-011, D-014 and D-016 status headers.
+- **R-2** work would exceed either limit while a blocking `[HUMAN]`/G-x gate is unresolved;
+  any exceedance stops for owner review, an operator log line
+- **R-5** task overrun >25% of that task's estimate, recorded as `R-5 estimate: Nh` in its
+  branch's first commit message and repeated in the PR description (RB-020 (operator,
+  in-session 2026-10-07)); with no estimate, R-5 fires at start (the 25% figure is kept; per
+  D-016/09 B-05(C), the overrun test is re-based to the task's estimate) — also caps
+  adversarial-review fix-cycles at 2; a third recurrence of the same Major finding = STOP,
+  escalate to the operator
 
 ## Decisions since 2026-08-20, one line each
 - **DEC-001** (08-21): governance kit adopted; Constitution v1.1.0 amendment.
@@ -97,7 +114,7 @@ per-milestone budget; charter §6 v1.1 restates it, and the line governs. Review
 
 - **RB-019** (10-06): named G-1 waiver for T071-T075, re-scoped T036/T059, P-1..P-6 (each minted in its first product PR), T046 authoring; items needing B-04, B-07's label amendment, B-08, B-11, B-13 or B-14 wait for it. T072/T073 count in row 1; P-1..P-6, T036, T059 in row L. Also B-03 re-verification, the artifacts, T063 checkbox and ADR headers DEC-002 exempts, and PR #33's pointer edits (PR #33 outside the cap). RB-015 Part F stays gated. No G-x.
 
-- **RB-019b** (10-07): execution record under RB-019 (B-06 rule 5 merge record for PR #35): charter v1.1 executes the DEC-002 override (WIP limit, process-PR cap, exemptions, R-2/R-5 restated) and B-04 (Phase L milestone). Cap-exempt; B-04 binding releases only RB-019's B-04 condition. Authorizes and mints no task; maps no slice after G-3.
+- **RB-019b** (10-07): execution record under RB-019 (B-06 rule 5 merge record for PR #35): charter v1.1 executes the DEC-002 override as RB-020 clarifies it (WIP limit, process-PR cap, ride-alongs, exemptions, R-2/R-5 restated) and B-04 (Phase L). Earns and uses no cap credit; B-04 binding meets only RB-019's B-04 condition; ride-along status fixes listed in the line. Authorizes and mints no task.
 
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after

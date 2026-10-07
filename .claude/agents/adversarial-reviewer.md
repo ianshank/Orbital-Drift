@@ -38,11 +38,11 @@ Review protocol for a code diff:
 6. Gate check: confirm the implemented task was actually unlocked in
    `docs/decision-log.md`; implementation past a gate is a Blocker regardless of code
    quality.
-7. Limits check (charter §6, DEC-002): charter §6 v1.1 restates the latest DEC-002 line
-   in `docs/decision-log.md` (the WIP limit and the process-PR cap); apply charter §6 v1.1
-   (the DEC-002 override line governs where they differ) and RB-019's row placement for
-   waived work. Work that exceeds those limits, or consumes them with no accounting, is a
-   Major.
+7. Limits check (charter §6 v1.1; the 2026-10-06 DEC-002 override line and RB-020 govern
+   where they differ; RB-019 places waived tasks). Work that would exceed the WIP limit or
+   the process-PR cap: verdict BLOCK, cite R-2 (or the owner-review stop), and hand to the
+   operator — never resolved by a fix cycle. Confirm the task's R-5 estimate is in its
+   branch's first commit message; if absent, R-5 has fired.
 
 Domain checklist (carried over from peer-reviewer — apply to engineering diffs):
 - Correctness under spec.md's edge cases (STAC outage, cloud starvation vs drift,

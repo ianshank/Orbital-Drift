@@ -142,7 +142,7 @@ The repo never used "MVP". Constitution VI is unchanged: the 6-week soak is the 
 MVP is an intermediate milestone whose purpose is to make the soak startable. Nothing here creates
 or implies a G-x entry. B-04 was logged by RB-017, and the gates below bind from charter v1.1
 except elements resting on B-07's labels, B-08, B-11, B-13 or B-14, which wait for those
-amendments (RB-019); binding authorizes no work and mints no task.
+amendments (RB-017); binding authorizes no work and mints no task.
 
 **MVP-L — laptop walking skeleton** (agent-built; needs B-05's waiver). An executable acceptance
 test (planned path `tests/acceptance/test_walking_skeleton.py`, package P-6) in a CI stage that
@@ -200,7 +200,9 @@ Moves and gates beyond the 2026-09 text were proposals pending the ballot items 
 logged by RB-017 and RB-018 are now decided; B-04 binds from charter v1.1; amendment-dependent
 items (B-07's labels, B-08, B-11, B-13, B-14) bind when their spec amendments land. Step 0 done
 2026-10-06 (DEC-002 override, RB-017 to RB-019). The DEC-002 override's WIP limit reads this
-table as of `98ad85f`.
+table as of `98ad85f`; per RB-020(1), rows 1 and L stay one slice until G-3, which opens row 2,
+Phase L work continues until MVP-L is green, and each later row opens at the prior row's
+plan.md gate.
 
 | Step | Slice | Who | Ballot items | Gates and tasks | Exit |
 |---|---|---|---|---|---|
@@ -221,7 +223,8 @@ Phase 0 of 6. Checkbox state lives in tasks.md: 14 of 73
 task lines are checked (T001, T001a, T001b, T002, T004, T004a, T007-T010, T056, T058, T062, T065;
 `grep -c '^- \[x\] T'` and `grep -c '^- \[[ x]\] T'` over tasks.md). PR#16/#17 landed most Phase
 1-4 application code ungated; RB-010 marked T013-T052 AUTHORED-PROVISIONAL pending T057. RB-010
-Parts 3 and 14 remain open behind B-09/B-10.
+Parts 3 and 14 remain open; B-09 was decided by RB-018 and B-10 accepted by RB-017, and the
+Parts execute only as P-4 (RB-018).
 
 | Area | Built (c545701) | Not built or defective | Evidence |
 |---|---|---|---|

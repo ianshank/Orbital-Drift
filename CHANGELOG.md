@@ -16,48 +16,82 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
-### Changed — charter v1.1 amendment (DEC-002 override and RB-017, decided 2026-10-06)
+### Changed — charter v1.1 amendment (DEC-002 override and RB-017, decided 2026-10-06; RB-020)
 
-Commits: the commits on this branch (`claude/charter-v1-1-amendment`), cut from `c971603`.
-Executes the charter amendment that B-04 and the DEC-002 override require (a B-05(C)
-ballot-execution artifact, which RB-019 authorizes and the override exempts from the process-PR
-cap). The non-charter edits are limited to text that the amendment, or the ballot lines it
-executes, made false, and ride on this PR's ballot-execution exemption as consequences of it (the
-RB-012a precedent); the process-PR cap count is unchanged. Part of that text is staleness left by
-PR #33's lines, corrected here: NEXT_STEPS §1 items 1, 3 and 4 and §2's intro and closing note,
-plan.md's header note, tasks.md's Phase 7 intro and B-07's labels in its re-scope note, and the
-missing PR #33 entry in this file. Docs track; no `src/` code, gate bar, FR/SC text, G-x, checkbox
-or tasks.md phase heading changed. No statement of B-06's process rules is added; they belong
-with rule 4's decision-log rule 2 amendment PR.
+Commits: `9751d66`, `e82ac53`, `7bc7e6e` and the fix commits after `7bc7e6e` on this branch
+(`claude/charter-v1-1-amendment`), cut from `c971603`. Executes the charter amendment that B-04
+and the DEC-002 override require (a B-05(C) ballot-execution artifact, which RB-019 authorizes and
+the override exempts from the process-PR cap), with RB-020's clarifications of the override
+(operator, in-session 2026-10-07; logged by decision PR #37). Under RB-020(2) this PR neither earns
+nor uses a cap credit. Docs track; no `src/` code, gate bar, FR/SC text, G-x, checkbox or tasks.md
+phase heading changed. No statement of B-06's process rules is added; adding one needs its own
+authorization.
 
 - `charter/PROJECT-CHARTER.md` v1.1 (header: decided 2026-10-06, in force from PR #35's merge;
-  amendment line cites the DEC-002 override and RB-017): §4's milestone table gains `ML` (plan.md
-  Phase L, exit = its gate line); §5 notes DEC-002's override; §6 replaces the 4 PRs / 16 h
-  per-milestone budget with the override's WIP limit (with RB-019's row placement), process-PR
-  cap and exemptions, restates R-2 and R-5 (25% kept; per D-016/09 B-05(C) the overrun test is
-  re-based to each task's PR-plan estimate) and records that the override line maps no G-x entry
-  after G-3 to a §4 row, an open operator decision; §7's risk row follows.
-- Governance skill: charter pin v1.1 (same wording as the charter header); the Budgets section
-  replaced by the override's limits, RB-019's row placement, the never-assume-standing rule for
-  the cap, and the 14-day rule's source (D-016/09 B-06(2), adopted by RB-017).
-- `.claude/agents/adversarial-reviewer.md` step 7 applies charter §6 v1.1, with the DEC-002
-  override line governing where they differ.
-- `plan.md`: the RB-016 header note says `B-nn` items were open until the ballot was decided; the
-  §Phases intro gains a status sentence (B-04's clauses bind from charter v1.1 except elements
-  resting on amendment-dependent items; binding authorizes no work and mints no task); Phase 5's
-  Soak Readiness Gate notes that minting its task needs its own authorization.
-- `docs/development/NEXT_STEPS.md`: §1 items 1, 3 and 4; §2's intro and closing note; §3's
-  heading and intro (the same B-04 exception) and the Soak Readiness Gate's minting note; §4's
-  intro (step 0 done; the WIP limit reads the table as of `98ad85f`). §4's table rows are
-  unchanged from `98ad85f`.
-- `tasks.md` Phase 7 (prose only): the intro says `B-nn` items were open until 2026-10-06; the
-  re-scope table's intro adds B-07's labels to the spec-amendment list and says B-04's elements
-  bind after the charter amendment; the moves note gains a status sentence (B-16 and B-19 logged
-  by RB-017, B-04 binding from charter v1.1, phase headings deliberately unchanged, moving them
-  needs its own authorization).
+  amendment line cites the DEC-002 override, RB-017 and RB-020): §4's milestone table gains `ML`
+  (plan.md Phase L, exit = its gate line); §5 notes DEC-002's override; §6 replaces the 4 PRs /
+  16 h per-milestone budget with the override's WIP limit (RB-020(1)'s slice rule, RB-019's row
+  placement, unplaced tasks an open operator decision), process-PR cap (RB-020(2)'s product-PR
+  definition; never assume standing), RB-020(4)'s ride-alongs and the exemptions, and restates R-2
+  and R-5 (estimate as `R-5 estimate: Nh` per RB-020(3); 25% kept, re-based per task per D-016/09
+  B-05(C); two-cycle cap kept); §7's risk row follows and excepts RB-020's ride-alongs.
 - `docs/decision-log.md`: RB-019b, the B-06 rule 5 merge record for this PR (an execution record
   under RB-019), with its governance-skill bullet.
 - This file: this entry and the missing PR #33 entry below.
+
+#### Ride-along status fixes (RB-020(4)), each listed in RB-019b
+
+Each corrects text that a logged decision made false. "PR #33" means its lines (the DEC-002
+override, RB-017, RB-018, RB-019); "the amendment" means this PR's charter v1.1.
+
+- `.claude/skills/orbital-drift-governance/SKILL.md:34-35`: charter version pin v1.0 → v1.1 (the
+  amendment).
+- `.claude/skills/orbital-drift-governance/SKILL.md:37-71`: the Budgets section (4 PRs / 16 h,
+  "pending its amendment PR") becomes a byte-identical mirror of charter §6's limit bullets, R-2
+  and R-5 (the DEC-002 override, RB-020, the amendment).
+- `.claude/agents/adversarial-reviewer.md:41-45`: step 7 applies charter §6 v1.1 with the
+  override line and RB-020 governing; work that would exceed a limit is a BLOCK handed to the
+  operator, not a fix-cycle Major; checks the R-5 estimate (the DEC-002 override's owner-review
+  stop, RB-020(3), the amendment).
+- `specs/001-orbital-drift-ct/plan.md:5`: `B-nn` was an open decision until 2026-10-06; proposal
+  labels kept, the §Phases status sentence governs (PR #33).
+- `specs/001-orbital-drift-ct/plan.md:26`: the Principle II method is decided by RB-018, to be
+  executed under P-4, not "pending B-09" (PR #33).
+- `specs/001-orbital-drift-ct/plan.md:108`: §Phases status sentence (PR #33; B-04's clauses, the
+  amendment, with RB-017's amendment-dependent exceptions).
+- `specs/001-orbital-drift-ct/plan.md:116`: the Soak Readiness Gate's task needs its own
+  authorization to be minted (RB-019's "authorizes nothing else", once the amendment binds B-04).
+- `docs/development/NEXT_STEPS.md:26-29`: §1 item 1 stated as measured at c545701, plus RB-019's
+  waiver (PR #33).
+- `docs/development/NEXT_STEPS.md:34-35`: §1 item 3, ballot decided (PR #33).
+- `docs/development/NEXT_STEPS.md:39-40`: §1 item 4, RB-012's decisions were then open (PR #33).
+- `docs/development/NEXT_STEPS.md:50-58`: §2's intro, ballot decided and amendment-dependent items
+  listed (PR #33; B-04's line, the amendment).
+- `docs/development/NEXT_STEPS.md:107-109`: §2's closing note marking the pre-decision text
+  (PR #33).
+- `docs/development/NEXT_STEPS.md:139` and `:143-145`: §3's heading and intro, B-04 logged and
+  binding with RB-017's exceptions (RB-017, the amendment).
+- `docs/development/NEXT_STEPS.md:181`: Soak Readiness Gate minting clause (as plan.md:116).
+- `docs/development/NEXT_STEPS.md:199-205`: §4's intro, ballot status, step 0 done, the WIP limit
+  reading the table as of `98ad85f` with RB-020(1)'s slice rule (PR #33, the amendment, RB-020).
+  §4's table rows are byte-identical to `98ad85f`.
+- `docs/development/NEXT_STEPS.md:226-227`: §5, RB-010 Parts 3 and 14 no longer "behind B-09/B-10"
+  (PR #33).
+- `specs/001-orbital-drift-ct/tasks.md:92-94`: T059/T060's adapter-disposition decision now exists
+  (RB-017, B-12); T059 waits per RB-019 on B-11's spec amendment (PR #33, the amendment).
+- `specs/001-orbital-drift-ct/tasks.md:102-103`: the T059 and T060 task lines keep "GATED on the
+  operator's adapter-disposition decision" and add a dated status note that it exists (RB-017,
+  B-12); T059 is authorized as re-scoped (RB-019) and waits on B-11, and no RB authorizes T060
+  yet (PR #33).
+- `specs/001-orbital-drift-ct/tasks.md:117`: Phase 7 intro, `B-nn` was an open decision until
+  2026-10-06 (PR #33).
+- `specs/001-orbital-drift-ct/tasks.md:128`: re-scope intro adds B-07's labels to the
+  spec-amendment list (an omission already present at `98ad85f`, in RB-016's text, which RB-017's
+  B-07 clause made false) and B-04's charter amendment (the amendment).
+- `specs/001-orbital-drift-ct/tasks.md:160-162`: moves note, B-16 and B-19 logged by RB-017, B-04
+  binding from charter v1.1, phase headings unchanged and moving them needs its own authorization
+  (PR #33, the amendment).
+- `CHANGELOG.md`: the missing PR #33 entry below (PR #33).
 
 ### Changed — ballot decisions logged (DEC-002 override, RB-017 to RB-019, 2026-10-06, PR #33)
 
