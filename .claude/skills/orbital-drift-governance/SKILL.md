@@ -115,7 +115,7 @@ Review-enforced.
 
 - **RB-019** (10-06): named G-1 waiver for T071-T075, re-scoped T036/T059, P-1..P-6 (each minted in its first product PR), T046 authoring; items needing B-04, B-07's label amendment, B-08, B-11, B-13 or B-14 wait for it. T072/T073 count in row 1; P-1..P-6, T036, T059 in row L. Also B-03 re-verification, the artifacts, T063 checkbox and ADR headers DEC-002 exempts, and PR #33's pointer edits (PR #33 outside the cap). RB-015 Part F stays gated. No G-x.
 
-- **RB-019b** (10-07): execution record under RB-019 (B-06 rule 5 merge record for PR #35): charter v1.1 executes the DEC-002 override as RB-020 clarifies it (WIP limit, process-PR cap, ride-alongs, exemptions, R-2/R-5 restated) and B-04 (Phase L). Earns and uses no cap credit; B-04 binding meets only RB-019's B-04 condition; RB-020(4) fixes and the other merge-accepted edits are listed in the line by file and line. Authorizes and mints no task.
+- **RB-019b** (10-07): execution record under RB-019 (B-06 rule 5 merge record for PR #35): charter v1.1 executes the DEC-002 override as RB-020 clarifies it (WIP limit, process-PR cap, ride-alongs, exemptions, R-2/R-5 restated) and B-04 (Phase L). Earns and uses no cap credit; B-04 binding meets only RB-019's B-04 condition; RB-020(4) fixes and the amendment's governance mirrors are listed in the line by file and line. Authorizes and mints no task.
 
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after

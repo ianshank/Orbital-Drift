@@ -23,7 +23,7 @@ Continuous Training pipeline for land-cover segmentation of Sentinel-2 L2A image
 
 ## Constitution Check
 - I: every apply-step in tasks.md is `[HUMAN]`; agents never execute them. PASS for the execution boundary. The runbook pairing is incomplete — T029, T032, T049 and T050 have no runbook-writer task — and is owned by T075.
-- II: stack fixed above; spec-guardian blocks imports from prior harness repos. **OPEN VIOLATION**, recorded by RB-010 (`docs/decision-log.md`, 2026-09-01): `eval/bootstrap.py` and `eval/superiority.py` hand-roll resampling and the promotion gate. The method choice was decided by RB-018 (B-09 option (C); `docs/decisions/011-principle-ii-eval-methods.md`), to be executed under P-4. Not PASS.
+- II: stack fixed above; spec-guardian blocks imports from prior harness repos. **OPEN VIOLATION**, recorded by RB-010 (`docs/decision-log.md`, 2026-09-01): `eval/bootstrap.py` and `eval/superiority.py` hand-roll resampling and the promotion gate. The method choice is pending B-09 (`docs/decisions/011-principle-ii-eval-methods.md`). Not PASS.
 - III–V, VII: enforced by CI gates live since T001 in Phase 0 — lint, type-check, unit, contract, DAG smoke, gitleaks (FR-011), coverage (FR-011a) and the adopt-governance-kit stages — not "defined in Phase 1" as an earlier revision said. PASS for the gates' existence; the smoke suite collects zero tests until T020 (traceability FR-011 note). Known gaps the gates do not catch: Principle III — `SuperiorityConfig.minimum_effect` has no config source and `auto_promote_margin` is never read (D-016/07c); Principle IV — the config hash is unusable as a lineage key (D-016/03g) and nothing is backed up (D-016/06a).
 - VI: Phase 5 completion reserved to operator. PASS.
 

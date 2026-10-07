@@ -223,8 +223,7 @@ Phase 0 of 6. Checkbox state lives in tasks.md: 14 of 73
 task lines are checked (T001, T001a, T001b, T002, T004, T004a, T007-T010, T056, T058, T062, T065;
 `grep -c '^- \[x\] T'` and `grep -c '^- \[[ x]\] T'` over tasks.md). PR#16/#17 landed most Phase
 1-4 application code ungated; RB-010 marked T013-T052 AUTHORED-PROVISIONAL pending T057. RB-010
-Parts 3 and 14 remain open; B-09 was decided by RB-018 and B-10 accepted by RB-017, and the
-Parts execute only as P-4 (RB-018).
+Parts 3 and 14 remain open behind B-09/B-10.
 
 | Area | Built (c545701) | Not built or defective | Evidence |
 |---|---|---|---|

@@ -37,9 +37,9 @@ authorization.
   B-05(C); two-cycle cap kept); §7's risk row follows and excepts RB-020(4)'s fixes.
 - `docs/decision-log.md`: RB-019b, the B-06 rule 5 merge record for this PR (an execution record
   under RB-019), with its governance-skill bullet.
-- This file: this entry and the missing PR #33 entry below.
+- This file: this entry.
 
-#### Edits beyond RB-019's text, each listed in RB-019b
+#### RB-020(4) fixes and the amendment's governance mirrors, each listed in RB-019b
 
 "PR #33" means its lines (the DEC-002 override, RB-017, RB-018, RB-019); "the amendment" means
 this PR's charter v1.1. Line numbers are as merged.
@@ -82,7 +82,7 @@ merge (NEXT_STEPS, plan.md, tasks.md; each corrects text a logged decision made 
   binding from charter v1.1, phase headings unchanged and moving them needs its own authorization
   (PR #33, the amendment).
 
-Also accepted by this merge, outside RB-020(4): restating the amendment and RB-020(3):
+Governance mirrors that executing the amendment updates (outside RB-020(4)'s files):
 
 - `.claude/skills/orbital-drift-governance/SKILL.md:15`: the gate table's process/docs-track row
   excepts RB-020(4)'s status and pointer fixes, as charter §6 and §7 now do.
@@ -92,35 +92,9 @@ Also accepted by this merge, outside RB-020(4): restating the amendment and RB-0
   and R-5; its intro says charter §6 governs the mirror and the two log lines govern both.
 - `.claude/agents/adversarial-reviewer.md:41-47`: step 7 applies charter §6 v1.1 with the
   override line and RB-020 governing; work that would exceed a limit is a BLOCK handed to the
-  operator, not a fix-cycle Major; it checks the R-5 estimate (RB-020(3)) and that every
-  ride-along is listed in the merge record with RB-020(4)'s label.
-
-Also accepted by this merge, outside RB-020(4): text not made false by a line this PR
-executes, or a gap:
-
-- `specs/001-orbital-drift-ct/plan.md:26`: the Principle II method is decided by RB-018, to be
-  executed under P-4, not "pending B-09". RB-018 made it false, and this PR does not execute
-  RB-018.
-- `docs/development/NEXT_STEPS.md:226-227`: §5, RB-010 Parts 3 and 14 no longer "behind B-09/B-10"
-  (RB-018 for B-09; PR #33).
-- `CHANGELOG.md`: the missing PR #33 entry below. It fills a gap; no decision made text false.
-
-### Changed — ballot decisions logged (DEC-002 override, RB-017 to RB-019, 2026-10-06, PR #33)
-
-Commits: `0a704b6` (first draft: the DEC-002 and RB-017 lines), then the review-fix commits
-`7a4398a` (RB-018 split out), `34b1399`, `a7bfec6` (RB-019 split out), `a018ff4` and `a757510`;
-merged as `c971603`. Decision PR (log lines plus skill mirror) plus the pointer edits RB-019
-names; RB-019 places PR #33 outside the process-PR cap. This entry was added by the charter v1.1
-change above.
-
-- `docs/decision-log.md`: the DEC-002 override (D-016/09 B-05(C): WIP limit plus process-PR
-  cap), RB-017 (ballot defaults B-01..B-23 accepted except B-09), RB-018 (B-09 option C, the
-  Principle II method) and RB-019 (named G-1 waiver and authorizations), each recorded as logged
-  by the operator merging PR #33.
-- Governance skill: the four lines mirrored; the Phase 1+ gate-table row gains RB-019's waiver
-  exception; the Budgets section marked superseded by the override line.
-- Pointer edits: `adversarial-reviewer.md` step 7; the D-011 status header (DECIDED by RB-018)
-  and D-016's (ballot decided); T054 and T061 gate wording in tasks.md.
+  operator, not a fix-cycle Major; it checks the R-5 estimate in both the first commit message
+  and the PR description (RB-020(3)), and that every ride-along is listed in the merge record
+  with RB-020(4)'s label.
 
 ### Changed — plan rewrite (RB-016, D-016, 2026-10-06)
 
