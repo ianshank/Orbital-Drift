@@ -16,6 +16,53 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
+### Fixed — registry rollback restores exactly the previous champion (T071, RB-019, 2026-10-07)
+
+Commit: the T071 commit on branch `claude/t071-rollback-previous-champion`, based on `c971603`.
+Product track, row L under the DEC-002 override line; authorized by RB-019's named G-1 waiver.
+spec-guardian and adversarial-reviewer reviews pending, so T071's checkbox stays `[ ]`.
+
+- **D-016/03c, both defects.** `rollback_production` (`src/orbital_drift/registry/ops.py`)
+  promoted the highest-numbered Archived version, so a rejected challenger that never served
+  became Production (D-016/08's v1/v2/v3 script returned 3), and with one version in Production
+  it archived that version and returned `None`. It now restores the version recorded as the
+  previous Production version when the current one was promoted, from an ordered promotion
+  history, and a rollback with no target raises `NoRollbackTargetError` (a `LookupError` with
+  `model_name`, `production_version` and `reason`) and changes nothing. Return type narrowed
+  from `int | None` to `int`; nothing in `src/` calls it, and the contract and e2e callers
+  (v1 promoted, v2 promoted, rollback expects 1) are unaffected.
+- **Repeated rollback is a stack (B-11's "rollback moves it to the recorded
+  previous_champion").** Each promotion to Production pushes a `PromotionRecord(version,
+  previous_production_version)`; each rollback pops the newest one and restores the version it
+  names, so a second rollback walks one promotion further back and raises once the oldest is
+  reached. A version rolled away from is never restored by a later rollback; a version that never
+  held Production is never a target. Re-promoting the Production version is a no-op; moving it
+  to another stage vacates Production, and the next promotion records no rollback target.
+  `promotion_history(model_name)` returns the stack as an immutable snapshot.
+- History updates run under the same `self._lock` as the stage transitions (T062's locking is
+  unchanged). A new test interleaves promotions and rollbacks across four threads and asserts
+  exactly one Production version after every successful operation; a mutant with the lock
+  removed from `rollback_production` fails it (and T062's test) in each of three runs.
+- Each promotion, archive and rollback decision is one record on the module logger with
+  `extra=` fields `registry_action`, `model_name`, `version`, `from_version`, `to_version` and
+  `reason` (the `eval/` pattern); a refused rollback logs at WARNING, and so does vacating
+  Production. The two message texts existing tests assert are kept; a promotion now logs
+  "Promoted model ..." where it logged "Transitioned model ... -> Production". No new config
+  field, no `print`.
+- **N-12:** `register_model_version` deep-copies `metadata` instead of storing the caller's dict.
+- Stage names are also exported as `NONE_STAGE`, `STAGING_STAGE`, `PRODUCTION_STAGE` and
+  `ARCHIVED_STAGE`; the stage names themselves are unchanged (champion naming waits for B-11).
+- Tests: new `tests/unit/test_registry_rollback_conformance.py` (29 collected: 14 behaviours
+  over `ModelRegistryOps` and ports/registry.py's `InMemoryModelRegistry`, plus one test pinning
+  the declared divergences). The in-memory fake's four divergences (it does not archive a
+  superseded version, duplicates history on re-promotion, never vacates Production, and accepts
+  any stage string) are asserted as divergences, not skipped. `tests/unit/test_registry_ops.py`
+  grows from 19 to 43 collected tests; the test that pinned the `None` return now pins the raise.
+- Not changed: `src/orbital_drift/ports/registry.py`; `get_stage_version` stays unlocked
+  (D-015 follow-up); `docs/development/` (NEXT_STEPS §8 and its as-built Registry row still
+  describe the pre-T071 target).
+- Traceability: FR-006's Tests cell cites the two test files; a dated T071 note is added.
+
 ### Changed — plan rewrite (RB-016, D-016, 2026-10-06)
 
 Commits: `eba16fc` (D-016), `a34850e` (RB-016), `123fb1f` (rewrite), the review-fix commits

@@ -2,17 +2,29 @@
 
 from __future__ import annotations
 
+import dataclasses
+import itertools
 import logging
+import pickle
 import queue
 import threading
 import time
-from collections.abc import ItemsView
-from typing import Any, Final
+from collections.abc import Callable, ItemsView
+from typing import Any, Final, get_args
 
 import pytest
 
 from orbital_drift.config import OrbitalDriftConfig
-from orbital_drift.registry.ops import ModelRegistryOps
+from orbital_drift.registry.ops import (
+    ARCHIVED_STAGE,
+    NONE_STAGE,
+    PRODUCTION_STAGE,
+    STAGING_STAGE,
+    ModelRegistryOps,
+    NoRollbackTargetError,
+    PromotionRecord,
+    StageName,
+)
 
 # Not real credentials -- fixed test doubles for the required lakeFS fields,
 # matching tests/unit/test_config.py's `_construct_with_valid_credentials`
@@ -85,8 +97,15 @@ def test_get_stage_version_missing_model_or_stage() -> None:
     assert reg.get_stage_version("registered", "Staging") is None
 
 
-def test_rollback_production_promotes_latest_archived(caplog: pytest.LogCaptureFixture) -> None:
-    """Verifies rollback demotes current production and promotes latest archived."""
+def test_rollback_production_restores_the_previous_production_version(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verifies rollback archives current Production and restores the version it replaced.
+
+    The two-version happy path. The cases it cannot distinguish from "promote the
+    highest-numbered Archived version" (D-016/03c) are in the T071 section below and in
+    tests/unit/test_registry_rollback_conformance.py.
+    """
     reg = ModelRegistryOps()
     v1 = reg.register_model_version("unet", "run-1")
     v2 = reg.register_model_version("unet", "run-2")
@@ -105,15 +124,20 @@ def test_rollback_production_promotes_latest_archived(caplog: pytest.LogCaptureF
     assert "Rolled back model 'unet': promoted v1 to Production" in caplog.text
 
 
-def test_rollback_production_with_no_archived_version() -> None:
-    """Verifies rollback returns None when no prior archived version exists."""
+def test_rollback_production_with_no_target_raises_and_keeps_production() -> None:
+    """Regression (T071, D-016/03c): with one version in Production, rollback used to
+    archive it and return None, leaving no Production model. It now raises and changes
+    nothing; so does a rollback of a model that was never registered."""
     reg = ModelRegistryOps()
-    assert reg.rollback_production("nonexistent") is None
+    with pytest.raises(NoRollbackTargetError):
+        reg.rollback_production("nonexistent")
 
     v1 = reg.register_model_version("unet", "run-1")
     reg.transition_stage("unet", v1, "Production")
-    # Only 1 version exists; no archived version exists.
-    assert reg.rollback_production("unet") is None
+    with pytest.raises(NoRollbackTargetError):
+        reg.rollback_production("unet")
+    assert reg.get_stage_version("unet", "Production") == v1
+    assert reg.get_stage_version("unet", "Archived") is None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -369,8 +393,9 @@ class TestRollbackProductionConcurrency:
             t.join(timeout=10)
             assert not t.is_alive(), "thread did not complete within the join timeout"
 
-        # The critical invariant: AT MOST one Production version exists
-        # (could be zero if all were exhausted by sequential rollbacks)
+        # The critical invariant: AT MOST one Production version exists. (Since T071 a
+        # rollback with no target raises instead of vacating Production, so "exactly
+        # one" holds too; TestConcurrentPromoteAndRollback below asserts that.)
         production_versions = [
             v
             for v, data in reg._mock_registry["rollback-model"].items()
@@ -435,3 +460,470 @@ class TestMlflowTrackingUriConfigWiring:
         assert reg._mock_registry == {}
         v1 = reg.register_model_version("unet-s2", "run-101")
         assert v1 == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# T071 (D-016/03c, D-016/08): rollback restores exactly the previous Production
+# version, from an ordered promotion history. Behaviours shared with ports/
+# registry.py's InMemoryModelRegistry live in test_registry_rollback_conformance.py;
+# this section covers what only ModelRegistryOps exposes: the history accessor,
+# NoRollbackTargetError's fields, decision logging, the N-12 metadata copy, and
+# concurrent promote/rollback under T062's lock.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_MODEL: Final = "unet-s2"
+_LOGGER_NAME: Final = "orbital_drift.registry.ops"
+
+
+def _registry_with_versions(count: int) -> tuple[ModelRegistryOps, list[int]]:
+    reg = ModelRegistryOps()
+    versions = [reg.register_model_version(_MODEL, f"run-{index}") for index in range(count)]
+    return reg, versions
+
+
+def _decision_records(
+    caplog: pytest.LogCaptureFixture, registry_action: str
+) -> list[logging.LogRecord]:
+    """Records of one registry decision type, selected by their structured field."""
+    return [
+        record
+        for record in caplog.records
+        if record.name == _LOGGER_NAME
+        and getattr(record, "registry_action", None) == registry_action
+    ]
+
+
+def _decision_fields(record: logging.LogRecord) -> dict[str, object]:
+    return {
+        field: getattr(record, field)
+        for field in ("model_name", "version", "from_version", "to_version", "reason")
+    }
+
+
+class TestPromotionHistory:
+    def test_history_is_ordered_and_records_each_replaced_production_version(self) -> None:
+        reg, (v1, v2, rejected, v4) = _registry_with_versions(4)
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+        reg.transition_stage(_MODEL, v2, PRODUCTION_STAGE)
+        reg.transition_stage(_MODEL, rejected, ARCHIVED_STAGE)
+        reg.transition_stage(_MODEL, v4, PRODUCTION_STAGE)
+
+        assert reg.promotion_history(_MODEL) == (
+            PromotionRecord(version=v1, previous_production_version=None),
+            PromotionRecord(version=v2, previous_production_version=v1),
+            PromotionRecord(version=v4, previous_production_version=v2),
+        )
+
+    def test_rollback_discards_the_latest_record(self) -> None:
+        reg, (v1, v2, v3) = _registry_with_versions(3)
+        for version in (v1, v2, v3):
+            reg.transition_stage(_MODEL, version, PRODUCTION_STAGE)
+
+        assert reg.rollback_production(_MODEL) == v2
+        assert reg.promotion_history(_MODEL) == (
+            PromotionRecord(version=v1, previous_production_version=None),
+            PromotionRecord(version=v2, previous_production_version=v1),
+        )
+
+    def test_unknown_model_has_an_empty_history(self) -> None:
+        assert ModelRegistryOps().promotion_history("never-registered") == ()
+
+    def test_history_is_an_immutable_snapshot(self) -> None:
+        reg, (v1, v2) = _registry_with_versions(2)
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+        snapshot = reg.promotion_history(_MODEL)
+
+        reg.transition_stage(_MODEL, v2, PRODUCTION_STAGE)
+
+        assert snapshot == (PromotionRecord(version=v1, previous_production_version=None),)
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            snapshot[0].version = v2  # type: ignore[misc]
+
+    def test_transitions_outside_production_record_nothing(self) -> None:
+        reg, (v1, v2, v3) = _registry_with_versions(3)
+        reg.transition_stage(_MODEL, v1, STAGING_STAGE)
+        reg.transition_stage(_MODEL, v2, ARCHIVED_STAGE)
+        reg.transition_stage(_MODEL, v3, NONE_STAGE)
+
+        assert reg.promotion_history(_MODEL) == ()
+
+    def test_repromoting_the_production_version_records_nothing(self) -> None:
+        reg, (v1,) = _registry_with_versions(1)
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+
+        assert reg.promotion_history(_MODEL) == (
+            PromotionRecord(version=v1, previous_production_version=None),
+        )
+        assert reg.get_stage_version(_MODEL, PRODUCTION_STAGE) == v1
+
+    def test_rejected_promotions_record_nothing(self) -> None:
+        reg, (v1, v2) = _registry_with_versions(2)
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+        before = reg.promotion_history(_MODEL)
+
+        with pytest.raises(ValueError, match="already in Production"):
+            reg.transition_stage(_MODEL, v2, PRODUCTION_STAGE, archive_existing=False)
+        with pytest.raises(ValueError, match="Invalid target_stage"):
+            reg.transition_stage(_MODEL, v2, "production")  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="not found in registry"):
+            reg.transition_stage(_MODEL, 99, PRODUCTION_STAGE)
+
+        assert reg.promotion_history(_MODEL) == before
+
+
+class TestRollbackTargets:
+    def test_promotion_into_a_vacated_production_records_no_rollback_target(self) -> None:
+        """A rollback restores only the version that held Production at the instant
+        the current one was promoted. After Production was vacated by an explicit
+        demotion, nothing held it, so nothing is restorable."""
+        reg, (v1, v2, v3) = _registry_with_versions(3)
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+        reg.transition_stage(_MODEL, v2, PRODUCTION_STAGE)
+        reg.transition_stage(_MODEL, v2, ARCHIVED_STAGE)  # explicit demotion
+        reg.transition_stage(_MODEL, v3, PRODUCTION_STAGE)
+
+        assert reg.promotion_history(_MODEL)[-1] == PromotionRecord(
+            version=v3, previous_production_version=None
+        )
+        with pytest.raises(NoRollbackTargetError):
+            reg.rollback_production(_MODEL)
+        assert reg.get_stage_version(_MODEL, PRODUCTION_STAGE) == v3
+
+    def test_previous_version_is_restored_from_whatever_stage_it_now_holds(self) -> None:
+        reg, (v1, v2) = _registry_with_versions(2)
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+        reg.transition_stage(_MODEL, v2, PRODUCTION_STAGE)
+        reg.transition_stage(_MODEL, v1, STAGING_STAGE)
+
+        assert reg.rollback_production(_MODEL) == v1
+        assert reg.get_stage_version(_MODEL, PRODUCTION_STAGE) == v1
+        assert reg.get_stage_version(_MODEL, STAGING_STAGE) is None
+        assert reg.get_stage_version(_MODEL, ARCHIVED_STAGE) == v2
+
+    def test_return_value_matches_the_registry_state(self) -> None:
+        reg, (v1, v2, v3) = _registry_with_versions(3)
+        for version in (v1, v2, v3):
+            reg.transition_stage(_MODEL, version, PRODUCTION_STAGE)
+
+        for expected in (v2, v1):
+            assert reg.rollback_production(_MODEL) == expected
+            assert reg.get_stage_version(_MODEL, PRODUCTION_STAGE) == expected
+
+
+class TestNoRollbackTargetError:
+    @pytest.mark.parametrize(
+        ("promote_first", "register_first", "expected_production", "expected_reason"),
+        [
+            (False, False, None, "model_not_registered"),
+            (False, True, None, "no_production_version"),
+            (True, True, 1, "no_recorded_previous_production"),
+        ],
+        ids=["unregistered-model", "nothing-in-production", "single-promotion"],
+    )
+    def test_fields_name_the_model_its_production_version_and_the_reason(
+        self,
+        promote_first: bool,
+        register_first: bool,
+        expected_production: int | None,
+        expected_reason: str,
+    ) -> None:
+        reg = ModelRegistryOps()
+        if register_first:
+            version = reg.register_model_version(_MODEL, "run-1")
+            if promote_first:
+                reg.transition_stage(_MODEL, version, PRODUCTION_STAGE)
+
+        with pytest.raises(NoRollbackTargetError) as excinfo:
+            reg.rollback_production(_MODEL)
+
+        error = excinfo.value
+        assert isinstance(error, LookupError)
+        assert error.model_name == _MODEL
+        assert error.production_version == expected_production
+        assert error.reason == expected_reason
+        assert _MODEL in str(error)
+        assert expected_reason in str(error)
+        assert reg.get_stage_version(_MODEL, PRODUCTION_STAGE) == expected_production
+
+    def test_survives_a_pickle_round_trip_with_its_fields(self) -> None:
+        """BaseException pickles as cls(*args); without __reduce__ this three-argument
+        exception could not cross a process boundary."""
+        original = NoRollbackTargetError(_MODEL, 3, "no_recorded_previous_production")
+
+        restored = pickle.loads(pickle.dumps(original))  # noqa: S301 -- own object
+
+        assert type(restored) is NoRollbackTargetError
+        assert (restored.model_name, restored.production_version, restored.reason) == (
+            _MODEL,
+            3,
+            "no_recorded_previous_production",
+        )
+        assert str(restored) == str(original)
+
+
+def test_stage_constants_cover_stage_name_exactly() -> None:
+    assert {NONE_STAGE, STAGING_STAGE, PRODUCTION_STAGE, ARCHIVED_STAGE} == set(get_args(StageName))
+
+
+class TestRegistryDecisionLogging:
+    """Each promotion, archive and rollback decision is one structured record on the
+    module logger, carrying model name, from/to Production version and a reason in
+    `extra=` fields (the eval/ pattern), so a soak-log query needs no message parsing."""
+
+    def test_rollback_logs_model_versions_and_reason(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        reg, (v1, v2) = _registry_with_versions(2)
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+        reg.transition_stage(_MODEL, v2, PRODUCTION_STAGE)
+        caplog.clear()  # setup may already have been captured: the level is order-dependent
+
+        with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
+            reg.rollback_production(_MODEL)
+
+        (record,) = _decision_records(caplog, "rollback")
+        assert record.levelno == logging.INFO
+        assert _decision_fields(record) == {
+            "model_name": _MODEL,
+            "version": v1,
+            "from_version": v2,
+            "to_version": v1,
+            "reason": "restored_recorded_previous_production",
+        }
+        assert f"Rolled back model '{_MODEL}': promoted v{v1} to Production" in (
+            record.getMessage()
+        )
+
+    def test_rejected_rollback_logs_a_warning_and_changes_nothing(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        reg, (v1,) = _registry_with_versions(1)
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+        caplog.clear()  # setup may already have been captured: the level is order-dependent
+
+        with (
+            caplog.at_level(logging.INFO, logger=_LOGGER_NAME),
+            pytest.raises(NoRollbackTargetError),
+        ):
+            reg.rollback_production(_MODEL)
+
+        (record,) = _decision_records(caplog, "rollback_rejected")
+        assert record.levelno == logging.WARNING
+        assert _decision_fields(record) == {
+            "model_name": _MODEL,
+            "version": None,
+            "from_version": v1,
+            "to_version": v1,
+            "reason": "no_recorded_previous_production",
+        }
+        assert _decision_records(caplog, "rollback") == []
+
+    def test_promotion_and_the_archive_it_causes_are_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        reg, (v1, v2) = _registry_with_versions(2)
+
+        with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
+            reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+            reg.transition_stage(_MODEL, v2, PRODUCTION_STAGE)
+
+        assert [_decision_fields(record) for record in _decision_records(caplog, "promote")] == [
+            {
+                "model_name": _MODEL,
+                "version": v1,
+                "from_version": None,
+                "to_version": v1,
+                "reason": "promoted_with_no_previous_production",
+            },
+            {
+                "model_name": _MODEL,
+                "version": v2,
+                "from_version": v1,
+                "to_version": v2,
+                "reason": "promoted_over_previous_production",
+            },
+        ]
+        (archive,) = _decision_records(caplog, "archive")
+        assert archive.levelno == logging.INFO
+        assert _decision_fields(archive) == {
+            "model_name": _MODEL,
+            "version": v1,
+            "from_version": v1,
+            "to_version": v2,
+            "reason": "superseded_by_promotion",
+        }
+
+    def test_archiving_a_rejected_challenger_leaves_production_in_the_record(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        reg, (v1, rejected) = _registry_with_versions(2)
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+        caplog.clear()  # setup may already have been captured: the level is order-dependent
+
+        with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
+            reg.transition_stage(_MODEL, rejected, ARCHIVED_STAGE)
+
+        (record,) = _decision_records(caplog, "archive")
+        assert record.levelno == logging.INFO
+        assert _decision_fields(record) == {
+            "model_name": _MODEL,
+            "version": rejected,
+            "from_version": v1,
+            "to_version": v1,
+            "reason": "transition_outside_production",
+        }
+
+    def test_vacating_production_is_logged_at_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        reg, (v1,) = _registry_with_versions(1)
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+        caplog.clear()  # setup may already have been captured: the level is order-dependent
+
+        with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
+            reg.transition_stage(_MODEL, v1, ARCHIVED_STAGE)
+
+        (record,) = _decision_records(caplog, "archive")
+        assert record.levelno == logging.WARNING
+        assert _decision_fields(record) == {
+            "model_name": _MODEL,
+            "version": v1,
+            "from_version": v1,
+            "to_version": None,
+            "reason": "production_vacated",
+        }
+
+    def test_repromotion_and_non_archive_transitions_are_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        reg, (v1, v2) = _registry_with_versions(2)
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+        caplog.clear()  # setup may already have been captured: the level is order-dependent
+
+        with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
+            reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+            reg.transition_stage(_MODEL, v2, STAGING_STAGE)
+
+        (noop,) = _decision_records(caplog, "promote")
+        assert _decision_fields(noop) == {
+            "model_name": _MODEL,
+            "version": v1,
+            "from_version": v1,
+            "to_version": v1,
+            "reason": "already_in_production",
+        }
+        (staging,) = _decision_records(caplog, "transition")
+        assert _decision_fields(staging) == {
+            "model_name": _MODEL,
+            "version": v2,
+            "from_version": v1,
+            "to_version": v1,
+            "reason": "transition_outside_production",
+        }
+
+
+class TestRegisterModelVersionMetadataIsolation:
+    """N-12: register_model_version stored the caller's metadata dict by reference, so
+    a caller mutating its own dict after registration rewrote the registry's record."""
+
+    def test_mutating_the_callers_metadata_after_registration_changes_nothing(self) -> None:
+        metadata: dict[str, Any] = {"dataset": "ds-1", "metrics": {"iou": 0.5}}
+        reg = ModelRegistryOps()
+        version = reg.register_model_version(_MODEL, "run-1", metadata=metadata)
+
+        metadata["dataset"] = "tampered"
+        metadata["metrics"]["iou"] = 0.0
+        metadata["added_later"] = True
+
+        assert reg._mock_registry[_MODEL][version]["metadata"] == {
+            "dataset": "ds-1",
+            "metrics": {"iou": 0.5},
+        }
+
+    def test_omitted_metadata_is_a_fresh_empty_dict_per_version(self) -> None:
+        reg, (v1, v2) = _registry_with_versions(2)
+
+        first = reg._mock_registry[_MODEL][v1]["metadata"]
+        second = reg._mock_registry[_MODEL][v2]["metadata"]
+        assert first == second == {}
+        assert first is not second
+
+
+class TestConcurrentPromoteAndRollback:
+    """Promotion-history updates happen under the same lock as the stage transitions
+    (T062), so interleaved promotions and rollbacks never leave two Production
+    versions, or none, once any of them has returned successfully."""
+
+    def test_every_successful_operation_leaves_exactly_one_production_version(self) -> None:
+        reg, versions = _registry_with_versions(5)
+        v1, v2, v3, v4, v5 = versions
+        reg.transition_stage(_MODEL, v1, PRODUCTION_STAGE)
+        # Widen every scan inside the lock so the threads pile up on it rather than
+        # finishing one at a time by scheduler luck.
+        reg._mock_registry[_MODEL] = _SlowItemsDict(reg._mock_registry[_MODEL])
+
+        def _production_versions() -> list[int]:
+            # dict.items bypasses the slow double: observing must not widen the race.
+            with reg._lock:
+                return [
+                    version
+                    for version, data in dict.items(reg._mock_registry[_MODEL])
+                    if data["stage"] == PRODUCTION_STAGE
+                ]
+
+        def _promote(version: int) -> Callable[[], object]:
+            return lambda: reg.transition_stage(_MODEL, version, PRODUCTION_STAGE)
+
+        def _rollback() -> object:
+            return reg.rollback_production(_MODEL)
+
+        schedules: list[list[Callable[[], object]]] = [
+            [_promote(v2), _promote(v3)],
+            [_rollback, _rollback],
+            [_promote(v4), _rollback],
+            [_rollback, _promote(v5)],
+        ]
+        promotions_scheduled = 4  # v2..v5; none can raise NoRollbackTargetError
+        barrier = threading.Barrier(len(schedules))
+        violations: queue.Queue[str] = queue.Queue()
+        errors: queue.Queue[BaseException] = queue.Queue()
+        successes: queue.Queue[int] = queue.Queue()
+
+        def _run(schedule: list[Callable[[], object]]) -> None:
+            barrier.wait()
+            for operation in schedule:
+                try:
+                    operation()
+                except NoRollbackTargetError:
+                    continue  # a refused rollback is allowed; it is not a success
+                except BaseException as exc:  # surfaced via the queue, not swallowed
+                    errors.put(exc)
+                    return
+                successes.put(1)
+                observed = _production_versions()
+                if len(observed) != 1:
+                    violations.put(f"Production holds {observed} after a successful operation")
+
+        threads = [threading.Thread(target=_run, args=(schedule,)) for schedule in schedules]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+            assert not thread.is_alive(), "thread did not complete within the join timeout"
+
+        assert list(errors.queue) == []
+        assert list(violations.queue) == []
+        # Which rollbacks find a target depends on lock order; the promotions do not.
+        assert successes.qsize() >= promotions_scheduled
+
+        production = _production_versions()
+        assert len(production) == 1
+        # The history stayed consistent with the stages: its newest record is the
+        # Production version, and (Production was never vacated) each record names
+        # the version of the record beneath it as the one it replaced.
+        history = reg.promotion_history(_MODEL)
+        assert history[0] == PromotionRecord(version=v1, previous_production_version=None)
+        assert history[-1].version == production[0]
+        for below, above in itertools.pairwise(history):
+            assert above.previous_production_version == below.version
