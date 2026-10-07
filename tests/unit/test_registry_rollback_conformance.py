@@ -57,6 +57,7 @@ from orbital_drift.registry.ops import (
 )
 
 MODEL: Final = "unet-s2"
+OTHER_MODEL: Final = "unet-s2-coastal"
 UNREGISTERED_MODEL: Final = "never-registered"
 UNREGISTERED_VERSION: Final = 99
 WRONG_CASE_PRODUCTION: Final = PRODUCTION_STAGE.lower()
@@ -312,11 +313,13 @@ def test_versions_that_never_held_production_are_unreachable_by_any_rollback(
     assert not {rejected_a, rejected_b, staged} & set(restored)
 
 
-def test_a_rolled_back_version_is_not_restored_by_a_later_rollback(
+def test_the_promotion_a_rollback_undoes_is_discarded(
     registry: RegistryHarness,
 ) -> None:
-    """Rollback discards the promotion it undoes: the version rolled away from is gone
-    from the history, so a later promotion's rollback chain never returns to it."""
+    """Rollback discards the promotion it undoes. A version comes back only through an
+    earlier record of its own (it was promoted more than once, as in the next test);
+    `rolled_away` was promoted once, so a later promotion's rollback chain never
+    returns to it."""
     v1, v2, rolled_away, v4 = _register(registry, 4)
     _promote(registry, v1, v2, rolled_away)
     assert registry.rollback(MODEL) == v2
@@ -334,6 +337,44 @@ def test_explicitly_repromoting_an_older_version_is_a_new_history_entry(
 
     assert _rollback_until_exhausted(registry, promotions=3) == [v2, v1]
     assert registry.holder(MODEL, PRODUCTION_STAGE) == v1
+
+
+def test_two_models_keep_independent_histories_targets_and_production(
+    registry: RegistryHarness,
+) -> None:
+    """Promotion history is per model. Interleaved promotions and rollbacks on one model
+    never change another model's rollback targets or Production version.
+
+    Both models number their versions from 1, so a registry that kept one history for
+    all models would see the other model's records with matching version numbers; the
+    promotion order below (MODEL 1, 2, 3; OTHER_MODEL 3, then 1) makes such a shared
+    history refuse OTHER_MODEL's first rollback instead of restoring its v3.
+    """
+    a1, a2, a3 = _register(registry, 3)
+    b1, b2, b3 = (registry.register(OTHER_MODEL) for _ in range(3))
+
+    registry.transition(MODEL, a1, PRODUCTION_STAGE)
+    registry.transition(OTHER_MODEL, b3, PRODUCTION_STAGE)
+    registry.transition(MODEL, a2, PRODUCTION_STAGE)
+    registry.transition(OTHER_MODEL, b1, PRODUCTION_STAGE)
+    registry.transition(MODEL, a3, PRODUCTION_STAGE)
+
+    assert registry.rollback(OTHER_MODEL) == b3
+    assert registry.holder(MODEL, PRODUCTION_STAGE) == a3
+    assert registry.rollback(MODEL) == a2
+    assert registry.holder(OTHER_MODEL, PRODUCTION_STAGE) == b3
+
+    registry.transition(OTHER_MODEL, b2, PRODUCTION_STAGE)
+    assert registry.holder(MODEL, PRODUCTION_STAGE) == a2
+
+    # Each model's remaining history: MODEL a1 <- a2; OTHER_MODEL b3 <- b2.
+    assert _rollback_until_exhausted(registry, promotions=3) == [a1]
+    assert registry.holder(OTHER_MODEL, PRODUCTION_STAGE) == b2
+    assert registry.rollback(OTHER_MODEL) == b3
+    with pytest.raises(registry.no_target_error):
+        registry.rollback(OTHER_MODEL)
+    assert registry.holder(OTHER_MODEL, PRODUCTION_STAGE) == b3
+    assert registry.holder(MODEL, PRODUCTION_STAGE) == a1
 
 
 def test_promoting_an_unregistered_version_raises_and_changes_nothing(

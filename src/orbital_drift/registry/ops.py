@@ -21,8 +21,12 @@ from enum import StrEnum
 from typing import Any, Final, Literal, get_args
 
 from orbital_drift.config import OrbitalDriftConfig
+from orbital_drift.observability.logging import get_logger
 
-logger = logging.getLogger(__name__)
+# observability's get_logger, as eval/ uses, under the same name as before
+# ("orbital_drift.registry.ops"): it merges the active correlation context into every
+# record, so a CT run's correlation_id reaches its promote, archive and rollback records.
+logger = get_logger(__name__)
 
 StageName = Literal["None", "Staging", "Production", "Archived"]
 
@@ -48,7 +52,6 @@ class _Action(StrEnum):
 
     PROMOTE = "promote"
     ARCHIVE = "archive"
-    TRANSITION = "transition"
     ROLLBACK = "rollback"
     ROLLBACK_REJECTED = "rollback_rejected"
 
@@ -130,22 +133,27 @@ def _log_decision(
     *args: object,
     action: _Action,
     model_name: str,
-    version: int | None,
+    model_version: int | None,
     from_version: int | None,
     to_version: int | None,
     reason: _Reason,
 ) -> None:
     """Emit one registry decision as a structured record on the module logger.
 
-    Authorized by RB-021(a) as a slice of T054 limited to this module. Follows eval/'s
-    ``extra=`` pattern, so the observability formatter will render the fields as JSON,
-    and a log query will need no message parsing, once T054 wires
+    Authorized by RB-021(a) as a slice of T054 limited to this module, covering
+    promotion, archive and rollback decisions only. Follows eval/'s pattern: the
+    module logger is observability's ``get_logger``, which adds the active correlation
+    context, and the decision fields go in ``extra=``. The observability formatter will
+    render them as JSON, and a log query will need no message parsing, once T054 wires
     ``configure_logging()``; today the records carry the fields as ``LogRecord``
     attributes, which is what tests/unit/test_registry_ops.py asserts.
 
     ``from_version`` and ``to_version`` are the Production version before and after
-    the decision (equal when Production did not change); ``version`` is the version
-    the decision acted on (the restored version for a rollback, None for a refused one).
+    the decision (equal when Production did not change); ``model_version`` is the
+    version the decision acted on (the restored version for a rollback, None for a
+    refused one). It is not named ``version``: JsonFormatter lets record fields
+    override its deployment-wide ``extra_fields``, so a ``version`` field here would
+    replace a deployment's own ``version``.
     """
     logger.log(
         level,
@@ -154,7 +162,7 @@ def _log_decision(
         extra={
             "registry_action": action.value,
             "model_name": model_name,
-            "version": version,
+            "model_version": model_version,
             "from_version": from_version,
             "to_version": to_version,
             "reason": reason.value,
@@ -253,6 +261,11 @@ class ModelRegistryOps:
 
         Returns:
             Assigned integer version number.
+
+        Raises:
+            TypeError: `metadata` cannot be deep-copied (for example it holds a
+                lock or an open file handle). The copy is taken before a version
+                number is assigned, so nothing is registered.
         """
         stored_metadata = copy.deepcopy(metadata) if metadata is not None else {}
         with self._lock:
@@ -307,6 +320,14 @@ class ModelRegistryOps:
         "no other Production version yet" and both succeed, and the history
         can never disagree with the stages.
 
+        Logging (RB-021(a)): promotions and archives are logged as structured
+        decisions (archiving the Production version at WARNING, since it leaves
+        Production empty); a move to None or Staging keeps the plain message it
+        had at c971603, even when it moves the Production version out. Every
+        state write completes before the first record is emitted, so if the
+        logging pipeline raises (a logging Filter, say), the exception reaches
+        the caller with the transition fully applied.
+
         Raises:
             ValueError: target_stage is not a valid StageName (Literal is
                 not enforced at runtime -- see _VALID_STAGE_NAMES); the
@@ -329,21 +350,26 @@ class ModelRegistryOps:
                 self._promote_locked(model_name, versions, version, archive_existing)
                 return True
 
+            if target_stage != ARCHIVED_STAGE:
+                versions[version]["stage"] = target_stage
+                logger.info("Transitioned model '%s' v%d -> %s", model_name, version, target_stage)
+                return True
+
             vacating = versions[version]["stage"] == PRODUCTION_STAGE
             production = (
                 version if vacating else self.get_stage_version(model_name, PRODUCTION_STAGE)
             )
-            versions[version]["stage"] = target_stage
+            versions[version]["stage"] = ARCHIVED_STAGE
             _log_decision(
                 logging.WARNING if vacating else logging.INFO,
                 "Transitioned model '%s' v%d -> %s%s",
                 model_name,
                 version,
-                target_stage,
+                ARCHIVED_STAGE,
                 "; no version is in Production now" if vacating else "",
-                action=_Action.ARCHIVE if target_stage == ARCHIVED_STAGE else _Action.TRANSITION,
+                action=_Action.ARCHIVE,
                 model_name=model_name,
-                version=version,
+                model_version=version,
                 from_version=production,
                 to_version=None if vacating else production,
                 reason=_Reason.PRODUCTION_VACATED if vacating else _Reason.OUTSIDE_PRODUCTION,
@@ -357,7 +383,12 @@ class ModelRegistryOps:
         version: int,
         archive_existing: bool,
     ) -> None:
-        """Promotes `version` to Production and records it. Caller holds self._lock."""
+        """Promotes `version` to Production and records it. Caller holds self._lock.
+
+        All state writes (archive the superseded version, set Production, push the
+        history record) happen before any decision record is logged, so a logging
+        fault cannot leave the promotion half-applied.
+        """
         if versions[version]["stage"] == PRODUCTION_STAGE:
             _log_decision(
                 logging.INFO,
@@ -366,7 +397,7 @@ class ModelRegistryOps:
                 version,
                 action=_Action.PROMOTE,
                 model_name=model_name,
-                version=version,
+                model_version=version,
                 from_version=version,
                 to_version=version,
                 reason=_Reason.ALREADY_IN_PRODUCTION,
@@ -388,6 +419,13 @@ class ModelRegistryOps:
         previous = other_production[-1] if other_production else None
         for superseded in other_production:
             versions[superseded]["stage"] = ARCHIVED_STAGE
+        versions[version]["stage"] = PRODUCTION_STAGE
+        self._promotion_history.setdefault(model_name, []).append(
+            PromotionRecord(version=version, previous_production_version=previous)
+        )
+
+        # The promotion is complete; only now log it (see the docstring).
+        for superseded in other_production:
             _log_decision(
                 logging.INFO,
                 "Archived prior Production model '%s' v%d",
@@ -395,16 +433,11 @@ class ModelRegistryOps:
                 superseded,
                 action=_Action.ARCHIVE,
                 model_name=model_name,
-                version=superseded,
+                model_version=superseded,
                 from_version=superseded,
                 to_version=version,
                 reason=_Reason.SUPERSEDED,
             )
-
-        versions[version]["stage"] = PRODUCTION_STAGE
-        self._promotion_history.setdefault(model_name, []).append(
-            PromotionRecord(version=version, previous_production_version=previous)
-        )
         _log_decision(
             logging.INFO,
             "Promoted model '%s' v%d to Production (replaced: %s)",
@@ -413,7 +446,7 @@ class ModelRegistryOps:
             _describe(previous),
             action=_Action.PROMOTE,
             model_name=model_name,
-            version=version,
+            model_version=version,
             from_version=previous,
             to_version=version,
             reason=(
@@ -462,15 +495,25 @@ class ModelRegistryOps:
         moves it to the recorded previous_champion", which waits for its FR-006
         amendment. Because the record is discarded, a second rollback restores the
         version that held Production before the restored one, and so on back to the
-        oldest promotion still in the history; one more rollback then raises. A
-        version rolled away from is never restored by a later rollback, and a version
+        oldest promotion still in the history; one more rollback then raises. The
+        promotion a rollback undoes is discarded; a version comes back only through
+        an earlier record of its own (it was promoted more than once). A version
         that never held Production is never a target. Promoting after a rollback
-        pushes a new record on top of the remaining ones.
+        pushes a new record on top of the remaining ones. It follows that a rollback
+        is not idempotent: retrying one that succeeded walks one more step back, so a
+        caller unsure whether a call succeeded checks get_stage_version before
+        retrying.
 
         Thread-safe (T062): the read of the history and the current Production
         version, the history pop, and both stage writes are serialised by
         self._lock, so concurrent rollbacks and promotions cannot interleave and
         corrupt the single-Production invariant or the history.
+
+        Logging (RB-021(a)): a successful rollback is logged at WARNING, since it is
+        an incident action and INFO stays invisible under a root logger at its
+        WARNING default until T054 wires configure_logging(); a refused one is also
+        logged at WARNING. The state writes complete before the record is emitted, so
+        a logging fault reaches the caller with the rollback fully applied.
 
         Returns:
             The version now in Production.
@@ -486,6 +529,9 @@ class ModelRegistryOps:
             current = self.get_stage_version(model_name, PRODUCTION_STAGE)
             history = self._promotion_history.get(model_name, [])
             latest = history[-1] if history else None
+            # Defence in depth: through this class's methods the newest record always
+            # names the current Production version (or Production is empty), so the
+            # `latest.version == current` check cannot be false today.
             target = (
                 latest.previous_production_version
                 if latest is not None and latest.version == current
@@ -501,7 +547,7 @@ class ModelRegistryOps:
                     _describe(current),
                     action=_Action.ROLLBACK_REJECTED,
                     model_name=model_name,
-                    version=None,
+                    model_version=None,
                     from_version=current,
                     to_version=current,
                     reason=reason,
@@ -512,14 +558,14 @@ class ModelRegistryOps:
             versions[current]["stage"] = ARCHIVED_STAGE
             versions[target]["stage"] = PRODUCTION_STAGE
             _log_decision(
-                logging.INFO,
+                logging.WARNING,
                 "Rolled back model '%s': promoted v%d to Production (archived v%d)",
                 model_name,
                 target,
                 current,
                 action=_Action.ROLLBACK,
                 model_name=model_name,
-                version=target,
+                model_version=target,
                 from_version=current,
                 to_version=target,
                 reason=_Reason.RESTORED_PREVIOUS,
