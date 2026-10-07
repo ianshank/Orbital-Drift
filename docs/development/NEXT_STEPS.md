@@ -136,11 +136,13 @@ line itself changes no FR, SC, charter or constitution text.
 
 ---
 
-## 3. The MVP (B-04: logged by RB-017, binding from charter v1.1)
+## 3. The MVP (B-04: logged by RB-017; binds from charter v1.1, with the exceptions below)
 
 The repo never used "MVP". Constitution VI is unchanged: the 6-week soak is the deliverable. The
 MVP is an intermediate milestone whose purpose is to make the soak startable. Nothing here creates
-or implies a G-x entry; B-04 was logged by RB-017, and the gates below bind from charter v1.1.
+or implies a G-x entry. B-04 was logged by RB-017, and the gates below bind from charter v1.1
+except elements resting on B-07's labels, B-08, B-11, B-13 or B-14, which wait for those
+amendments (RB-019); binding authorizes no work and mints no task.
 
 **MVP-L — laptop walking skeleton** (agent-built; needs B-05's waiver). An executable acceptance
 test (planned path `tests/acceptance/test_walking_skeleton.py`, package P-6) in a CI stage that
@@ -176,7 +178,7 @@ is recorded against SC-002's 12 h budget; the champion scoring scenes; a timesta
 SC-004 measurement); a reproducibility re-run within a stated tolerance (US2, T029).
 
 **Soak Readiness Gate** (operator-run, `[HUMAN]`; its task is minted when B-04 and B-20 are
-logged; before T052): restore drill passed with RTO recorded; every alert class
+logged, and minting needs its own authorization; before T052): restore drill passed with RTO recorded; every alert class
 fire-drilled, including the off-node heartbeat; 72 h unattended burn-in with ≥ 3 scheduled ingests;
 projected disk use at day 42 < 60%; drift thresholds frozen by a decision-log line after the
 operator-run historical replay, as the most sensitive (lowest-threshold) set meeting B-14's false-trigger bound; B-18's
@@ -196,11 +198,13 @@ MVP-C needs them.
 Phase numbers match `specs/001-orbital-drift-ct/plan.md` § Phases, which states each gate.
 Moves and gates beyond the 2026-09 text were proposals pending the ballot items named. Items
 logged by RB-017 and RB-018 are now decided; B-04 binds from charter v1.1; amendment-dependent
-items (B-07's labels, B-08, B-11, B-13, B-14) bind when their spec amendments land.
+items (B-07's labels, B-08, B-11, B-13, B-14) bind when their spec amendments land. Step 0 done
+2026-10-06 (DEC-002 override, RB-017 to RB-019). The DEC-002 override's WIP limit reads this
+table as of `98ad85f`.
 
 | Step | Slice | Who | Ballot items | Gates and tasks | Exit |
 |---|---|---|---|---|---|
-| 0 | Decide the ballot | Operator, laptop | Group 1 first; Group 2 before Phase L packages; Group 3 before T005/T012 | — | Decision-log line(s); done 2026-10-06 (the DEC-002 override, RB-017 to RB-019) |
+| 0 | Decide the ballot | Operator, laptop | Group 1 first; Group 2 before Phase L packages; Group 3 before T005/T012 | — | Decision-log line(s) |
 | 1 | Phase 0 Substrate | Operator; agents author | B-01, B-02, B-03, B-17, B-18, B-19 | T074's Step 0 and driver pin are preferred before T003 but never block it: if T074 has not landed, the operator runs T003 on runbook 00 as written, records node identity and the exact driver version installed in T003's verification block, and T074 then pins and holds that version before T005; the rest of T074 before T005; T003 (G-1) → T005 (G-2); T006 (authored after G-1, re-reviewed after T005), T011, T072 → T012 (G-3); T046/T049 and T073 before the first scheduled DAG | Phase 0 gate; proposal adds an alert reaching the operator and one restored backup |
 | L | Phase L walking skeleton (parallel with step 1) | Agents, laptop | B-04, B-05 (waiver), B-07 to B-13 | P-1 to P-6, T071, re-scoped T036, T059 re-scoped (alias registry adapter on sqlite-backed MLflow) | MVP-L green in CI |
 | 2 | Phase 1 Ingestion | Agents, then operator | B-15, B-22 | Re-scoped T013/T016/T017, P-7, T018-T021, T022 `[HUMAN]` | 2 real scenes ingested unattended, harmonized |

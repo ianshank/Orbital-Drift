@@ -19,21 +19,6 @@ If a gate is not satisfied: STOP, report which entry is missing, and do nothing 
 that task. Never treat urgency, partial approval, or verbal summaries as a logged
 decision.
 
-## Process rules (B-06, adopted by RB-017)
-D-016/09 B-06's five rules, accepted by RB-017 (2026-10-06). Review-enforced. Rule 1 is the
-operator's weekly decision review.
-- **Rule 2:** no new process-track RB or multi-agent review program while any UNDECIDED
-  ballot item is older than 14 days (RB-017 counts undecided items only). The DEC-002
-  override's exemptions apply.
-- **Rule 3:** governance-code freeze until MVP-C — no new checks.sh stage, governance test
-  module, skill or hook; bug fixes only. P-6's acceptance stage and the FR it needs are
-  excepted.
-- **Rule 4** (log entries <= 150 words; execution recorded in the PR, not RB-xxxa lines):
-  pending its decision-log rule 2 amendment PR (RB-017), so RB-xxxa execution records remain
-  valid until it lands.
-- **Rule 5:** an operator merge or push to main is a decision, logged the same day; a
-  merge-record line drafted before the merge is re-dated to the merge day.
-
 ## CONFIRM-FIRST
 DEC-001…DEC-004 (charter §5). Implement only to a failing stub until the decision-log
 entry exists. Status as of 2026-08-21: all four are logged. Proposed defaults live in
@@ -46,21 +31,22 @@ decisions. Re-check the log before trusting this snapshot.
 constraints; the constitution supersedes everything. `planning/roadmap.md` and
 `planning/jira-import.csv` are generated projections — never hand-edit them; regenerate
 ONLY at a re-baseline.
-Charter version pin: **v1.1** (2026-10-06) — if the charter header disagrees, stop and
-reconcile before relying on any constraint.
+Charter version pin: **v1.1**, decided 2026-10-06; in force from PR #35's merge (RB-019b) —
+if the charter header disagrees, stop and reconcile before relying on any constraint.
 
 ## WIP limit and process-PR cap (charter §6 v1.1; DEC-002 override)
 The DEC-002 override line in `docs/decision-log.md` (2026-10-06, B-05(C)) replaced the
 per-milestone budget; charter §6 v1.1 restates it, and the line governs. Review-enforced.
 - **WIP limit:** one slice ahead of the last G-x entry; a slice is one row of NEXT_STEPS
   §4's table at 98ad85f; rows 1 and L are one slice until G-3; runbook tasks T074, T075 are
-  outside it. RB-019 places the waived tasks in rows. Slices after G-3 are not yet mapped:
-  until an operator log line maps later G-x entries to §4 rows, work past the G-3 slice is
-  an unsatisfied gate.
+  outside it. RB-019 places T072/T073 in row 1, and P-1..P-6, T036 and T059 in row L; the
+  §4 table places the rest. The override line maps no G-x entry after G-3 to a §4 row; that
+  mapping is an open operator decision.
 - **Process-PR cap:** one process-track PR per product PR merged, counted from zero at the
-  override line; decision PRs (log lines plus skill mirror) are outside it.
-- **Exempt** from the cap and B-06 rule 2's 14-day rule: B-05(C)'s ballot-execution
-  artifacts, T063's checkbox, the D-008/011/014/016 status headers.
+  override line; decision PRs (log lines plus skill mirror) are outside it. A PR is outside
+  the cap only via the override's list or a named log line; never assume standing.
+- **Exempt** from the cap and the 14-day rule (D-016/09 B-06(2), adopted by RB-017):
+  B-05(C)'s ballot-execution artifacts, T063's checkbox, the D-008/011/014/016 status headers.
 - **R-2:** work that would exceed either limit stops for owner review (an operator log
   line); while a blocking `[HUMAN]`/G-x gate is unresolved, that stop is R-2.
 - **R-5:** overrun >25% of the task's estimate recorded in its PR plan before work starts;
@@ -111,7 +97,7 @@ per-milestone budget; charter §6 v1.1 restates it, and the line governs. Review
 
 - **RB-019** (10-06): named G-1 waiver for T071-T075, re-scoped T036/T059, P-1..P-6 (each minted in its first product PR), T046 authoring; items needing B-04, B-07's label amendment, B-08, B-11, B-13 or B-14 wait for it. T072/T073 count in row 1; P-1..P-6, T036, T059 in row L. Also B-03 re-verification, the artifacts, T063 checkbox and ADR headers DEC-002 exempts, and PR #33's pointer edits (PR #33 outside the cap). RB-015 Part F stays gated. No G-x.
 
-- **RB-019b** (10-07): execution record under RB-019 (B-06 rule 5 merge record for PR #35): charter v1.1 executes the DEC-002 override (WIP limit, process-PR cap, exemptions, R-2/R-5 restated, post-G-3 slices unmapped) and B-04 (Phase L milestone); B-04 binds from this merge. Skill, adversarial-reviewer, plan.md, NEXT_STEPS, tasks.md and CHANGELOG status lines follow. No G-x, no checkbox, no phase-heading move.
+- **RB-019b** (10-07): execution record under RB-019 (B-06 rule 5 merge record for PR #35): charter v1.1 executes the DEC-002 override (WIP limit, process-PR cap, exemptions, R-2/R-5 restated) and B-04 (Phase L milestone). Cap-exempt; B-04 binding releases only RB-019's B-04 condition. Authorizes and mints no task; maps no slice after G-3.
 
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after

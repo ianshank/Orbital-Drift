@@ -1,5 +1,5 @@
 # Project Charter — Orbital-Drift
-**Change ID:** `adopt-governance-kit` | **Charter v1.1** | 2026-10-06 (v1.0: 2026-08-21)
+**Change ID:** `adopt-governance-kit` | **Charter v1.1** | decided 2026-10-06; in force from PR #35's merge (RB-019b) | v1.0: 2026-08-21
 **Amendment v1.1:** decided 2026-10-06 by the DEC-002 override and RB-017
 (`docs/decision-log.md`), executed by PR #35: §4 adds Phase L (B-04); §5 notes DEC-002's
 override; §6 states the override's limits and restates R-2 and R-5 (B-05(C)); §7's risk row
@@ -89,8 +89,10 @@ line. This section restates that line; where the two differ, the line governs.
 Review-enforced.
 - **WIP limit.** At most one slice ahead of the last G-x entry. A slice is one row of
   `docs/development/NEXT_STEPS.md` §4's sequence table at `98ad85f`; rows 1 and L are one
-  slice until G-3. Runbook tasks T074 and T075 are outside the limit. RB-019 places the
-  waived tasks in rows.
+  slice until G-3. Runbook tasks T074 and T075 are outside the limit. RB-019 places T072 and
+  T073 in row 1, and P-1 to P-6, T036 and T059 in row L; the §4 table places the rest. The
+  override line maps no G-x entry after G-3 to a §4 row; that mapping is an open operator
+  decision.
 - **Process-PR cap.** A rolling cap of one process-track PR per product PR merged, counted
   from zero at the override line. Decision PRs (decision-log lines plus their
   governance-skill mirror) are outside the cap.
@@ -106,14 +108,11 @@ Review triggers (any one fires an immediate stop-and-review):
 - **R-3** any gate metric worsens vs the previous milestone baseline
 - **R-4** coverage drops below the DEC-004 floor, or a test is skipped rather than fixed (C-6)
 - **R-5** task overrun >25% of that task's estimate recorded in its PR plan before work
-  starts; with no estimate, R-5 fires at start (the 25% figure is kept, re-based per task,
-  as the conservative reading, since the override changed only the base) — also caps
+  starts; with no estimate, R-5 fires at start (the 25% figure is kept; per D-016/09
+  B-05(C), the overrun test is re-based to the task's estimate) — also caps
   adversarial-review fix-cycles at 2; a third recurrence of the same Major finding = STOP,
   escalate to the operator
 - **R-6** any dependency or import that violates a hard constraint (esp. C-2)
-- **Unmapped slices.** Slices after G-3 are not yet mapped: until an operator log line maps
-  later G-x entries to NEXT_STEPS §4 rows, work past the G-3 slice is an unsatisfied gate.
-  This restates the gate rule; it creates no new permission.
 
 ## 7. Risks
 | Risk | Impact | Mitigation |

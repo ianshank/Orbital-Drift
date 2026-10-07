@@ -157,7 +157,7 @@ Moves in this table (T046/T049 into Phase 0, T030-T032 and T050 off the MVP path
 gate) are proposals pending B-04, B-16 and B-19; the phase headings above are unchanged until the
 operator logs them. **Status (2026-10-06):** RB-017 logged B-16 and B-19; B-04 binds from charter
 v1.1. The phase headings above are deliberately unchanged by the charter v1.1 change; moving them
-is a separate change.
+is a separate change, needing its own authorization; it is not a ballot-execution artifact.
 
 ### New tasks
 
