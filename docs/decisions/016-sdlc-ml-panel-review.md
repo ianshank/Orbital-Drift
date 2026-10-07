@@ -3,7 +3,9 @@
 **Audience:** the operator, who decides the ballot (D-016/09); agents executing any package or
 task that a later decision-log line authorizes.
 **Status:** RECORDED 2026-10-06 under RB-016 — findings and proposals; every ballot default is
-a panel PROPOSAL, not a decision.
+a panel PROPOSAL, not a decision. The ballot was then decided by the DEC-002 override,
+RB-017, RB-018 and RB-019 in `docs/decision-log.md`; where those lines and this text differ,
+the log governs.
 **Provenance, stated precisely:** at the operator's in-session request for a deeper peer review
 and a rewrite of the plans by SDLC and ML experts (RB-016, decision-log rule 6), seven
 review-only panelists (roster below) reviewed main at `c545701`, and the orchestrator (ORCH)

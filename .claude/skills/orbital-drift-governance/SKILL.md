@@ -11,7 +11,7 @@ description: Operating rules for all work in Orbital-Drift. Consult before ANY i
 | adopt-governance-kit tasks (openspec/changes/adopt-governance-kit/tasks.md) | ONLY if `docs/decision-log.md` contains a DEC-001 entry. |
 | Feature Phase-0 authoring (T002, T004, T006–T011; extended to T001b and T004a by RB-007) | ONLY if the log contains a G-0 entry (T001b/T004a additionally require RB-007). T006 additionally requires re-review against T003/T005 verification blocks before T011 may cite it (tasks.md AUTHORED-PROVISIONAL note); per RB-007 its authoring is deferred until G-1 exists. |
 | Any `[HUMAN]` task (T003, T005, T012, T022, T029, T032, T040, T045, T049–T052) | NEVER executed by an agent (Constitution I). STOP, hand off the paired runbook, wait; the operator logs the matching G-x entry on completion. |
-| Feature Phase 1+ tasks (T013+) | ONLY if the log contains the G-x entry for the preceding phase gate (G-1 = T003 done, G-2 = T005 done, G-3 = T012 done, then per plan.md phase gates). |
+| Feature Phase 1+ tasks (T013+) | ONLY if the log contains the G-x entry for the preceding phase gate (G-1 = T003 done, G-2 = T005 done, G-3 = T012 done, then per plan.md phase gates). Exception so far: exactly the work RB-019's named G-1 waiver lists, within the DEC-002 override's WIP limit; a later RB naming further tasks amends this row in the same change. |
 | Process/docs-track PRs | ONLY via a logged RB entry naming the PR batch. NEVER via urgency, and never as a side effect of engineering work. |
 | Any `git push` | ONLY to remotes listed in `.claude/allowed-remotes.txt` (charter C-5; guard-enforced once Phase-6 lands). |
 
@@ -35,6 +35,7 @@ Charter version pin: **v1.0** (2026-08-21) — if the charter header disagrees, 
 reconcile before relying on any constraint.
 
 ## Budgets (charter §6, DEC-002)
+**Superseded by the DEC-002 override line in `docs/decision-log.md` (B-05(C)), which governs.** The text that follows is charter §6 as written, pending its amendment PR.
 4 PRs AND 16 engineering-hours per milestone before mandatory owner review.
 Process-scope PRs sit outside milestone budgets ONLY when a named RB entry says so —
 never assume standing.
@@ -74,6 +75,14 @@ never assume standing.
 - **RB-015** (09-11): v2 hygiene-hardening program (`docs/decisions/015-hygiene-hardening-program.md`) after two BLOCKs of v1. Part H: T065 + T053 HEALTHCHECK/port/staging/canary remainder (no dummy model, no get_config), T058 skip→fail, retroactive #23–#29, checkbox T056/T062; T063 waits on D-011. Part F gated (T054/T055/T061 remainder/T066/T057/T064/model-load). Mints no T066–T070. No G-x, no floor change, no Part 4 reversal. Process track, outside M0 4/4.
 
 - **RB-016** (10-06): plan-rewrite batch after a seven-expert SDLC/ML panel (`docs/decisions/016-sdlc-ml-panel-review.md`): D-016 findings, operator ballot B-01 to B-23, two-stage MVP proposal; NEXT_STEPS and plan.md rewritten; tasks.md Phase 7 re-scope table and T071-T075 minted. Rule-6 in-session approval. Authorizes execution of none; decides no ballot item; no FR/SC, gate-bar, G-x or checkbox change. Docs track; claims no budget exemption (the operator's call, B-05).
+
+- **DEC-002** (10-06): overridden by D-016/09 B-05(C), in force from this line — the 4 PRs / 16 h milestone budget is replaced by a WIP limit of one slice ahead of the last G-x entry (NEXT_STEPS §4 rows 1 and L are one slice until G-3; runbook tasks T074, T075 outside it) plus a cap of one process-track PR per product PR merged, counted from zero. Decision PRs are outside the cap; ballot-execution artifacts, T063's checkbox and four ADR status headers are exempt from the cap and the 14-day rule. Work that would exceed either limit stops for an operator log line (R-2 while a blocking [HUMAN]/G-x gate is unresolved); R-5 needs an estimate in the PR plan. Charter §6's text awaits its amendment PR; the DEC-002 override line in docs/decision-log.md governs.
+
+- **RB-017** (10-06): D-016/09 ballot defaults accepted, none struck (B-09 is RB-018; authorizations are RB-019). Local-profile lift of the get_config() and lakeFS-key limits (random weights at serve startup stay forbidden); B-14 R-06 and B-20 soak-clock readings adopted; B-06 rule 2 counts undecided items only. Amendment-dependent items bind when their PRs land. The DEC-002 override is R-2's owner review. Authorizes nothing; no G-x, no checkbox.
+
+- **RB-018** (10-06): Principle II method per B-09(C) — scipy.stats.bootstrap over dispersed holdout clusters (one B-08 block each, spaced by a config value beyond the labels' measured autocorrelation range, re-checked on the first champion's residuals); moving-block code to be deleted under P-4; PSI ruling due before thresholds freeze — under D-011/07 Reading A (RB-010 Part 2's entry). RB-010 Parts 3/14 run only as P-4. Authorizes no code by itself.
+
+- **RB-019** (10-06): named G-1 waiver for T071-T075, re-scoped T036/T059, P-1..P-6 (each minted in its first product PR), T046 authoring; items needing B-04, B-07's label amendment, B-08, B-11, B-13 or B-14 wait for it. T072/T073 count in row 1; P-1..P-6, T036, T059 in row L. Also B-03 re-verification, the artifacts, T063 checkbox and ADR headers DEC-002 exempts, and PR #33's pointer edits (PR #33 outside the cap). RB-015 Part F stays gated. No G-x.
 
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after
