@@ -1,7 +1,7 @@
 # Project Charter — Orbital-Drift
 **Change ID:** `adopt-governance-kit` | **Charter v1.1** | 2026-10-06 (v1.0: 2026-08-21)
 **Amendment v1.1:** decided 2026-10-06 by the DEC-002 override and RB-017
-(`docs/decision-log.md`), executed by PR <n>: §4 adds Phase L (B-04); §5 notes DEC-002's
+(`docs/decision-log.md`), executed by PR #35: §4 adds Phase L (B-04); §5 notes DEC-002's
 override; §6 states the override's limits and restates R-2 and R-5 (B-05(C)); §7's risk row
 follows.
 **Subordinate to:** `.specify/memory/constitution.md` v1.1.0 — on any conflict the
