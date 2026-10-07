@@ -19,14 +19,14 @@ is this repository's body of work to date.
 ### Fixed — registry rollback restores exactly the previous champion (T071, RB-019, 2026-10-07)
 
 Commits: `274da64` (T071), `b99005b` (docs this change made false), `49c6c74` (RB-019c merge
-record, as rewritten), `6f78a58` (spec-guardian review fixes), and the adversarial-review cycle-1
-fix commit after `49c6c74` on branch `claude/t071-rollback-previous-champion` (PR #36, based on
-`c971603`). Product track, row L
+record, as rewritten), `6f78a58` (spec-guardian review fixes), `0321a25` (adversarial-review cycle-1
+fixes), `9ecd301` (merge of main with PRs #34 and #37) and the checkbox commit after it, on branch
+`claude/t071-rollback-previous-champion` (PR #36, based on `c971603`). Product track, row L
 under the DEC-002 override line; T071 is authorized by RB-019's named G-1 waiver, the logging
 slice and the metadata copy by RB-021. The docs edits correct text this PR's own change made
 false and are listed in RB-019c. They are not RB-020(4) ride-alongs: no logged decision made them
-false, and REFERENCE_GUIDE is outside that clause's files. Reviews pending, so T071's checkbox
-stays `[ ]`.
+false, and REFERENCE_GUIDE is outside that clause's files. spec-guardian APPROVE (`49c6c74`) and
+adversarial-reviewer APPROVE (cycle 2, `0321a25`); T071's checkbox is ticked.
 
 - **D-016/03c, both defects.** `rollback_production` (`src/orbital_drift/registry/ops.py`)
   promoted the highest-numbered Archived version, so a rejected challenger that never served
