@@ -34,29 +34,21 @@ authorization.
   placement, unplaced tasks an open operator decision), process-PR cap (RB-020(2)'s product-PR
   definition; never assume standing), RB-020(4)'s ride-alongs and the exemptions, and restates R-2
   and R-5 (estimate as `R-5 estimate: Nh` per RB-020(3); 25% kept, re-based per task per D-016/09
-  B-05(C); two-cycle cap kept); §7's risk row follows and excepts RB-020's ride-alongs.
+  B-05(C); two-cycle cap kept); §7's risk row follows and excepts RB-020(4)'s fixes.
 - `docs/decision-log.md`: RB-019b, the B-06 rule 5 merge record for this PR (an execution record
   under RB-019), with its governance-skill bullet.
 - This file: this entry and the missing PR #33 entry below.
 
-#### Ride-along status fixes (RB-020(4)), each listed in RB-019b
+#### Beyond the authorizing lines' text, accepted by this merge (each listed in RB-019b)
 
-Each corrects text that a logged decision made false. "PR #33" means its lines (the DEC-002
-override, RB-017, RB-018, RB-019); "the amendment" means this PR's charter v1.1.
+"PR #33" means its lines (the DEC-002 override, RB-017, RB-018, RB-019); "the amendment" means
+this PR's charter v1.1. Line numbers are as merged.
 
-- `.claude/skills/orbital-drift-governance/SKILL.md:34-35`: charter version pin v1.0 → v1.1 (the
-  amendment).
-- `.claude/skills/orbital-drift-governance/SKILL.md:37-71`: the Budgets section (4 PRs / 16 h,
-  "pending its amendment PR") becomes a byte-identical mirror of charter §6's limit bullets, R-2
-  and R-5 (the DEC-002 override, RB-020, the amendment).
-- `.claude/agents/adversarial-reviewer.md:41-45`: step 7 applies charter §6 v1.1 with the
-  override line and RB-020 governing; work that would exceed a limit is a BLOCK handed to the
-  operator, not a fix-cycle Major; checks the R-5 estimate (the DEC-002 override's owner-review
-  stop, RB-020(3), the amendment).
+RB-020(4) status and pointer fixes (NEXT_STEPS, plan.md, tasks.md; each corrects text a logged
+decision made false):
+
 - `specs/001-orbital-drift-ct/plan.md:5`: `B-nn` was an open decision until 2026-10-06; proposal
   labels kept, the §Phases status sentence governs (PR #33).
-- `specs/001-orbital-drift-ct/plan.md:26`: the Principle II method is decided by RB-018, to be
-  executed under P-4, not "pending B-09" (PR #33).
 - `specs/001-orbital-drift-ct/plan.md:108`: §Phases status sentence (PR #33; B-04's clauses, the
   amendment, with RB-017's amendment-dependent exceptions).
 - `specs/001-orbital-drift-ct/plan.md:116`: the Soak Readiness Gate's task needs its own
@@ -67,7 +59,7 @@ override, RB-017, RB-018, RB-019); "the amendment" means this PR's charter v1.1.
 - `docs/development/NEXT_STEPS.md:39-40`: §1 item 4, RB-012's decisions were then open (PR #33).
 - `docs/development/NEXT_STEPS.md:50-58`: §2's intro, ballot decided and amendment-dependent items
   listed (PR #33; B-04's line, the amendment).
-- `docs/development/NEXT_STEPS.md:107-109`: §2's closing note marking the pre-decision text
+- `docs/development/NEXT_STEPS.md:107-110`: §2's closing note marking the pre-decision text
   (PR #33).
 - `docs/development/NEXT_STEPS.md:139` and `:143-145`: §3's heading and intro, B-04 logged and
   binding with RB-017's exceptions (RB-017, the amendment).
@@ -75,8 +67,6 @@ override, RB-017, RB-018, RB-019); "the amendment" means this PR's charter v1.1.
 - `docs/development/NEXT_STEPS.md:199-205`: §4's intro, ballot status, step 0 done, the WIP limit
   reading the table as of `98ad85f` with RB-020(1)'s slice rule (PR #33, the amendment, RB-020).
   §4's table rows are byte-identical to `98ad85f`.
-- `docs/development/NEXT_STEPS.md:226-227`: §5, RB-010 Parts 3 and 14 no longer "behind B-09/B-10"
-  (PR #33).
 - `specs/001-orbital-drift-ct/tasks.md:92-94`: T059/T060's adapter-disposition decision now exists
   (RB-017, B-12); T059 waits per RB-019 on B-11's spec amendment (PR #33, the amendment).
 - `specs/001-orbital-drift-ct/tasks.md:102-103`: the T059 and T060 task lines keep "GATED on the
@@ -91,7 +81,28 @@ override, RB-017, RB-018, RB-019); "the amendment" means this PR's charter v1.1.
 - `specs/001-orbital-drift-ct/tasks.md:160-162`: moves note, B-16 and B-19 logged by RB-017, B-04
   binding from charter v1.1, phase headings unchanged and moving them needs its own authorization
   (PR #33, the amendment).
-- `CHANGELOG.md`: the missing PR #33 entry below (PR #33).
+
+Restating the amendment and RB-020(3) (outside RB-020(4)'s files):
+
+- `.claude/skills/orbital-drift-governance/SKILL.md:15`: the gate table's process/docs-track row
+  excepts RB-020(4)'s status and pointer fixes, as charter §6 and §7 now do.
+- `.claude/skills/orbital-drift-governance/SKILL.md:34-35`: charter version pin v1.0 → v1.1.
+- `.claude/skills/orbital-drift-governance/SKILL.md:37-72`: the Budgets section (4 PRs / 16 h,
+  "pending its amendment PR") becomes a byte-identical mirror of charter §6's limit bullets, R-2
+  and R-5; its intro says charter §6 governs the mirror and the two log lines govern both.
+- `.claude/agents/adversarial-reviewer.md:41-47`: step 7 applies charter §6 v1.1 with the
+  override line and RB-020 governing; work that would exceed a limit is a BLOCK handed to the
+  operator, not a fix-cycle Major; it checks the R-5 estimate (RB-020(3)) and that every
+  ride-along is listed in the merge record with RB-020(4)'s label.
+
+Otherwise accepted by this merge:
+
+- `specs/001-orbital-drift-ct/plan.md:26`: the Principle II method is decided by RB-018, to be
+  executed under P-4, not "pending B-09". RB-018 made it false, and this PR does not execute
+  RB-018.
+- `docs/development/NEXT_STEPS.md:226-227`: §5, RB-010 Parts 3 and 14 no longer "behind B-09/B-10"
+  (RB-018 for B-09; PR #33).
+- `CHANGELOG.md`: the missing PR #33 entry below. It fills a gap; no decision made text false.
 
 ### Changed — ballot decisions logged (DEC-002 override, RB-017 to RB-019, 2026-10-06, PR #33)
 

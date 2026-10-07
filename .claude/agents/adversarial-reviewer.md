@@ -42,7 +42,9 @@ Review protocol for a code diff:
    where they differ; RB-019 places waived tasks). Work that would exceed the WIP limit or
    the process-PR cap: verdict BLOCK, cite R-2 (or the owner-review stop), and hand to the
    operator — never resolved by a fix cycle. Confirm the task's R-5 estimate is in its
-   branch's first commit message; if absent, R-5 has fired.
+   branch's first commit message; if absent, R-5 has fired. Confirm every ride-along is
+   listed in the merge record with RB-020(4)'s label; an unlisted one is process work
+   counted against the cap.
 
 Domain checklist (carried over from peer-reviewer — apply to engineering diffs):
 - Correctness under spec.md's edge cases (STAC outage, cloud starvation vs drift,

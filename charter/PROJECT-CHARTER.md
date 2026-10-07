@@ -87,7 +87,7 @@ design (D8) — this table never restates them, so it cannot drift from them.
 DEC-002's per-milestone budget (4 PRs and 16 engineering-hours) is overridden by the DEC-002
 override line in `docs/decision-log.md` (2026-10-06, D-016/09 B-05(C)), in force from that
 line; RB-020 clarifies it and changes no limit. This section restates both lines; where it
-differs from them, they govern. Review-enforced. Both limits are checked when work starts.
+differs from them, they govern. Review-enforced.
 - **WIP limit.** At most one slice ahead of the last G-x entry. A slice is one row of
   `docs/development/NEXT_STEPS.md` §4's sequence table at `98ad85f`. Runbook tasks T074 and
   T075 are outside the limit. Rows 1 and L stay one slice until G-3, which opens row 2;
@@ -95,17 +95,18 @@ differs from them, they govern. Review-enforced. Both limits are checked when wo
   plan.md gate (RB-020 (operator, in-session 2026-10-07)). RB-019 places T072 and T073 in
   row 1, and P-1 to P-6, T036 and T059 in row L; the §4 table places the tasks it lists.
   Tasks that neither RB-019 nor the table places (e.g. T014, T015, T023, T033, and the open
-  tasks in T053-T065 other than T059) have no slice yet: an open operator decision, settled
-  when an RB authorizes each.
+  tasks in T053-T065 other than T059) have no slice yet: an open operator decision.
 - **Process-PR cap.** A rolling cap of one process-track PR per product PR merged, counted
   from zero at the override line. A product PR executes a tasks.md task ID that an RB or G-1
   waiver authorizes (code, infra, runbook or P-n); ballot-execution and decision PRs neither
   earn nor use a cap credit (RB-020 (operator, in-session 2026-10-07)). Decision PRs are
-  decision-log lines plus their governance-skill mirror. A PR is outside the cap only via the
-  override's list, a decision PR (RB-020) or a named log line; never assume standing.
-- **Ride-alongs.** Status and pointer fixes that a logged decision makes false may ride in
-  the PR executing it, outside the cap, each listed in its merge record (RB-020 (operator,
-  in-session 2026-10-07)).
+  decision-log lines plus their governance-skill mirror. A process-track PR is outside the
+  cap only via the override's list, a decision PR (RB-020) or a named log line; never assume
+  standing.
+- **Ride-alongs.** Status and pointer fixes in NEXT_STEPS, plan.md, tasks.md or CHANGELOG
+  that a logged decision makes false may ride in the PR executing it, outside the cap, each
+  listed in its merge record as "beyond the authorizing line's text, accepted by this
+  merge" (RB-020 (operator, in-session 2026-10-07)).
 - **Exemptions.** Exempt from the cap and from the 14-day rule (D-016/09 B-06(2), adopted by
   RB-017): B-05(C)'s ballot-execution artifacts (the spec, constitution and charter
   amendments and the decision-log rule change that logged ballot items require, and B-03's
@@ -129,7 +130,7 @@ Review triggers (any one fires an immediate stop-and-review):
 | Risk | Impact | Mitigation |
 |---|---|---|
 | Guard false-negatives (compound/quoted commands) | Cluster mutation slips through | C-1 is layered: settings deny-list remains authoritative; guard header documents the not-modelled family; `[HUMAN]` protocol backstops |
-| Governance overhead stalls feature work | T002+ slips | DEC-002 limits (WIP slice + process-PR cap) + R-2; process-track PRs need a logged RB entry, never ride along (RB-020's status and pointer ride-alongs excepted, §6) |
+| Governance overhead stalls feature work | T002+ slips | DEC-002 limits (WIP slice + process-PR cap) + R-2; process-track PRs need a logged RB entry, never ride along (RB-020(4)'s status and pointer fixes excepted, §6) |
 | Generated projections diverge from tasks.md | Two owners of scope | D9 trace-consistency test + `projections` byte-drift stage |
 | Charter/constitution drift | Conflicting rules | Subordination clause above; charter amendments only via decide→execute |
 
