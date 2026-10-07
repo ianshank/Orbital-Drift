@@ -16,6 +16,33 @@ is this repository's body of work to date.
 
 ## [Unreleased]
 
+### Changed — B-03 pin re-verification; k3s to v1.35.9+k3s1 (RB-019a, 2026-10-07, PR #34)
+
+Commits: `a912d59` (re-verification and pin move), `9233f03` (RB-019a), the review-fix commits
+`8a6af69` and `0c5a27d`, and the docs-sync fix commit on this branch
+(`claude/b03-pin-reverification`). Executes B-03 under RB-019. Docs (including one `plan.md` line
+and one `tasks.md` row), template comments and tests only; no `src/` product code, gate bar, FR/SC
+text, G-x or checkbox changed.
+
+- `docs/decisions/versions.md`: 2026-10-07 staleness re-check, 46 days after 2026-08-22, with a
+  per-row re-check column and findings 1-9. Moves only B-03's named candidate: k3s
+  `v1.35.7+k3s1` → `v1.35.9+k3s1`, with its bundled containerd `v2.2.5-k3s2` → `v2.2.7-k3s1`.
+  NVIDIA driver `610.57.04` and GPU Operator `v26.3.3` are kept, and a driver mismatch at T003
+  stops T003 per runbook 00 rather than continuing on another version. Chart drift is recorded,
+  not enacted (findings 5-8). The duplicated Host / cluster table is merged into one, a cleanup
+  outside B-03's scope (D-016/06i; disclosed in RB-019a).
+- Pin copies moved in lockstep: `docs/runbooks/00-host-prep.md`'s pin table,
+  `docs/runbooks/01-k3s-install.md` Steps 4-5, `infra/k3s/config-v3.toml.tmpl`'s verified-at and
+  `Targets:` comments, and `tasks.md`'s T005 coupling row. `plan.md`'s Technical Context
+  **Cluster** line said "k3s (current stable)", contradicting D-000/D-07; it now points at the
+  patch `versions.md` records, with no version literal. ADR text (D-000/D-07, D-008, D-016) is
+  deliberately unchanged.
+- `tests/unit/test_k3s_config_template.py`: five new tests derive the k3s and containerd pins
+  from versions.md, check its k3s rows for internal consistency, and fail on any stale live copy
+  (the template header, runbooks 00 and 01, and the tasks.md T005 row, checked row-scoped). The
+  test names no version, so the next k3s move needs no test edit.
+- Decision log RB-019a (B-06 rule 5 merge record) plus its governance-skill line.
+
 ### Changed — plan rewrite (RB-016, D-016, 2026-10-06)
 
 Commits: `eba16fc` (D-016), `a34850e` (RB-016), `123fb1f` (rewrite), the review-fix commits

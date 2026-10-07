@@ -33,9 +33,12 @@ What these tests pin down (load-bearing keys, not exact formatting):
   GPU UUIDs, no IPv4 addresses, no hostname substitutions;
 * the k3s tag and bundled-containerd version it claims to be verified against
   are the ones ``docs/decisions/versions.md`` pins, and every other live copy
-  of that pin (runbooks 00 and 01) moves in lockstep with it
-  (B-03 / RB-019). The pin is DERIVED from versions.md, never restated here,
-  so the next pin move needs no edit to this test.
+  of that pin (runbooks 00 and 01, swept whole; ``tasks.md``'s T005
+  ``RUNTIME_CONFIG_SOURCE=file`` coupling row, checked row-scoped by a
+  separate test because it deliberately keeps a historical containerd
+  version) moves in lockstep with it (B-03 / RB-019). The pin is DERIVED
+  from versions.md, never restated here, so the next pin move needs no edit
+  to this test.
 
 Source of truth for the required stanza:
 ``docs/decisions/000-phase0-technical-decisions.md`` D-02/D-02b and
@@ -54,10 +57,15 @@ TASKS_MD = REPO_ROOT / "specs" / "001-orbital-drift-ct" / "tasks.md"
 
 # Every file where the recommended k3s pin (and the containerd it bundles) is a
 # LIVE pin: the template's verified-at claims and the two runbooks the operator
-# executes. This module is deliberately absent: it names no version at all, so
-# a pin move needs no edit here. Historical ADRs (D-000, D-008, D-016) are
-# deliberately absent too — they record what was true when written and must
-# not be rewritten by a pin move (B-03).
+# executes. These files are swept whole. tasks.md's T005 coupling row is also a
+# live copy, but it is NOT listed here: it deliberately keeps the historical
+# containerd version the coupling was first posed on, so a whole-file sweep
+# would flag it. It gets its own row-scoped check instead
+# (test_tasks_md_t005_coupling_row_names_the_current_pins). This module is
+# deliberately absent: it names no version at all, so a pin move needs no edit
+# here. Historical ADRs (D-000, D-008, D-016) are deliberately absent too —
+# they record what was true when written and must not be rewritten by a pin
+# move (B-03).
 LIVE_K3S_PIN_FILES = (
     TEMPLATE_PATH,
     REPO_ROOT / "docs" / "runbooks" / "00-host-prep.md",
