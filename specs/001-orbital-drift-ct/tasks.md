@@ -174,7 +174,7 @@ Phase 0: T001 → T002 → **[T004, T006–T010 may proceed in parallel with the
 |---|---|---|
 | GPU UUIDs (`nvidia-smi -L`) | T003 | T006/T010 workload manifests |
 | DCGM field support on consumer Blackwell (D-000/D-11) | T003 (`dcgmi dmon -e 203,252,150`) | T006 `dcgmExporter` counters CSV |
-| `RUNTIME_CONFIG_SOURCE=file` on k3s + containerd 2.2.5-k3s2 (D-000/D-02) | T005 | T006 `toolkit.env` |
+| `RUNTIME_CONFIG_SOURCE=file` on k3s + containerd 2.2.7-k3s1 (bundled with k3s v1.35.9+k3s1 since B-03; D-000 "Requires empirical verification on the hardware (T003/T005)" item 3 posed it, unverified, on 2.2.5-k3s2) | T005 | T006 `toolkit.env` |
 | GPU Operator 26.3.3 vs driver branch 610 (validated list stops at 595.71.05) | T003 | T006 chart pin viability |
 
 **T006 must therefore be re-reviewed against T003's and T005's verification blocks before T011 may cite it.** T004 and T007–T010 carry no GPU coupling and are unconditionally parallel.

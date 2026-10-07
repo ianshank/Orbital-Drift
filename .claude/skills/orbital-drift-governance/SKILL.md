@@ -84,6 +84,8 @@ never assume standing.
 
 - **RB-019** (10-06): named G-1 waiver for T071-T075, re-scoped T036/T059, P-1..P-6 (each minted in its first product PR), T046 authoring; items needing B-04, B-07's label amendment, B-08, B-11, B-13 or B-14 wait for it. T072/T073 count in row 1; P-1..P-6, T036, T059 in row L. Also B-03 re-verification, the artifacts, T063 checkbox and ADR headers DEC-002 exempts, and PR #33's pointer edits (PR #33 outside the cap). RB-015 Part F stays gated. No G-x.
 
+- **RB-019a** (10-07): execution record under RB-019 (B-06 rule 5 merge record for PR #34): B-03 re-verification; k3s moved to v1.35.9+k3s1 (containerd v2.2.7-k3s1) in lockstep; driver 610.57.04 and GPU Operator v26.3.3 kept, a different installed driver recorded at T003 and held by T074 (B-03 fallback as RB-017 accepted it). Also accepted by the merge: plan.md's 'current stable' corrected, versions.md's duplicated table merged, a D-008 header pointer. No G-x, no checkbox.
+
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after
 this section's own "since" date has no corresponding ID anywhere in the section text. A
