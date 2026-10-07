@@ -14,16 +14,17 @@
 # FORM: base-extension, not a full static config. The first line delegates to
 #   k3s's built-in v3 base template ("compiled_template" gets a "base"
 #   associated template via templates.ParseTemplateFromConfig — verified at
-#   tag v1.35.7+k3s1, pkg/agent/templates/templates.go). A full static copy
-#   of the base was rejected: it would freeze k3s's own defaults (snapshotter,
-#   cgroup driver, registry mirrors, pause image) at authoring time and turn
-#   every k3s patch release into silent config drift.
+#   tag v1.35.9+k3s1, pkg/agent/templates/templates.go; re-verified for the
+#   B-03 pin move, see docs/decisions/versions.md 2026-10-07 finding 1). A
+#   full static copy of the base was rejected: it would freeze k3s's own
+#   defaults (snapshotter, cgroup driver, registry mirrors, pause image) at
+#   authoring time and turn every k3s patch release into silent config drift.
 #
 # THE ONE ADDITION: a fallback `nvidia` runtime stanza, rendered ONLY when
 #   k3s's own per-start runtime detection did not register the handler.
 #   k3s prepends /usr/local/nvidia/toolkit to the PATH it scans for runtime
 #   binaries (pkg/agent/containerd/config_linux.go, runtimesPath constant,
-#   verified at tag v1.35.7+k3s1) — exactly where the GPU Operator's toolkit
+#   verified at tag v1.35.9+k3s1) — exactly where the GPU Operator's toolkit
 #   installs. When detection succeeds, the base template already emits this
 #   same stanza from .ExtraRuntimes and the block below is skipped; rendering
 #   it unconditionally would define the same TOML table twice, which is a
@@ -53,7 +54,7 @@
 #   deliberate). Parameterizing it would permit drift from a value that has
 #   exactly one correct spelling.
 #
-# Targets: k3s v1.35.7+k3s1 / containerd v2.2.5-k3s2 (bundled, per the k3s
+# Targets: k3s v1.35.9+k3s1 / containerd v2.2.7-k3s1 (bundled, per the k3s
 #   release notes) / containerd config version 3 (emitted by the base
 #   template). Pins: docs/decisions/versions.md.
 

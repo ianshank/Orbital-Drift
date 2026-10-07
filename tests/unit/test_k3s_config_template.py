@@ -10,8 +10,8 @@ file's existence, and Step 12's escalation path depends on it encoding the
 What these tests pin down (load-bearing keys, not exact formatting):
 
 * the file exists where the runbook's Step 2 checks for it;
-* it targets containerd config **version 3** (k3s v1.35.7+k3s1 bundles
-  containerd v2.2.5-k3s2 — pinned with provenance in
+* it targets containerd config **version 3** (k3s v1.35.9+k3s1 bundles
+  containerd v2.2.7-k3s1 — pinned with provenance in
   ``docs/decisions/versions.md``; config v3 renames the CRI runtime plugin
   table from v2's ``io.containerd.grpc.v1.cri`` to
   ``io.containerd.cri.v1.runtime``);
@@ -30,7 +30,12 @@ What these tests pin down (load-bearing keys, not exact formatting):
   deletes the ``nvidia`` RuntimeClass that D-000/D-03's UUID pinning depends
   on — NRI must not appear in active, non-comment template content);
 * it carries no host-specific literals (Constitution III / D-000/D-10): no
-  GPU UUIDs, no IPv4 addresses, no hostname substitutions.
+  GPU UUIDs, no IPv4 addresses, no hostname substitutions;
+* the k3s tag and bundled-containerd version it claims to be verified against
+  are the ones ``docs/decisions/versions.md`` pins, and every other live copy
+  of that pin (runbooks 00 and 01, this docstring) moves in lockstep with it
+  (B-03 / RB-019). The pin is DERIVED from versions.md, never restated here,
+  so the next pin move needs no edit to this test.
 
 Source of truth for the required stanza:
 ``docs/decisions/000-phase0-technical-decisions.md`` D-02/D-02b and
@@ -44,6 +49,27 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_PATH = REPO_ROOT / "infra" / "k3s" / "config-v3.toml.tmpl"
+VERSIONS_MD = REPO_ROOT / "docs" / "decisions" / "versions.md"
+
+# Every file where the recommended k3s pin (and the containerd it bundles) is a
+# LIVE pin: the template's verified-at claims, the two runbooks the operator
+# executes, and this module's own docstring. Historical ADRs (D-000, D-008,
+# D-016) are deliberately absent — they record what was true when written and
+# must not be rewritten by a pin move (B-03).
+LIVE_K3S_PIN_FILES = (
+    TEMPLATE_PATH,
+    REPO_ROOT / "docs" / "runbooks" / "00-host-prep.md",
+    REPO_ROOT / "docs" / "runbooks" / "01-k3s-install.md",
+    Path(__file__).resolve(),
+)
+
+# A k3s release tag (stable or rc) and a k3s-fork containerd version. The two
+# shapes cannot collide: k3s tags carry `+k3sN`, the containerd fork `-k3sN`.
+# The tag pattern also matches the URL-encoded `%2B` form, because release-page
+# links cite the tag that way — a stale tag inside a provenance URL is still a
+# stale tag.
+_K3S_TAG = re.compile(r"\bv\d+\.\d+\.\d+(?:-rc\d+)?(?:\+|%2B)k3s\d+")
+_K3S_CONTAINERD = re.compile(r"\bv?\d+\.\d+\.\d+-k3s\d+(?:\.\d+)?")
 
 # containerd config-v3 CRI runtime plugin table id; TOML permits either quote
 # style around the dotted key, so accept both.
@@ -275,3 +301,107 @@ def test_no_hardcoded_gpu_uuids_or_host_literals() -> None:
             "template context, not shell env; a shell-style substitution here would land "
             "verbatim (and unresolved) in containerd's config"
         )
+
+
+def _versions_md_k3s_pins() -> tuple[str, str, str]:
+    """Return (recommended k3s tag, not-recommended latest-stable tag, bundled containerd).
+
+    Read from ``docs/decisions/versions.md``'s "Host / cluster" rows. Every row
+    carrying a given label must agree with every other row carrying it: two
+    copies of one pin that disagree are a defect, not a choice of which to
+    believe. The containerd row names the k3s tag it was read from, and that
+    tag must be the recommended pin — the row "rides the k3s pin".
+    """
+    text = VERSIONS_MD.read_text(encoding="utf-8")
+    recommended = set(
+        re.findall(r"^\|\s*k3s \(recommended\)\s*\|\s*`([^`]+)`", text, flags=re.MULTILINE)
+    )
+    assert len(recommended) == 1, (
+        f"versions.md must carry exactly one recommended k3s pin; found {sorted(recommended)}"
+    )
+    (pin,) = recommended
+
+    latest = set(
+        re.findall(r"^\|\s*k3s \(latest stable[^|]*\|\s*`([^`]+)`", text, flags=re.MULTILINE)
+    )
+    assert len(latest) == 1, (
+        f"versions.md must carry exactly one latest-stable k3s row; found {sorted(latest)}"
+    )
+    (not_recommended,) = latest
+
+    containerd_rows = set(
+        re.findall(
+            r"^\|\s*containerd \(bundled in k3s `([^`]+)`[^|]*\|\s*`([^`]+)`",
+            text,
+            flags=re.MULTILINE,
+        )
+    )
+    assert len(containerd_rows) == 1, (
+        "versions.md must carry exactly one bundled-containerd pin; "
+        f"found {sorted(containerd_rows)}"
+    )
+    ((containerd_from_tag, containerd),) = containerd_rows
+    assert containerd_from_tag == pin, (
+        f"versions.md's containerd row was read from k3s {containerd_from_tag}, but the "
+        f"recommended k3s pin is {pin} — the containerd row must move with the k3s pin"
+    )
+    return pin, not_recommended, containerd
+
+
+def test_versions_md_k3s_rows_are_internally_consistent() -> None:
+    """The recommended k3s pin, the latest-stable row and the containerd row agree."""
+    _versions_md_k3s_pins()
+
+
+def test_template_targets_the_k3s_pin_recorded_in_versions_md() -> None:
+    """The template's ``Targets:`` claim names exactly versions.md's k3s and containerd pins.
+
+    The template's base-extension form was verified against k3s's own
+    ``pkg/agent/templates/templates.go`` at one specific tag; a pin move that
+    leaves this claim behind silently turns the verification into a claim about
+    a version nobody installs.
+    """
+    pin, _, containerd = _versions_md_k3s_pins()
+    expected = f"Targets: k3s {pin} / containerd {containerd}"
+    assert expected in _template_text(), (
+        f"template header does not say {expected!r} — re-verify the template against "
+        "k3s's templates.go at the pinned tag, then update its header (B-03)"
+    )
+
+
+def test_runbook_01_installs_the_pinned_k3s_tag() -> None:
+    """Runbook 01 Step 4's install command passes versions.md's recommended pin."""
+    pin, _, _ = _versions_md_k3s_pins()
+    runbook = (REPO_ROOT / "docs" / "runbooks" / "01-k3s-install.md").read_text(encoding="utf-8")
+    assert f'INSTALL_K3S_VERSION="{pin}"' in runbook, (
+        f"runbook 01's install command does not pin INSTALL_K3S_VERSION to {pin} — "
+        "the operator would install a version versions.md does not record"
+    )
+
+
+def test_live_k3s_pin_copies_match_versions_md() -> None:
+    """Every live copy of the k3s pin and its containerd names versions.md's values.
+
+    A file may name only the recommended pin or the latest-stable row (the
+    D-000/D-07 counterexample the runbooks explain away). Any other k3s tag, or
+    any k3s-fork containerd version other than the pinned one, is a copy left
+    behind by a pin move.
+    """
+    pin, not_recommended, containerd = _versions_md_k3s_pins()
+    allowed_tags = {pin, not_recommended}
+    stale: list[str] = []
+    for path in LIVE_K3S_PIN_FILES:
+        text = path.read_text(encoding="utf-8")
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        if pin not in text:
+            stale.append(f"{rel}: never names the pinned k3s tag {pin}")
+        tags = {t.replace("%2B", "+") for t in _K3S_TAG.findall(text)}
+        for tag in sorted(tags - allowed_tags):
+            stale.append(f"{rel}: names k3s tag {tag}; versions.md pins {pin}")
+        containerds = {c.removeprefix("v") for c in _K3S_CONTAINERD.findall(text)}
+        for found in sorted(containerds - {containerd.removeprefix("v")}):
+            stale.append(f"{rel}: names bundled containerd {found}; versions.md pins {containerd}")
+    assert not stale, (
+        "k3s pin copies are out of lockstep with docs/decisions/versions.md (B-03):\n"
+        + "\n".join(stale)
+    )

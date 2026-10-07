@@ -98,20 +98,20 @@ NODE_A_LAN_IP is set: yes
 
 ---
 
-### Step 4 — Install k3s, pinned to `v1.35.7+k3s1`
+### Step 4 — Install k3s, pinned to `v1.35.9+k3s1`
 
-**Why this pin, not `v1.36.3+k3s1` ("latest stable"):** GPU Operator `v26.3.3` supports k3s `1.33`–`1.35` and containerd `1.7`–`2.2`. k3s `v1.36.3+k3s1` ships containerd `2.3.2` — outside both supported ranges. k3s `v1.35.7+k3s1` ships containerd `2.2.5-k3s2` — inside both (confirmed against `https://github.com/k3s-io/k3s/releases/tag/v1.35.7%2Bk3s1`). Chasing "latest" buys nothing here and moves the component most likely to fail (plan.md risk R-05) outside its tested envelope. Full reasoning: `docs/decisions/000-phase0-technical-decisions.md` D-07. Version provenance: `docs/decisions/versions.md`, "Host / cluster" table.
+**Why this pin, not `v1.36.3+k3s1` ("latest stable"):** GPU Operator `v26.3.3` supports k3s `1.33`–`1.35` and containerd `1.7`–`2.2`. k3s `v1.36.3+k3s1` ships containerd `2.3.2` — outside both supported ranges. k3s `v1.35.9+k3s1` ships containerd `2.2.7-k3s1` — inside both (confirmed against `https://github.com/k3s-io/k3s/releases/tag/v1.35.9%2Bk3s1`; pin moved from the previous v1.35.x patch by the B-03 re-verification, `docs/decisions/versions.md` 2026-10-07 finding 1). Chasing "latest" buys nothing here and moves the component most likely to fail (plan.md risk R-05) outside its tested envelope. Full reasoning: `docs/decisions/000-phase0-technical-decisions.md` D-07. Version provenance: `docs/decisions/versions.md`, "Host / cluster" table.
 
 **Command:**
 ```
-curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="v1.35.7+k3s1" sh -s - server \
+curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="v1.35.9+k3s1" sh -s - server \
   --node-name "${NODE_A_HOSTNAME}"
 ```
 
 **Expected output:** the install script logs its progress to stdout; look for these markers (exact wording may vary slightly by script revision — do not treat this as a byte-for-byte match, that is what Step 5's Verification is for):
 ```
-[INFO]  Using v1.35.7+k3s1 as release
-[INFO]  Downloading binary https://github.com/k3s-io/k3s/releases/download/v1.35.7+k3s1/k3s
+[INFO]  Using v1.35.9+k3s1 as release
+[INFO]  Downloading binary https://github.com/k3s-io/k3s/releases/download/v1.35.9+k3s1/k3s
 [INFO]  Verifying binary download
 [INFO]  Installing k3s to /usr/local/bin/k3s
 [INFO]  systemd: Starting k3s
@@ -141,13 +141,13 @@ k3s --version
 **Expected output:**
 ```
 active
-k3s version v1.35.7+k3s1 (<git-sha>)
+k3s version v1.35.9+k3s1 (<git-sha>)
 Go version go<...>
 ```
 
-**Verification:** first command prints exactly `active`; second command's first line contains `v1.35.7+k3s1`. Both conditions required — a running service on the wrong version is a defect, not a pass.
+**Verification:** first command prints exactly `active`; second command's first line contains `v1.35.9+k3s1`. Both conditions required — a running service on the wrong version is a defect, not a pass.
 
-**Rollback/Abort:** If `systemctl is-active` reports anything other than `active` (e.g. `activating`, `failed`), wait 30s and re-check once (first boot can take a moment to pull embedded images); if still not `active`, run `sudo journalctl -u k3s -n 100 --no-pager` to inspect, then fall back to Step 4's rollback (uninstall, re-install). If the version string does not match `v1.35.7+k3s1`, this is a pin violation (Constitution IV) — uninstall and re-run Step 4, double-checking `INSTALL_K3S_VERSION` was exported/passed correctly.
+**Rollback/Abort:** If `systemctl is-active` reports anything other than `active` (e.g. `activating`, `failed`), wait 30s and re-check once (first boot can take a moment to pull embedded images); if still not `active`, run `sudo journalctl -u k3s -n 100 --no-pager` to inspect, then fall back to Step 4's rollback (uninstall, re-install). If the version string does not match `v1.35.9+k3s1`, this is a pin violation (Constitution IV) — uninstall and re-run Step 4, double-checking `INSTALL_K3S_VERSION` was exported/passed correctly.
 
 ---
 
