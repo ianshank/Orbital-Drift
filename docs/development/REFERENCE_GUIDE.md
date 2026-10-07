@@ -162,7 +162,9 @@ this table.
 - **CUDA OOM on fine-tune**: reduce `batch_size` and raise `gradient_accumulation_steps` in
   `OrbitalDriftConfig` to hold the effective batch size.
 - **Canary reversion / rollback**: `ModelRegistryOps.rollback_production(model_name)` archives
-  the regression and reinstates the prior Production version. **Two caveats before you rely on
+  the regression and reinstates the version that was in Production immediately before it (its
+  promotion history, T071); with no earlier version it raises `NoRollbackTargetError` and leaves
+  Production unchanged. **Two caveats before you rely on
   it:** nothing loads a production model outside tests today (T053/T059), so in the shipped
   container there is no canary to revert; `rollback_production` itself takes `self._lock`
   (T062, PR #25). `get_stage_version` stays unlocked because wrapping it while that lock is

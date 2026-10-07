@@ -123,6 +123,8 @@ Review-enforced.
 
 - **RB-019b** (10-07): execution record under RB-019 (B-06 rule 5 merge record for PR #35): charter v1.1 executes the DEC-002 override as RB-020 clarifies it (WIP limit, process-PR cap, ride-alongs, exemptions, R-2/R-5 restated) and B-04 (Phase L). Earns and uses no cap credit; B-04 binding meets only RB-019's B-04 condition; RB-020(4) fixes and the amendment's governance mirrors are listed in the line by file and line. Authorizes and mints no task.
 
+- **RB-019c** (10-07): execution record under RB-019 (B-06 rule 5 merge record for PR #36): T071 — rollback restores the version in Production immediately before the current one (stack semantics), raises NoRollbackTargetError when none exists; conformance suite over both registries; RB-021's decision logging and metadata copy; docs this change made false listed. First product PR under the DEC-002 override: the process-PR cap gains one credit. No stage rename, no G-x; ticks only T071.
+
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after
 this section's own "since" date has no corresponding ID anywhere in the section text. A

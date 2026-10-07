@@ -219,8 +219,8 @@ plan.md gate.
 
 ## 5. Where the project actually is
 
-Phase 0 of 6. Checkbox state lives in tasks.md: 14 of 73
-task lines are checked (T001, T001a, T001b, T002, T004, T004a, T007-T010, T056, T058, T062, T065;
+Phase 0 of 6. Checkbox state lives in tasks.md: 15 of 73
+task lines are checked (T001, T001a, T001b, T002, T004, T004a, T007-T010, T056, T058, T062, T065, T071;
 `grep -c '^- \[x\] T'` and `grep -c '^- \[[ x]\] T'` over tasks.md). PR#16/#17 landed most Phase
 1-4 application code ungated; RB-010 marked T013-T052 AUTHORED-PROVISIONAL pending T057. RB-010
 Parts 3 and 14 remain open behind B-09/B-10.
@@ -232,7 +232,7 @@ Parts 3 and 14 remain open behind B-09/B-10.
 | Tile store | Local `.npy` save/load | No COG, windowed reads, S3, retention or atomic writes | D-016/05f |
 | lakeFS | Commit/branch/pin simulated in-process, labelled `[SIMULATED]` (T056) | No SDK, no server | T060; B-12 |
 | Training | U-Net, AMP, grad-accum, IoU/F1 | Single-epoch function: no fit loop, validation, seeding or checkpoint; no persistence (no `torch.save`/`state_dict` in `src/`) and no entrypoint; `in_channels` literal 4 | D-016/03a, 03b; first pass H3 (search of `src/` for `torch.save`, `state_dict`, `torch.load`: 0 hits) |
-| Registry | Stage machine with locking (T062) | An in-process dict not labelled as a simulation; rollback can promote a never-served rejected version, or leave no Production model | D-016/03c (T071); first pass H10 (`[SIMULATED]` appears only in `data/lakefs_ops.py`) |
+| Registry | Stage machine with locking (T062); added after c545701: rollback restores the recorded previous Production version and raises when none exists (T071, PR #36) | An in-process dict not labelled as a simulation | D-016/03c (T071); first pass H10 (`[SIMULATED]` appears only in `data/lakefs_ops.py`) |
 | Drift | PSI (hand-written) + KS (scipy); hysteresis and cooldown from config | Trigger state lives in memory and cannot survive one pod per task (0 triggers over 30 drifted scenes with a fresh manager per scene); clouds and fill scored as drift; no prediction-class shift, Prometheus export or reference builder | D-016/04a, 04b, 04c, 08 |
 | Eval | `superiority_gate`, 2-D moving-block bootstrap | No caller in `src/` or in either e2e test (search for `superiority`); decides on an inflated metric (absent classes score IoU 1.0: a constant predictor gets mIoU 0.850 vs 0.250 present-class); miscalibrated decision rule; Principle II violation open | D-016/02a, 02c, 02d, 08; B-09 |
 | Config | pydantic-settings, 38 fields | `get_config()` called nowhere in the repository; 17 of 38 fields unread; lakeFS secrets required in every process | First pass H4 (attribute reads of each `OrbitalDriftConfig` field outside `config.py`); D-016/07c |
@@ -299,9 +299,11 @@ not exist (`ModelRegistryOps.rollback_production_model()`, real name `rollback_p
 tests, so there is nothing to roll back. The broken names remain in
 `.claude/skills/canary-rollback-drill/SKILL.md`; fixing them is re-scoped T039.
 
-Correct names would not be enough: `rollback_production` restores the highest-numbered Archived
-version, which can be a rejected challenger that never served (D-016/03c). T071 fixes the target;
-T039 (`docs/runbooks/04-ct-ops.md`, `05-rollback.md`, runbook-writer, unwritten) then writes the
+Correct names would not have been enough: before T071, `rollback_production` restored the
+highest-numbered Archived version, which could be a rejected challenger that never served
+(D-016/03c). T071 fixed the target: it restores the version that was in Production immediately
+before the current one and raises `NoRollbackTargetError`, leaving Production unchanged, when there
+is none. T039 (`docs/runbooks/04-ct-ops.md`, `05-rollback.md`, runbook-writer, unwritten) then writes the
 drill as a move to the recorded previous champion. SC-004's first measurement is part of MVP-C.
 Until T039 lands there is no rollback procedure in this repository, and this file will not
 pretend otherwise.
