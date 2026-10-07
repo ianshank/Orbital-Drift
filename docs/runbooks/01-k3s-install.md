@@ -100,7 +100,7 @@ NODE_A_LAN_IP is set: yes
 
 ### Step 4 — Install k3s, pinned to `v1.35.9+k3s1`
 
-**Why this pin, not `v1.36.3+k3s1` ("latest stable"):** GPU Operator `v26.3.3` supports k3s `1.33`–`1.35` and containerd `1.7`–`2.2`. k3s `v1.36.3+k3s1` ships containerd `2.3.2` — outside both supported ranges. k3s `v1.35.9+k3s1` ships containerd `2.2.7-k3s1` — inside both (confirmed against `https://github.com/k3s-io/k3s/releases/tag/v1.35.9%2Bk3s1`; pin moved from the previous v1.35.x patch by the B-03 re-verification, `docs/decisions/versions.md` 2026-10-07 finding 1). Chasing "latest" buys nothing here and moves the component most likely to fail (plan.md risk R-05) outside its tested envelope. Full reasoning: `docs/decisions/000-phase0-technical-decisions.md` D-07. Version provenance: `docs/decisions/versions.md`, "Host / cluster" table.
+**Why this pin, not `v1.36.3+k3s1` (the "latest stable" when D-000/D-07 was written, 2026-08-08; upstream has moved since, see `docs/decisions/versions.md` 2026-10-07 finding 2):** GPU Operator `v26.3.3` supports k3s `1.33`–`1.35` and containerd `1.7`–`2.2`. k3s `v1.36.3+k3s1` ships containerd `2.3.2` — outside both supported ranges. k3s `v1.35.9+k3s1` ships containerd `2.2.7-k3s1` — inside both (confirmed against `https://github.com/k3s-io/k3s/releases/tag/v1.35.9%2Bk3s1`; pin moved from the previous v1.35.x patch by the B-03 re-verification, `docs/decisions/versions.md` 2026-10-07 finding 1). Chasing "latest" buys nothing here and moves the component most likely to fail (plan.md risk R-05) outside its tested envelope. Full reasoning: `docs/decisions/000-phase0-technical-decisions.md` D-07. Version provenance: `docs/decisions/versions.md`, "Host / cluster" table.
 
 **Command:**
 ```

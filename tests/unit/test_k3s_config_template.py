@@ -10,9 +10,9 @@ file's existence, and Step 12's escalation path depends on it encoding the
 What these tests pin down (load-bearing keys, not exact formatting):
 
 * the file exists where the runbook's Step 2 checks for it;
-* it targets containerd config **version 3** (k3s v1.35.9+k3s1 bundles
-  containerd v2.2.7-k3s1 — pinned with provenance in
-  ``docs/decisions/versions.md``; config v3 renames the CRI runtime plugin
+* it targets containerd config **version 3** (the k3s tag
+  ``docs/decisions/versions.md`` pins bundles the containerd version also
+  pinned with provenance there; config v3 renames the CRI runtime plugin
   table from v2's ``io.containerd.grpc.v1.cri`` to
   ``io.containerd.cri.v1.runtime``);
 * it encodes the ``nvidia`` runtime stanza per D-000/D-02b: handler name
@@ -33,7 +33,7 @@ What these tests pin down (load-bearing keys, not exact formatting):
   GPU UUIDs, no IPv4 addresses, no hostname substitutions;
 * the k3s tag and bundled-containerd version it claims to be verified against
   are the ones ``docs/decisions/versions.md`` pins, and every other live copy
-  of that pin (runbooks 00 and 01, this docstring) moves in lockstep with it
+  of that pin (runbooks 00 and 01) moves in lockstep with it
   (B-03 / RB-019). The pin is DERIVED from versions.md, never restated here,
   so the next pin move needs no edit to this test.
 
@@ -52,15 +52,15 @@ TEMPLATE_PATH = REPO_ROOT / "infra" / "k3s" / "config-v3.toml.tmpl"
 VERSIONS_MD = REPO_ROOT / "docs" / "decisions" / "versions.md"
 
 # Every file where the recommended k3s pin (and the containerd it bundles) is a
-# LIVE pin: the template's verified-at claims, the two runbooks the operator
-# executes, and this module's own docstring. Historical ADRs (D-000, D-008,
-# D-016) are deliberately absent — they record what was true when written and
-# must not be rewritten by a pin move (B-03).
+# LIVE pin: the template's verified-at claims and the two runbooks the operator
+# executes. This module is deliberately absent: it names no version at all, so
+# a pin move needs no edit here. Historical ADRs (D-000, D-008, D-016) are
+# deliberately absent too — they record what was true when written and must
+# not be rewritten by a pin move (B-03).
 LIVE_K3S_PIN_FILES = (
     TEMPLATE_PATH,
     REPO_ROOT / "docs" / "runbooks" / "00-host-prep.md",
     REPO_ROOT / "docs" / "runbooks" / "01-k3s-install.md",
-    Path(__file__).resolve(),
 )
 
 # A k3s release tag (stable or rc) and a k3s-fork containerd version. The two
