@@ -84,6 +84,8 @@ never assume standing.
 
 - **RB-019** (10-06): named G-1 waiver for T071-T075, re-scoped T036/T059, P-1..P-6 (each minted in its first product PR), T046 authoring; items needing B-04, B-07's label amendment, B-08, B-11, B-13 or B-14 wait for it. T072/T073 count in row 1; P-1..P-6, T036, T059 in row L. Also B-03 re-verification, the artifacts, T063 checkbox and ADR headers DEC-002 exempts, and PR #33's pointer edits (PR #33 outside the cap). RB-015 Part F stays gated. No G-x.
 
+- **RB-019c** (10-07): execution record under RB-019 (B-06 rule 5 merge record for PR #36): T071 — rollback restores the version in Production immediately before the current one (stack semantics), raises NoRollbackTargetError when none exists; metadata copied; decisions logged; conformance suite over both registries. First product PR under the DEC-002 override: the process-PR cap gains one credit. No stage rename, no G-x.
+
 **This section is mechanically checked for staleness** —
 `tests/governance/test_governance_meta.py` fails if a decision-log entry dated on/after
 this section's own "since" date has no corresponding ID anywhere in the section text. A
