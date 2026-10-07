@@ -50,6 +50,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_PATH = REPO_ROOT / "infra" / "k3s" / "config-v3.toml.tmpl"
 VERSIONS_MD = REPO_ROOT / "docs" / "decisions" / "versions.md"
+TASKS_MD = REPO_ROOT / "specs" / "001-orbital-drift-ct" / "tasks.md"
 
 # Every file where the recommended k3s pin (and the containerd it bundles) is a
 # LIVE pin: the template's verified-at claims and the two runbooks the operator
@@ -404,4 +405,36 @@ def test_live_k3s_pin_copies_match_versions_md() -> None:
     assert not stale, (
         "k3s pin copies are out of lockstep with docs/decisions/versions.md (B-03):\n"
         + "\n".join(stale)
+    )
+
+
+def test_tasks_md_t005_coupling_row_names_the_current_pins() -> None:
+    """tasks.md's ``RUNTIME_CONFIG_SOURCE=file`` coupling row names versions.md's pins.
+
+    Row-scoped on purpose, not a sweep of tasks.md: the row deliberately keeps
+    the historical containerd version the coupling was first posed on, and
+    other tasks.md text (T002's review history) mentions the coupling in prose.
+    Only a Dependencies-table row whose FIRST cell starts with the coupling is
+    checked, and it must state the current k3s tag and the current containerd
+    as the one the coupling now resolves on.
+    """
+    pin, _, containerd = _versions_md_k3s_pins()
+    rows = re.findall(
+        r"^\|\s*`RUNTIME_CONFIG_SOURCE=file`[^|\n]*\|.*$",
+        TASKS_MD.read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
+    )
+    assert len(rows) == 1, (
+        "specs/001-orbital-drift-ct/tasks.md must carry exactly one Dependencies-table "
+        f"row whose first cell starts with `RUNTIME_CONFIG_SOURCE=file`; found {len(rows)}"
+    )
+    (row,) = rows
+    containerd_bare = re.escape(containerd.removeprefix("v"))
+    assert re.search(rf"\bcontainerd\s+v?{containerd_bare}(?!\w)", row), (
+        f"tasks.md's T005 coupling row does not say `containerd {containerd.removeprefix('v')}` "
+        f"— versions.md pins bundled containerd {containerd} (B-03). Row: {row!r}"
+    )
+    assert re.search(rf"\bk3s\s+{re.escape(pin)}(?!\w)", row), (
+        f"tasks.md's T005 coupling row does not name `k3s {pin}`, the k3s tag "
+        f"versions.md pins (B-03). Row: {row!r}"
     )
