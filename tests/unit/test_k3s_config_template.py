@@ -384,7 +384,7 @@ def _versions_md_k3s_pins() -> tuple[str, str, str]:
 
 def _versions_md_source_cell(label_pattern: str) -> str:
     """The Source cell (third column) of the single versions.md row matching ``label_pattern``."""
-    rows = re.findall(
+    rows: list[str] = re.findall(
         rf"^\|\s*{label_pattern}.*$",
         VERSIONS_MD.read_text(encoding="utf-8"),
         flags=re.MULTILINE,
