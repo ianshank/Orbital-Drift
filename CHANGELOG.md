@@ -18,11 +18,14 @@ is this repository's body of work to date.
 
 ### Fixed — registry rollback restores exactly the previous champion (T071, RB-019, 2026-10-07)
 
-Commits: `274da64` (T071), `b99005b` (docs ride-alongs), `35338a0` (RB-019c merge record), and
-the review-fix commit(s) after `35338a0` on branch `claude/t071-rollback-previous-champion`
-(PR #36, based on `c971603`). Product track, row L under the DEC-002 override line; T071 is
-authorized by RB-019's named G-1 waiver, the logging slice and the metadata copy by RB-021, and
-the docs edits ride along under RB-020(4). Reviews pending, so T071's checkbox stays `[ ]`.
+Commits: `274da64` (T071), `b99005b` (docs this change made false), `35338a0` (RB-019c merge
+record), and the review-fix commit(s) after `35338a0` on branch
+`claude/t071-rollback-previous-champion` (PR #36, based on `c971603`). Product track, row L
+under the DEC-002 override line; T071 is authorized by RB-019's named G-1 waiver, the logging
+slice and the metadata copy by RB-021. The docs edits correct text this PR's own change made
+false and are listed in RB-019c. They are not RB-020(4) ride-alongs: no logged decision made them
+false, and REFERENCE_GUIDE is outside that clause's files. Reviews pending, so T071's checkbox
+stays `[ ]`.
 
 - **D-016/03c, both defects.** `rollback_production` (`src/orbital_drift/registry/ops.py`)
   promoted the highest-numbered Archived version, so a rejected challenger that never served
@@ -68,7 +71,8 @@ the docs edits ride along under RB-020(4). Reviews pending, so T071's checkbox s
   `tests/unit/test_registry_ops.py` grows from 19 to 43 collected tests; the test that pinned the
   `None` return now pins the raise, and T062's concurrency test now asserts the two serialized
   rollbacks return v2 and v1.
-- Docs ride-alongs (RB-020(4), `b99005b`, plus one cell in the review-fix commit):
+- Docs this change made false (`b99005b`, plus one cell in the review-fix commit; listed in
+  RB-019c):
   `docs/development/NEXT_STEPS.md`'s as-built Registry row (the T071 clause is marked "added
   after c545701 ... (T071, PR #36)" so the "Built (c545701)" column stays true) and §8's
   rollback paragraph, and `docs/development/REFERENCE_GUIDE.md`'s rollback note, now describe the
