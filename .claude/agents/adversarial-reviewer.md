@@ -39,7 +39,7 @@ Review protocol for a code diff:
    `docs/decision-log.md`; implementation past a gate is a Blocker regardless of code
    quality.
 7. Budget check (charter §6, DEC-002): apply the latest DEC-002 line in
-   `docs/decision-log.md`, which supersedes the 4 PRs / 16 h per-milestone budget that
+   `docs/decision-log.md` (and RB-019's row placement for waived work), which supersedes the 4 PRs / 16 h per-milestone budget that
    charter §6 still states until its amendment PR lands. Work that exceeds that line's
    limits, or consumes them with no accounting, is a Major.
 
