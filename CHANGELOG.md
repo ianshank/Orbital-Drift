@@ -18,9 +18,11 @@ is this repository's body of work to date.
 
 ### Fixed — registry rollback restores exactly the previous champion (T071, RB-019, 2026-10-07)
 
-Commit: the T071 commit on branch `claude/t071-rollback-previous-champion`, based on `c971603`.
-Product track, row L under the DEC-002 override line; authorized by RB-019's named G-1 waiver.
-spec-guardian and adversarial-reviewer reviews pending, so T071's checkbox stays `[ ]`.
+Commits: `274da64` (T071), `b99005b` (docs ride-alongs), `35338a0` (RB-019c merge record), and
+the review-fix commit(s) after `35338a0` on branch `claude/t071-rollback-previous-champion`
+(PR #36, based on `c971603`). Product track, row L under the DEC-002 override line; T071 is
+authorized by RB-019's named G-1 waiver, the logging slice and the metadata copy by RB-021, and
+the docs edits ride along under RB-020(4). Reviews pending, so T071's checkbox stays `[ ]`.
 
 - **D-016/03c, both defects.** `rollback_production` (`src/orbital_drift/registry/ops.py`)
   promoted the highest-numbered Archived version, so a rejected challenger that never served
@@ -31,8 +33,10 @@ spec-guardian and adversarial-reviewer reviews pending, so T071's checkbox stays
   `model_name`, `production_version` and `reason`) and changes nothing. Return type narrowed
   from `int | None` to `int`; nothing in `src/` calls it, and the contract and e2e callers
   (v1 promoted, v2 promoted, rollback expects 1) are unaffected.
-- **Repeated rollback is a stack (B-11's "rollback moves it to the recorded
-  previous_champion").** Each promotion to Production pushes a `PromotionRecord(version,
+- **Repeated rollback is a stack.** The authority is T071's own acceptance ("repeated-rollback
+  semantics are defined and tested"); the choice is compatible with, not bound by, B-11's
+  proposed "rollback moves it to the recorded previous_champion", which waits for its FR-006
+  amendment. Each promotion to Production pushes a `PromotionRecord(version,
   previous_production_version)`; each rollback pops the newest one and restores the version it
   names, so a second rollback walks one promotion further back and raises once the oldest is
   reached. A version rolled away from is never restored by a later rollback; a version that never
@@ -43,25 +47,39 @@ spec-guardian and adversarial-reviewer reviews pending, so T071's checkbox stays
   unchanged). A new test interleaves promotions and rollbacks across four threads and asserts
   exactly one Production version after every successful operation; a mutant with the lock
   removed from `rollback_production` fails it (and T062's test) in each of three runs.
-- Each promotion, archive and rollback decision is one record on the module logger with
-  `extra=` fields `registry_action`, `model_name`, `version`, `from_version`, `to_version` and
-  `reason` (the `eval/` pattern); a refused rollback logs at WARNING, and so does vacating
-  Production. The two message texts existing tests assert are kept; a promotion now logs
-  "Promoted model ..." where it logged "Transitioned model ... -> Production". No new config
-  field, no `print`.
-- **N-12:** `register_model_version` deep-copies `metadata` instead of storing the caller's dict.
+- **Decision logging (RB-021(a), a slice of T054 limited to this module).** Each promotion,
+  archive and rollback decision is one record on the module logger with `extra=` fields
+  `registry_action`, `model_name`, `version`, `from_version`, `to_version` and `reason` (the
+  `eval/` pattern); a refused rollback logs at WARNING, and so does vacating Production. Today the
+  records carry these fields as `LogRecord` attributes; the observability formatter renders them
+  as JSON only once T054 wires `configure_logging()`, which stays T054's and gated. The two message
+  texts existing tests assert are kept; a promotion now logs "Promoted model ..." where it logged
+  "Transitioned model ... -> Production". No new config field, no `print`.
+- **Code-hygiene review finding N-12 (RB-021(b)):** `register_model_version` deep-copies
+  `metadata` instead of storing the caller's dict.
 - Stage names are also exported as `NONE_STAGE`, `STAGING_STAGE`, `PRODUCTION_STAGE` and
   `ARCHIVED_STAGE`; the stage names themselves are unchanged (champion naming waits for B-11).
-- Tests: new `tests/unit/test_registry_rollback_conformance.py` (29 collected: 14 behaviours
-  over `ModelRegistryOps` and ports/registry.py's `InMemoryModelRegistry`, plus one test pinning
-  the declared divergences). The in-memory fake's four divergences (it does not archive a
-  superseded version, duplicates history on re-promotion, never vacates Production, and accepts
-  any stage string) are asserted as divergences, not skipped. `tests/unit/test_registry_ops.py`
-  grows from 19 to 43 collected tests; the test that pinned the `None` return now pins the raise.
+- Tests: new `tests/unit/test_registry_rollback_conformance.py` (32 collected: 14 behaviours
+  over `ModelRegistryOps` and ports/registry.py's `InMemoryModelRegistry`, plus a check that each
+  harness's declared divergences equal the ones a behavioural probe observes on its registry,
+  and that the reference declares none). The in-memory fake's four divergences (it does not
+  archive a superseded version, duplicates history on re-promotion, never vacates Production, and
+  accepts any stage string) are asserted as divergences, not skipped.
+  `tests/unit/test_registry_ops.py` grows from 19 to 43 collected tests; the test that pinned the
+  `None` return now pins the raise, and T062's concurrency test now asserts the two serialized
+  rollbacks return v2 and v1.
+- Docs ride-alongs (RB-020(4), `b99005b`, plus one cell in the review-fix commit):
+  `docs/development/NEXT_STEPS.md`'s as-built Registry row (the T071 clause is marked "added
+  after c545701 ... (T071, PR #36)" so the "Built (c545701)" column stays true) and §8's
+  rollback paragraph, and `docs/development/REFERENCE_GUIDE.md`'s rollback note, now describe the
+  T071 target and the raise instead of the highest-numbered Archived version.
+- Merge record (`35338a0`): RB-019c, the B-06 rule 5 execution record for PR #36 under RB-019,
+  in `docs/decision-log.md`, with its line in the governance skill's decisions section.
 - Not changed: `src/orbital_drift/ports/registry.py`; `get_stage_version` stays unlocked
-  (D-015 follow-up); `docs/development/` (NEXT_STEPS §8 and its as-built Registry row still
-  describe the pre-T071 target).
-- Traceability: FR-006's Tests cell cites the two test files; a dated T071 note is added.
+  (D-015 follow-up).
+- Traceability: FR-006's Tests cell cites the two test files, with a dated T071 note and its
+  RB-016 note marked fixed; SC-004 gets a dated T071 note (target fixed; the drill is still
+  blocked by T039 and T053/T059; status unchanged; the T071 tests are not SC-004 evidence).
 
 ### Changed — plan rewrite (RB-016, D-016, 2026-10-06)
 

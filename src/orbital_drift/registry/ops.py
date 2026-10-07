@@ -114,9 +114,10 @@ class PromotionRecord:
     Attributes:
         version: The version promoted.
         previous_production_version: The version that held Production at the instant
-            ``version`` was promoted; a rollback from ``version`` restores it (B-11's
-            "previous_champion"). None if no version held Production then, in which
-            case a rollback from ``version`` has no target.
+            ``version`` was promoted; a rollback from ``version`` restores it (what
+            B-11's pending FR-006 amendment would call "previous_champion"). None if
+            no version held Production then, in which case a rollback from
+            ``version`` has no target.
     """
 
     version: int
@@ -136,11 +137,15 @@ def _log_decision(
 ) -> None:
     """Emit one registry decision as a structured record on the module logger.
 
-    Follows eval/'s ``extra=`` pattern, so the observability formatter renders the
-    fields as JSON and a log query needs no message parsing. ``from_version`` and
-    ``to_version`` are the Production version before and after the decision (equal
-    when Production did not change); ``version`` is the version the decision acted on
-    (the restored version for a rollback, None for a refused one).
+    Authorized by RB-021(a) as a slice of T054 limited to this module. Follows eval/'s
+    ``extra=`` pattern, so the observability formatter will render the fields as JSON,
+    and a log query will need no message parsing, once T054 wires
+    ``configure_logging()``; today the records carry the fields as ``LogRecord``
+    attributes, which is what tests/unit/test_registry_ops.py asserts.
+
+    ``from_version`` and ``to_version`` are the Production version before and after
+    the decision (equal when Production did not change); ``version`` is the version
+    the decision acted on (the restored version for a rollback, None for a refused one).
     """
     logger.log(
         level,
@@ -242,9 +247,9 @@ class ModelRegistryOps:
         self._lock so concurrent registrations for the same model cannot be
         assigned the same version number.
 
-        `metadata` is deep-copied (review finding N-12): storing the caller's
-        dict by reference let any later mutation of it, at any nesting depth,
-        rewrite the registered version's record.
+        `metadata` is deep-copied (code-hygiene review finding N-12, RB-021):
+        storing the caller's dict by reference let any later mutation of it, at
+        any nesting depth, rewrite the registered version's record.
 
         Returns:
             Assigned integer version number.
@@ -451,13 +456,16 @@ class ModelRegistryOps:
         success that record is discarded, the current version moves to Archived, and
         the target moves to Production from whatever stage it holds now.
 
-        Repeated rollbacks (stack semantics, B-11's "rollback moves it to the
-        recorded previous_champion"): because the record is discarded, a second
-        rollback restores the version that held Production before the restored one,
-        and so on back to the oldest promotion still in the history; one more
-        rollback then raises. A version rolled away from is never restored by a
-        later rollback, and a version that never held Production is never a target.
-        Promoting after a rollback pushes a new record on top of the remaining ones.
+        Repeated rollbacks use stack semantics, defined here because T071's
+        acceptance requires that "repeated-rollback semantics are defined and
+        tested". They are compatible with, not bound by, B-11's proposed "rollback
+        moves it to the recorded previous_champion", which waits for its FR-006
+        amendment. Because the record is discarded, a second rollback restores the
+        version that held Production before the restored one, and so on back to the
+        oldest promotion still in the history; one more rollback then raises. A
+        version rolled away from is never restored by a later rollback, and a version
+        that never held Production is never a target. Promoting after a rollback
+        pushes a new record on top of the remaining ones.
 
         Thread-safe (T062): the read of the history and the current Production
         version, the history pop, and both stage writes are serialised by

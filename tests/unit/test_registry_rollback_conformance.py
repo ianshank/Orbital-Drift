@@ -8,8 +8,11 @@ D-016/03c, D-016/08): rollback restores exactly the version that held Production
 immediately before the current one, from an ordered promotion history; a version
 that never held Production is unreachable by any rollback; a rollback with no
 target raises and leaves Production unchanged; repeated rollbacks walk the history
-back one promotion at a time (stack semantics, B-11's "rollback moves it to the
-recorded previous_champion"), raising once it is exhausted.
+back one promotion at a time, raising once it is exhausted. That stack semantics is
+this task's own choice, made because T071's acceptance requires "repeated-rollback
+semantics are defined and tested"; it is compatible with, not bound by, B-11's proposed
+"rollback moves it to the recorded previous_champion", which waits for its FR-006
+amendment.
 
 The two implementations under test have different public interfaces:
 ``ModelRegistryOps`` (registry/ops.py) uses int versions, a validated ``StageName``
@@ -26,6 +29,7 @@ that stops diverging, or an undeclared one that appears, fails a test.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Final, Protocol, cast
@@ -409,9 +413,66 @@ def test_a_wrong_case_stage_name_is_rejected(registry: RegistryHarness) -> None:
     assert registry.holder(MODEL, PRODUCTION_STAGE) is None
 
 
-def test_declared_divergences_are_exact() -> None:
-    """ModelRegistryOps is the reference, so it may declare none; InMemoryModelRegistry
-    declares every member. Adding a divergence to the reference to make a failing
-    behaviour pass is the regression this test exists to catch."""
+# --- Declared divergences are derived from behaviour, not restated. -------------------
+# Each probe runs a minimal scenario on a fresh registry and reports whether that
+# registry shows the divergent behaviour. The tests above assert both sides in full; the
+# probes exist so that a harness's declared set is checked against what its registry
+# actually does, rather than against a copy of the same literal.
+
+
+def _probe_superseded_version_not_archived(registry: RegistryHarness) -> bool:
+    v1, v2 = _register(registry, 2)
+    _promote(registry, v1, v2)
+    return registry.holder(MODEL, ARCHIVED_STAGE) is None
+
+
+def _probe_repromotion_duplicates_history(registry: RegistryHarness) -> bool:
+    v1, v2 = _register(registry, 2)
+    _promote(registry, v1, v2, v2)
+    return registry.rollback(MODEL) == v2
+
+
+def _probe_demotion_does_not_vacate_production(registry: RegistryHarness) -> bool:
+    (v1,) = _register(registry, 1)
+    _promote(registry, v1)
+    registry.transition(MODEL, v1, ARCHIVED_STAGE)
+    return registry.holder(MODEL, PRODUCTION_STAGE) == v1
+
+
+def _probe_stage_names_unvalidated(registry: RegistryHarness) -> bool:
+    (v1,) = _register(registry, 1)
+    try:
+        registry.transition(MODEL, v1, WRONG_CASE_PRODUCTION)
+    except ValueError:
+        return False
+    return True
+
+
+_DIVERGENCE_PROBES: Final[dict[Divergence, Callable[[RegistryHarness], bool]]] = {
+    Divergence.SUPERSEDED_VERSION_NOT_ARCHIVED: _probe_superseded_version_not_archived,
+    Divergence.REPROMOTION_DUPLICATES_HISTORY: _probe_repromotion_duplicates_history,
+    Divergence.DEMOTION_DOES_NOT_VACATE_PRODUCTION: _probe_demotion_does_not_vacate_production,
+    Divergence.STAGE_NAMES_UNVALIDATED: _probe_stage_names_unvalidated,
+}
+
+
+def test_every_divergence_has_a_probe() -> None:
+    assert set(_DIVERGENCE_PROBES) == set(Divergence)
+
+
+def test_declared_divergences_are_exactly_the_observed_ones(registry: RegistryHarness) -> None:
+    """A harness may declare a divergence only if its registry shows it, and must declare
+    every one its registry shows: a declaration that no longer diverges, or a new
+    divergence nobody declared, fails here."""
+    harness_type = type(registry)
+    observed = frozenset(
+        divergence for divergence, probe in _DIVERGENCE_PROBES.items() if probe(harness_type())
+    )
+    assert observed == registry.divergences
+
+
+def test_the_reference_implementation_declares_no_divergence() -> None:
+    """ModelRegistryOps is the reference. Together with the observed-divergence test
+    above, this catches the regression of making ModelRegistryOps diverge and then
+    declaring it to make the suite pass."""
     assert OpsHarness.divergences == frozenset()
-    assert InMemoryHarness.divergences == frozenset(Divergence)

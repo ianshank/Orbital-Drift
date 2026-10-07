@@ -343,8 +343,10 @@ class TestArchiveExistingFalseDuplicateProduction:
 # ═══════════════════════════════════════════════════════════════════════════════
 # T062: rollback_production concurrency regression test. The method has the
 # same read-modify-write shape as register_model_version and transition_stage
-# (scan for current Production, archive it, scan for latest Archived, promote
-# it), but was not included in RB-010 Part 10's locking fix.
+# (read the current Production version and the newest promotion record, pop the
+# record, archive the current version, promote the recorded previous one -- since
+# T071; before it, the method scanned for the latest Archived version), but was
+# not included in RB-010 Part 10's locking fix.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -354,7 +356,7 @@ class TestRollbackProductionConcurrency:
     Without locking, concurrent rollbacks could:
     1. Both see the same current Production version
     2. Both archive it
-    3. Both promote different (or the same) Archived versions
+    3. Both promote a rollback target
     4. Leave registry in an inconsistent state (two Production versions)
     """
 
@@ -364,8 +366,8 @@ class TestRollbackProductionConcurrency:
         The critical invariant is that at most ONE version can be Production at
         any time. With locking, rollbacks serialize and each sees the result of
         the previous one. Without locking, two threads could both see the same
-        Production version, both archive it, and both promote different Archived
-        versions, leaving TWO versions in Production simultaneously.
+        Production version, both archive it, and both promote a target, leaving
+        TWO versions in Production simultaneously.
         """
         thread_count = 2  # Two threads are sufficient to trigger the race
         reg = ModelRegistryOps()
@@ -380,7 +382,7 @@ class TestRollbackProductionConcurrency:
         reg._mock_registry["rollback-model"] = _SlowItemsDict(reg._mock_registry["rollback-model"])
 
         barrier = threading.Barrier(thread_count)
-        results: queue.Queue[int | None] = queue.Queue()
+        results: queue.Queue[int] = queue.Queue()
 
         def _rollback() -> None:
             barrier.wait()
@@ -408,19 +410,15 @@ class TestRollbackProductionConcurrency:
             f"archiving the other, which is the race condition T062 fixes."
         )
 
-        # Collect results - both threads should have returned valid version numbers
+        # Collect results - both threads returned (a rollback with no target would
+        # have raised in its thread and put nothing, failing get_nowait below).
         returned_versions = [results.get_nowait() for _ in range(thread_count)]
 
-        # With locking, rollbacks serialize correctly. The exact versions returned
-        # depend on ordering, but both should be valid version numbers (not None,
-        # since we have enough archived versions, and not duplicates which would
-        # indicate a lost-update race).
-        non_none_versions = [v for v in returned_versions if v is not None]
-        assert len(non_none_versions) == len(returned_versions), (
-            f"rollback returned None unexpectedly: {returned_versions}"
-        )
-        assert all(1 <= v <= 3 for v in non_none_versions), (
-            f"rollback returned invalid version: {returned_versions}"
+        # With locking, rollbacks serialize: the promotion history v1 <- v2 <- v3 is
+        # walked back one step per rollback (T071), so the two calls return v2 and v1
+        # in some order. A duplicate would indicate a lost-update race.
+        assert sorted(returned_versions) == [1, 2], (
+            f"serialized rollbacks from v3 should restore v2 then v1: {returned_versions}"
         )
 
 
@@ -467,8 +465,9 @@ class TestMlflowTrackingUriConfigWiring:
 # version, from an ordered promotion history. Behaviours shared with ports/
 # registry.py's InMemoryModelRegistry live in test_registry_rollback_conformance.py;
 # this section covers what only ModelRegistryOps exposes: the history accessor,
-# NoRollbackTargetError's fields, decision logging, the N-12 metadata copy, and
-# concurrent promote/rollback under T062's lock.
+# NoRollbackTargetError's fields, decision logging (RB-021(a)), the metadata copy for
+# code-hygiene review finding N-12 (RB-021), and concurrent promote/rollback under
+# T062's lock.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _MODEL: Final = "unet-s2"
@@ -669,7 +668,9 @@ def test_stage_constants_cover_stage_name_exactly() -> None:
 class TestRegistryDecisionLogging:
     """Each promotion, archive and rollback decision is one structured record on the
     module logger, carrying model name, from/to Production version and a reason in
-    `extra=` fields (the eval/ pattern), so a soak-log query needs no message parsing."""
+    `extra=` fields (the eval/ pattern; RB-021(a)), so a soak-log query will need no
+    message parsing once T054 wires configure_logging(); today the records carry the
+    fields as LogRecord attributes, which is what these tests assert."""
 
     def test_rollback_logs_model_versions_and_reason(
         self, caplog: pytest.LogCaptureFixture
@@ -824,8 +825,9 @@ class TestRegistryDecisionLogging:
 
 
 class TestRegisterModelVersionMetadataIsolation:
-    """N-12: register_model_version stored the caller's metadata dict by reference, so
-    a caller mutating its own dict after registration rewrote the registry's record."""
+    """Code-hygiene review finding N-12 (RB-021): register_model_version stored the
+    caller's metadata dict by reference, so a caller mutating its own dict after
+    registration rewrote the registry's record."""
 
     def test_mutating_the_callers_metadata_after_registration_changes_nothing(self) -> None:
         metadata: dict[str, Any] = {"dataset": "ds-1", "metrics": {"iou": 0.5}}
